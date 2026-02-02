@@ -1,0 +1,15 @@
+{
+    "name": "ZefGen",
+    "short_name": "ZefGen",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#020617",
+    "theme_color": "#020617",
+    "icons": [
+        {
+            "src": "/web-app-manifest-840x840.png",
+            "sizes": "840x840",
+            "type": "image/png"
+        }
+    ]
+}
