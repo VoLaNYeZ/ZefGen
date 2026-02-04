@@ -6,8 +6,9 @@ import {
     Pencil,
     Link2,
     ArrowUpRight,
-    ChevronUp,
-    ChevronDown,
+    GripVertical,
+    ImagePlus,
+    Download,
     Trash2,
     Loader2,
     AlertTriangle,
@@ -17,6 +18,14 @@ import { supabase } from './lib/supabase';
 import { LoginPage } from './components/LoginPage';
 import { Session } from '@supabase/supabase-js';
 import { t, TranslationKey } from './i18n';
+import {
+    BreathingText,
+    LetterSwapForward,
+    LetterSwapPingPong,
+    ScrambleHover,
+    VariableFontCursorProximity,
+    VariableFontHoverByRandomLetter,
+} from './components/fancy/text';
 
 type Brand = {
     id: string;
@@ -102,6 +111,7 @@ type AppFormState = {
 const MAX_FILE_MB = 10;
 const MAX_SCREENSHOT_REFS = 6;
 const MAX_SCREENSHOT_VERSIONS = 3;
+const AUTO_GROW_MULTIPLIER = 5;
 const BRAND_BUCKET = 'brand-references';
 const APP_SCREENSHOT_BUCKET = 'app-screenshots';
 const GENERATED_BUCKET = 'generated-assets';
@@ -210,6 +220,74 @@ const convertToJpg = async (file: File) => {
     return new File([blob], file.name.replace(/\.[^/.]+$/, '') + '.jpg', { type: 'image/jpeg' });
 };
 
+const loadImageFromFile = (file: File) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(img);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Failed to load image.'));
+        };
+        img.src = objectUrl;
+    });
+
+const resizeImageToJpeg = async (file: File, maxWidth: number, maxHeight: number) => {
+    const image = await loadImageFromFile(file);
+    const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Failed to create canvas.');
+    context.drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+            (result) => {
+                if (!result) {
+                    reject(new Error('Failed to convert image.'));
+                    return;
+                }
+                resolve(result);
+            },
+            'image/jpeg',
+            0.9
+        );
+    });
+
+    return new File([blob], file.name.replace(/\.[^/.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+};
+
+const syncAutoGrowTextarea = (element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    const baseHeight = element.dataset.baseHeight
+        ? Number(element.dataset.baseHeight)
+        : element.offsetHeight || element.scrollHeight;
+    if (!element.dataset.baseHeight) {
+        element.dataset.baseHeight = String(baseHeight);
+    }
+    const maxHeight = baseHeight * AUTO_GROW_MULTIPLIER;
+    element.style.minHeight = `${baseHeight}px`;
+    element.style.maxHeight = `${maxHeight}px`;
+    element.style.height = 'auto';
+    const nextHeight = Math.min(element.scrollHeight, maxHeight);
+    element.style.height = `${nextHeight}px`;
+    if (element.scrollHeight > maxHeight) {
+        element.style.resize = 'vertical';
+        element.style.overflowY = 'auto';
+    } else {
+        element.style.resize = 'none';
+        element.style.overflowY = 'hidden';
+    }
+};
+
 const loadImageFromUrl = async (url: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch image.');
@@ -315,6 +393,10 @@ function App() {
     const [brandScreenshotsUploading, setBrandScreenshotsUploading] = useState(false);
     const [appScreenshotsUploading, setAppScreenshotsUploading] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
+    const [logoVariantIndex, setLogoVariantIndex] = useState(() => Math.floor(Math.random() * 6));
+    const logoWord = 'ZEFGEN';
+    const logoContainerRef = useRef<HTMLDivElement>(null);
+    const [logoFontReady, setLogoFontReady] = useState(false);
     const [generatedAssets, setGeneratedAssets] = useState<GeneratedAsset[]>([]);
     const [generatedUrls, setGeneratedUrls] = useState<Record<string, string>>({});
     const [iconGenerating, setIconGenerating] = useState(false);
@@ -325,8 +407,32 @@ function App() {
     const [editAssetId, setEditAssetId] = useState<string | null>(null);
     const [editDrafts, setEditDrafts] = useState<Record<string, EditState>>({});
     const [editSaving, setEditSaving] = useState<string | null>(null);
+    const [isScreenshotDropActive, setIsScreenshotDropActive] = useState(false);
+    const [draggingShotId, setDraggingShotId] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        const ready = () => {
+            if (active) setLogoFontReady(true);
+        };
+        if (document?.fonts?.ready) {
+            document.fonts.ready.then(ready).catch(ready);
+        } else {
+            ready();
+        }
+        return () => {
+            active = false;
+        };
+    }, []);
+    const [dragOverShotId, setDragOverShotId] = useState<string | null>(null);
+    const [isBrandRefDropActive, setIsBrandRefDropActive] = useState(false);
+    const [draggingBrandRefId, setDraggingBrandRefId] = useState<string | null>(null);
+    const [dragOverBrandRefId, setDragOverBrandRefId] = useState<string | null>(null);
+    const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
     const signedUrlCacheRef = useRef<Record<string, { url: string; expiresAt: number }>>({});
     const lastFetchedUserIdRef = useRef<string | null>(null);
+    const [slotMappings, setSlotMappings] = useState<Record<number, { brandRefId: string | null; simShotId: string | null }>>({});
+    const sessionUserId = session?.user.id ?? null;
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -567,7 +673,7 @@ function App() {
     }, [brands, apps, dataLoading, hasParsedRoute]);
 
     useEffect(() => {
-        if (!session || !selectedBrandId) {
+        if (!sessionUserId) {
             setBrandRefUrls({});
             return;
         }
@@ -575,7 +681,7 @@ function App() {
         let isMounted = true;
         const loadUrls = async () => {
             const entries = await Promise.all(
-                selectedBrandReferences
+                brandReferences
                     .filter((ref) => ref.image_path)
                     .map(async (ref) => {
                         try {
@@ -589,21 +695,23 @@ function App() {
             );
 
             if (!isMounted) return;
-            const nextUrls: Record<string, string> = {};
-            entries.forEach(([id, url]) => {
-                if (url) nextUrls[id] = url;
+            setBrandRefUrls((prev) => {
+                const nextUrls = { ...prev };
+                entries.forEach(([id, url]) => {
+                    if (url) nextUrls[id] = url;
+                });
+                return nextUrls;
             });
-            setBrandRefUrls(nextUrls);
         };
 
         loadUrls();
         return () => {
             isMounted = false;
         };
-    }, [session, selectedBrandId, selectedBrandReferences]);
+    }, [sessionUserId, brandReferences]);
 
     useEffect(() => {
-        if (!session) {
+        if (!sessionUserId) {
             setBrandIconUrls({});
             return;
         }
@@ -635,10 +743,10 @@ function App() {
         return () => {
             isMounted = false;
         };
-    }, [session, brandReferences]);
+    }, [sessionUserId, brandReferences]);
 
     useEffect(() => {
-        if (!session || !selectedAppId) {
+        if (!sessionUserId) {
             setAppScreenshotUrls({});
             return;
         }
@@ -646,7 +754,7 @@ function App() {
         let isMounted = true;
         const loadUrls = async () => {
             const entries = await Promise.all(
-                selectedAppScreenshots
+                appScreenshots
                     .filter((shot) => shot.image_path)
                     .map(async (shot) => {
                         try {
@@ -660,21 +768,23 @@ function App() {
             );
 
             if (!isMounted) return;
-            const nextUrls: Record<string, string> = {};
-            entries.forEach(([id, url]) => {
-                if (url) nextUrls[id] = url;
+            setAppScreenshotUrls((prev) => {
+                const nextUrls = { ...prev };
+                entries.forEach(([id, url]) => {
+                    if (url) nextUrls[id] = url;
+                });
+                return nextUrls;
             });
-            setAppScreenshotUrls(nextUrls);
         };
 
         loadUrls();
         return () => {
             isMounted = false;
         };
-    }, [session, selectedAppId, selectedAppScreenshots]);
+    }, [sessionUserId, appScreenshots]);
 
     useEffect(() => {
-        if (!session || !selectedAppId) {
+        if (!sessionUserId) {
             setGeneratedUrls({});
             return;
         }
@@ -682,7 +792,7 @@ function App() {
         let isMounted = true;
         const loadUrls = async () => {
             const entries = await Promise.all(
-                selectedGeneratedAssets
+                generatedAssets
                     .filter((asset) => asset.image_path)
                     .map(async (asset) => {
                         try {
@@ -696,18 +806,47 @@ function App() {
             );
 
             if (!isMounted) return;
-            const nextUrls: Record<string, string> = {};
-            entries.forEach(([id, url]) => {
-                if (url) nextUrls[id] = url;
+            setGeneratedUrls((prev) => {
+                const nextUrls = { ...prev };
+                entries.forEach(([id, url]) => {
+                    if (url) nextUrls[id] = url;
+                });
+                return nextUrls;
             });
-            setGeneratedUrls(nextUrls);
         };
 
         loadUrls();
         return () => {
             isMounted = false;
         };
-    }, [session, selectedAppId, selectedGeneratedAssets]);
+    }, [sessionUserId, generatedAssets]);
+
+    useEffect(() => {
+        const elements = document.querySelectorAll<HTMLTextAreaElement>('.auto-grow');
+        elements.forEach((element) => syncAutoGrowTextarea(element));
+    }, [brandIconReference?.prompt, brandScreenshotReferences]);
+
+    useEffect(() => {
+        if (!selectedAppId) {
+            setSlotMappings({});
+            return;
+        }
+        const stored = window.localStorage.getItem(`zefgen.slotMappings.${selectedAppId}`);
+        if (stored) {
+            try {
+                setSlotMappings(JSON.parse(stored));
+            } catch {
+                setSlotMappings({});
+            }
+        } else {
+            setSlotMappings({});
+        }
+    }, [selectedAppId]);
+
+    useEffect(() => {
+        if (!selectedAppId) return;
+        window.localStorage.setItem(`zefgen.slotMappings.${selectedAppId}`, JSON.stringify(slotMappings));
+    }, [selectedAppId, slotMappings]);
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
@@ -718,6 +857,57 @@ function App() {
         setTimeout(() => {
             setActionError((prev) => (prev === message ? null : prev));
         }, 6000);
+    };
+
+    const openLightbox = (src: string, alt: string) => {
+        setLightbox({ src, alt });
+    };
+
+    const closeLightbox = () => {
+        setLightbox(null);
+    };
+
+    const triggerDownload = (url: string, filename: string) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    };
+
+    const resolveGeneratedUrl = async (asset: GeneratedAsset) =>
+        generatedUrls[asset.id] ?? (await getSignedUrl(GENERATED_BUCKET, asset.image_path));
+
+    const formatSlotIndex = (value: number) => String(value).padStart(2, '0');
+
+    const handleDownloadGeneratedAsset = async (asset: GeneratedAsset, filename: string) => {
+        try {
+            const url = await resolveGeneratedUrl(asset);
+            triggerDownload(url, filename);
+        } catch (error: any) {
+            reportActionError(error.message || text('download_failed'));
+        }
+    };
+
+    const handleDownloadAllScreenshots = async () => {
+        if (!generatedScreenshotSlots.length) return;
+        for (const slot of generatedScreenshotSlots) {
+            const latest = slot.versions.reduce((prev, current) => {
+                const prevIndex = prev.version_index ?? 1;
+                const currentIndex = current.version_index ?? 1;
+                return currentIndex > prevIndex ? current : prev;
+            }, slot.versions[0]);
+            if (!latest) continue;
+            const filename = `${formatSlotIndex(slot.slotIndex)}.jpg`;
+            await handleDownloadGeneratedAsset(latest, filename);
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+    };
+
+    const handleAutoGrowInput = (event: React.FormEvent<HTMLTextAreaElement>) => {
+        syncAutoGrowTextarea(event.currentTarget);
     };
 
     const getSignedUrl = async (bucket: string, path: string) => {
@@ -874,7 +1064,7 @@ function App() {
 
             const { error: uploadError } = await supabase.storage
                 .from(GENERATED_BUCKET)
-                .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg' });
+                .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
             if (uploadError) throw uploadError;
 
             const existingIcons = selectedGeneratedAssets.filter((asset) => asset.kind === 'icon');
@@ -947,7 +1137,9 @@ function App() {
 
         try {
             for (const slotIndex of slotsToCreate) {
-                const sourceShot = selectedAppScreenshots[slotIndex - 1];
+                const mapping = getSlotMapping(slotIndex);
+                const sourceShot = selectedAppScreenshots.find((shot) => shot.id === mapping.simShotId)
+                    ?? selectedAppScreenshots[slotIndex - 1];
                 if (!sourceShot) continue;
                 const sourceUrl =
                     appScreenshotUrls[sourceShot.id] ??
@@ -957,7 +1149,7 @@ function App() {
                 const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots/slot-${slotIndex}/v1-${createId()}.jpg`;
                 const { error: uploadError } = await supabase.storage
                     .from(GENERATED_BUCKET)
-                    .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg' });
+                    .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
                 if (uploadError) throw uploadError;
 
                 const { data, error } = await supabase
@@ -1005,7 +1197,13 @@ function App() {
         setActionError(null);
 
         try {
-            const sourceShot = selectedAppScreenshots[slotIndex - 1];
+            const mapping = getSlotMapping(slotIndex);
+            const sourceShot = selectedAppScreenshots.find((shot) => shot.id === mapping.simShotId)
+                ?? selectedAppScreenshots[slotIndex - 1];
+            if (!sourceShot) {
+                reportActionError(text('select_sim_screenshot'));
+                return;
+            }
             const sourceUrl =
                 appScreenshotUrls[sourceShot.id] ??
                 (await getSignedUrl(APP_SCREENSHOT_BUCKET, sourceShot.image_path));
@@ -1016,7 +1214,7 @@ function App() {
             const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
             const { error: uploadError } = await supabase.storage
                 .from(GENERATED_BUCKET)
-                .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg' });
+                .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
             if (uploadError) throw uploadError;
 
             const { data, error } = await supabase
@@ -1029,9 +1227,9 @@ function App() {
                     slot_index: slotIndex,
                     version_index: nextVersion,
                     image_path: path,
-                        size_label: sizeLabel,
-                        width: size.width,
-                        height: size.height,
+                    size_label: sizeLabel,
+                    width: size.width,
+                    height: size.height,
                     status: 'ready',
                     edit_state: null,
                 })
@@ -1068,7 +1266,7 @@ function App() {
             const path = `${session.user.id}/brands/${selectedBrand.id}/icon/${createId()}.jpg`;
             const { error: uploadError } = await supabase.storage
                 .from(BRAND_BUCKET)
-                .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg' });
+                .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
 
             if (uploadError) throw uploadError;
 
@@ -1111,9 +1309,7 @@ function App() {
         }
     };
 
-    const handleBrandScreenshotUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []);
-        event.target.value = '';
+    const uploadBrandScreenshotReferences = async (files: File[]) => {
         if (!files.length || !session || !selectedBrand) return;
 
         if (brandScreenshotReferences.length >= MAX_SCREENSHOT_REFS) {
@@ -1122,7 +1318,7 @@ function App() {
         }
 
         const remainingSlots = MAX_SCREENSHOT_REFS - brandScreenshotReferences.length;
-        const uploadFiles = files.slice(0, remainingSlots);
+        const uploadFiles = normalizeScreenshotFiles(files).slice(0, remainingSlots);
 
         setBrandScreenshotsUploading(true);
         setActionError(null);
@@ -1139,11 +1335,11 @@ function App() {
                     continue;
                 }
 
-                const ext = file.type === 'image/png' ? 'png' : 'jpg';
-                const path = `${session.user.id}/brands/${selectedBrand.id}/screenshots/${createId()}.${ext}`;
+                const jpgFile = await resizeImageToJpeg(file, 1320, 2868);
+                const path = `${session.user.id}/brands/${selectedBrand.id}/screenshots/${createId()}.jpg`;
                 const { error: uploadError } = await supabase.storage
                     .from(BRAND_BUCKET)
-                    .upload(path, file, { upsert: true, contentType: file.type });
+                    .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
                 if (uploadError) throw uploadError;
 
                 const { data, error } = await supabase
@@ -1167,6 +1363,31 @@ function App() {
         } finally {
             setBrandScreenshotsUploading(false);
         }
+    };
+
+    const handleBrandScreenshotUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+        event.target.value = '';
+        await uploadBrandScreenshotReferences(files);
+    };
+
+    const handleBrandReferenceDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        setIsBrandRefDropActive(false);
+        if (brandScreenshotsUploading) return;
+        const files = Array.from(event.dataTransfer.files || []);
+        await uploadBrandScreenshotReferences(files);
+    };
+
+    const handleBrandReferenceDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        if (!isBrandRefDropActive) {
+            setIsBrandRefDropActive(true);
+        }
+    };
+
+    const handleBrandReferenceDragLeave = () => {
+        setIsBrandRefDropActive(false);
     };
 
     const handleBrandPromptChange = (refId: string, value: string) => {
@@ -1229,17 +1450,49 @@ function App() {
         }
     };
 
-    const handleAppScreenshotsUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []);
-        event.target.value = '';
+    const handleReorderBrandReference = async (fromIndex: number, toIndex: number) => {
+        if (!session) return;
+        if (toIndex < 0 || toIndex >= brandScreenshotReferences.length) return;
+
+        const next = [...brandScreenshotReferences];
+        const [moved] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, moved);
+
+        setBrandReferences((prev) =>
+            prev.map((ref) => {
+                if (ref.kind !== 'screenshot') return ref;
+                const idx = next.findIndex((item) => item.id === ref.id);
+                if (idx === -1) return ref;
+                return { ...ref, order_index: idx };
+            })
+        );
+
+        await Promise.all(
+            next.map((ref, index) =>
+                supabase
+                    .from('brand_references')
+                    .update({ order_index: index })
+                    .eq('id', ref.id)
+                    .eq('user_id', session.user.id)
+            )
+        );
+    };
+
+    const normalizeScreenshotFiles = (files: File[]) =>
+        [...files].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        );
+
+    const uploadAppScreenshots = async (files: File[]) => {
         if (!files.length || !session || !selectedBrand || !selectedApp) return;
 
         setAppScreenshotsUploading(true);
         setActionError(null);
 
         try {
-            for (let index = 0; index < files.length; index += 1) {
-                const file = files[index];
+            const orderedFiles = normalizeScreenshotFiles(files);
+            for (let index = 0; index < orderedFiles.length; index += 1) {
+                const file = orderedFiles[index];
                 if (!isValidImageType(file)) {
                     reportActionError(text('invalid_file_type'));
                     continue;
@@ -1249,11 +1502,11 @@ function App() {
                     continue;
                 }
 
-                const ext = file.type === 'image/png' ? 'png' : 'jpg';
-                const path = `${session.user.id}/apps/${selectedApp.id}/simulator/${createId()}.${ext}`;
+                const jpgFile = await resizeImageToJpeg(file, 1320, 2868);
+                const path = `${session.user.id}/apps/${selectedApp.id}/simulator/${createId()}.jpg`;
                 const { error: uploadError } = await supabase.storage
                     .from(APP_SCREENSHOT_BUCKET)
-                    .upload(path, file, { upsert: true, contentType: file.type });
+                    .upload(path, jpgFile, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
                 if (uploadError) throw uploadError;
 
                 const { data, error } = await supabase
@@ -1276,6 +1529,31 @@ function App() {
         } finally {
             setAppScreenshotsUploading(false);
         }
+    };
+
+    const handleAppScreenshotsUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+        event.target.value = '';
+        await uploadAppScreenshots(files);
+    };
+
+    const handleScreenshotDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        setIsScreenshotDropActive(false);
+        if (!canUploadAppScreenshots || appScreenshotsUploading) return;
+        const files = Array.from(event.dataTransfer.files || []);
+        await uploadAppScreenshots(files);
+    };
+
+    const handleScreenshotDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        if (!isScreenshotDropActive) {
+            setIsScreenshotDropActive(true);
+        }
+    };
+
+    const handleScreenshotDragLeave = () => {
+        setIsScreenshotDropActive(false);
     };
 
     const handleDeleteAppScreenshot = async (shot: AppScreenshot) => {
@@ -1498,6 +1776,28 @@ function App() {
     const canGenerateScreenshots = Boolean(selectedApp && selectedBrand);
     const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
     const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
+    const getSlotMapping = (slotIndex: number) => {
+        const stored = slotMappings[slotIndex] || {};
+        return {
+            brandRefId: stored.brandRefId ?? brandScreenshotReferences[slotIndex - 1]?.id ?? null,
+            simShotId: stored.simShotId ?? selectedAppScreenshots[slotIndex - 1]?.id ?? null,
+        };
+    };
+    const updateSlotMapping = (
+        slotIndex: number,
+        patch: { brandRefId?: string | null; simShotId?: string | null }
+    ) => {
+        setSlotMappings((prev) => {
+            const current = prev[slotIndex] ?? { brandRefId: null, simShotId: null };
+            return {
+                ...prev,
+                [slotIndex]: {
+                    ...current,
+                    ...patch,
+                },
+            };
+        });
+    };
 
     const appFormFields = (
         <>
@@ -1581,12 +1881,70 @@ function App() {
                     ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen md:z-40
                 `}
             >
-                <div className="p-6 border-b border-indigo-900/30 flex items-center justify-between">
-                    <div>
-                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('workspace')}</p>
-                        <h1 className="text-2xl font-semibold text-white">ZefGen</h1>
+                <div className="relative p-6 border-b border-indigo-900/30">
+                    <div ref={logoContainerRef} className="relative w-full select-none">
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setLogoVariantIndex((prev) => {
+                                    let next = prev;
+                                    while (next === prev) {
+                                        next = Math.floor(Math.random() * 6);
+                                    }
+                                    return next;
+                                })
+                            }
+                            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-xl bg-slate-900/30 flex items-center justify-center overflow-hidden"
+                            aria-label="Change logo variant"
+                        >
+                            <img src="/genlogo.png" alt="ZefGen" className="h-full w-full object-contain" />
+                        </button>
+                        <div
+                            className={`logo-wrap w-full text-center pl-16 pr-8 translate-y-px transition-opacity duration-300 ${
+                                logoFontReady ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                            }`}
+                            style={{ fontFamily: '"Roboto Flex Variable", "Roboto Flex", sans-serif' }}
+                        >
+                            {(() => {
+                                const variants = [
+                                    <LetterSwapForward key="v1" label={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
+                                    <LetterSwapPingPong key="v2" label={logoWord} staggerFrom="center" className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
+                                    <VariableFontHoverByRandomLetter
+                                        key="v3"
+                                        label={logoWord}
+                                        className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
+                                        fromFontVariationSettings="'wght' 300, 'slnt' 0"
+                                        toFontVariationSettings="'wght' 900, 'slnt' 0"
+                                    />,
+                                    <VariableFontCursorProximity
+                                        key="v4"
+                                        label={logoWord}
+                                        className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
+                                        fromFontVariationSettings="'wght' 300, 'slnt' 0"
+                                        toFontVariationSettings="'wght' 900, 'slnt' -10"
+                                        radius={180}
+                                        falloff="gaussian"
+                                        containerRef={logoContainerRef}
+                                    />,
+                                    <BreathingText
+                                        key="v5"
+                                        className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
+                                        fromFontVariationSettings="'wght' 260, 'slnt' 0"
+                                        toFontVariationSettings="'wght' 820, 'slnt' -8"
+                                    >
+                                        {logoWord}
+                                    </BreathingText>,
+                                    <ScrambleHover key="v6" text={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" scrambleSpeed={45} maxIterations={8} />,
+                                ];
+
+                                return variants[logoVariantIndex] ?? variants[0];
+                            })()}
+                        </div>
                     </div>
-                    <button onClick={() => setIsSidebarOpen(false)} className="md:hidden">
+                    <button
+                        onClick={() => setIsSidebarOpen(false)}
+                        className="md:hidden absolute right-4 top-4"
+                    >
                         <X size={20} />
                     </button>
                 </div>
@@ -1609,7 +1967,7 @@ function App() {
                     {brandFormOpen && (
                         <form
                             onSubmit={submitBrandForm}
-                            className="animate-shelf rounded-2xl bg-slate-950/40 ring-1 ring-white/5 p-4 space-y-3"
+                            className="animate-shelf rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3"
                         >
                             <div>
                                 <label className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_name')}</label>
@@ -1646,7 +2004,7 @@ function App() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-3 pb-6 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40">
+                <div className="flex-1 overflow-y-auto px-3 pt-2 pb-6 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40">
                     {dataLoading && (
                         <div className="flex items-center gap-2 text-xs text-indigo-200/60 px-3">
                             <Loader2 className="animate-spin" size={14} />
@@ -1677,7 +2035,7 @@ function App() {
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-3">
                                         <div
-                                            className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-900/40 flex items-center justify-center text-[11px] text-indigo-200/70 ${
+                                            className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 ${
                                                 iconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
                                             }`}
                                         >
@@ -1685,7 +2043,11 @@ function App() {
                                                 <img
                                                     src={iconUrl}
                                                     alt={text('icon_reference')}
-                                                    className="h-full w-full object-cover rounded-[12px]"
+                                                    className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        openLightbox(iconUrl, text('icon_reference'));
+                                                    }}
                                                 />
                                             ) : (
                                                 <span>{brand.name.slice(0, 1).toUpperCase()}</span>
@@ -1703,15 +2065,20 @@ function App() {
                     })}
                 </div>
 
-                <div className="border-t border-indigo-900/40 px-5 py-4 text-xs text-indigo-200/60 flex items-center justify-between gap-3">
+                <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-4 text-xs text-indigo-200/60 flex items-center justify-between gap-3">
                     <span className="truncate">{session.user.email}</span>
                     <div className="flex items-center gap-2">
-                        <div className="flex items-center rounded-full border border-indigo-900/50 bg-slate-900/70 p-1">
+                        <div className="relative flex items-center rounded-full border border-indigo-900/50 bg-slate-900/70 p-1 w-[86px]">
+                            <span
+                                className={`absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-indigo-500/30 transition-transform duration-200 ${
+                                    lang === 'ru' ? 'translate-x-full' : ''
+                                }`}
+                            />
                             <button
                                 onClick={() => setLang('en')}
-                                className={`px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] rounded-full transition ${
+                                className={`relative z-10 w-1/2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] transition ${
                                     lang === 'en'
-                                        ? 'bg-indigo-500/30 text-indigo-100'
+                                        ? 'text-indigo-100'
                                         : 'text-indigo-200/60 hover:text-indigo-100'
                                 }`}
                             >
@@ -1719,9 +2086,9 @@ function App() {
                             </button>
                             <button
                                 onClick={() => setLang('ru')}
-                                className={`px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] rounded-full transition ${
+                                className={`relative z-10 w-1/2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] transition ${
                                     lang === 'ru'
-                                        ? 'bg-indigo-500/30 text-indigo-100'
+                                        ? 'text-indigo-100'
                                         : 'text-indigo-200/60 hover:text-indigo-100'
                                 }`}
                             >
@@ -1744,14 +2111,14 @@ function App() {
                 <div className="flex-1 overflow-y-auto">
                     <div className="min-h-full px-6 py-8 lg:px-10">
                         <div className="mx-auto max-w-6xl space-y-8">
-                            <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
                                 <div className="flex flex-wrap items-center gap-4">
                                     <div className="flex flex-col items-center gap-2">
                                         {isBrandEditing ? (
                                             <label
                                                 htmlFor="brand-icon-upload"
                                                 className={`flex h-16 w-16 aspect-square items-center justify-center overflow-hidden rounded-[18px] text-xs text-indigo-200/70 hover:border-indigo-400/50 cursor-pointer ${
-                                                    hasBrandIcon ? 'border border-transparent bg-slate-900/20' : 'border border-indigo-400/30 bg-slate-900/40'
+                                                    hasBrandIcon ? 'border border-transparent bg-slate-900/20' : 'border border-indigo-400/30 bg-slate-800/35'
                                                 }`}
                                                 title={brandIconReference ? text('replace_icon') : text('upload_icon')}
                                             >
@@ -1759,7 +2126,12 @@ function App() {
                                                     <img
                                                         src={brandRefUrls[brandIconReference.id]}
                                                         alt={text('icon_reference')}
-                                                        className="h-full w-full object-cover rounded-[18px]"
+                                                        className="h-full w-full object-cover rounded-[18px] cursor-zoom-in"
+                                                        onClick={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            openLightbox(brandRefUrls[brandIconReference.id], text('icon_reference'));
+                                                        }}
                                                     />
                                                 ) : (
                                                     <Plus size={16} />
@@ -1768,14 +2140,15 @@ function App() {
                                         ) : (
                                             <div
                                                 className={`flex h-16 w-16 aspect-square items-center justify-center overflow-hidden rounded-[18px] text-xs text-indigo-200/60 ${
-                                                    hasBrandIcon ? 'border border-transparent bg-slate-900/20' : 'border border-indigo-400/20 bg-slate-900/40'
+                                                    hasBrandIcon ? 'border border-transparent bg-slate-900/20' : 'border border-indigo-400/20 bg-slate-800/35'
                                                 }`}
                                             >
                                                 {brandIconReference && brandRefUrls[brandIconReference.id] ? (
                                                     <img
                                                         src={brandRefUrls[brandIconReference.id]}
                                                         alt={text('icon_reference')}
-                                                        className="h-full w-full object-cover rounded-[18px]"
+                                                        className="h-full w-full object-cover rounded-[18px] cursor-zoom-in"
+                                                        onClick={() => openLightbox(brandRefUrls[brandIconReference.id], text('icon_reference'))}
                                                     />
                                                 ) : (
                                                     <Plus size={16} />
@@ -1794,9 +2167,10 @@ function App() {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleDeleteBrandReference(brandIconReference)}
-                                                        className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                        aria-label={text('delete')}
                                                     >
-                                                        {text('delete')}
+                                                        <Trash2 size={12} />
                                                     </button>
                                                 )}
                                             </div>
@@ -1860,7 +2234,7 @@ function App() {
                             )}
 
                             {!dataLoading && !brands.length && (
-                                <div className="rounded-[32px] bg-slate-900/60 ring-1 ring-white/5 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.8)] p-10 text-center">
+                                <div className="rounded-[32px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.8)] p-10 text-center">
                                     <p className="text-lg font-semibold text-white">{text('create_first_brand')}</p>
                                     <p className="mt-2 text-sm text-indigo-200/70">
                                         {text('brands_hold_references')}
@@ -1877,140 +2251,149 @@ function App() {
 
                             {selectedBrand && (
                                 <div className="space-y-6">
-                                    <section className="rounded-[28px] bg-slate-900/60 ring-1 ring-white/5 shadow-[0_26px_70px_-60px_rgba(15,23,42,0.9)] p-5">
+                                    <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_26px_70px_-60px_rgba(15,23,42,0.9)] p-5">
                                         <div className="flex flex-wrap items-start justify-between gap-4">
                                             <div>
                                                 <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_references')}</p>
                                                 <h3 className="text-xl font-semibold text-white">{text('reference_library')}</h3>
-                                                <p className="text-sm text-indigo-200/60">{text('reference_library_subtitle')}</p>
                                             </div>
                                             <div className="text-[11px] text-indigo-200/60">
-                                                {brandScreenshotReferences.length}/{MAX_SCREENSHOT_REFS} {text('screenshots')}
+                                                {brandScreenshotReferences.length}/{MAX_SCREENSHOT_REFS}
                                             </div>
                                         </div>
 
                                         <div className="mt-4">
-                                            <div className="rounded-2xl bg-slate-950/40 ring-1 ring-white/5 p-4 space-y-3">
-                                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_references')}</p>
-                                                        <p className="text-[11px] text-indigo-200/60">{text('screenshot_references_subtitle')}</p>
-                                                    </div>
-                                                    <label
-                                                        htmlFor="brand-screenshot-upload"
-                                                        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-semibold border cursor-pointer ${
-                                                            brandScreenshotReferences.length >= MAX_SCREENSHOT_REFS
-                                                                ? 'border-white/10 text-indigo-200/40 cursor-not-allowed'
-                                                                : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
-                                                        }`}
-                                                    >
-                                                        {brandScreenshotsUploading ? text('uploading') : text('upload_references')}
-                                                    </label>
-                                                    <input
-                                                        id="brand-screenshot-upload"
-                                                        type="file"
-                                                        accept="image/png,image/jpeg"
-                                                        multiple
-                                                        className="hidden"
-                                                        onChange={handleBrandScreenshotUpload}
-                                                        disabled={brandScreenshotReferences.length >= MAX_SCREENSHOT_REFS || brandScreenshotsUploading}
-                                                    />
+                                            <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_references')}</p>
+                                                    <span className="text-[10px] text-indigo-200/60">
+                                                        {brandScreenshotReferences.length}/{MAX_SCREENSHOT_REFS}
+                                                    </span>
                                                 </div>
 
-                                                {brandScreenshotReferences.length === 0 ? (
-                                                    <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-sm text-indigo-200/60">
-                                                        {text('no_screenshot_refs')}
-                                                    </div>
-                                                ) : (
-                                                    <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
-                                                        {brandScreenshotReferences.map((ref) => (
-                                                            <div
-                                                                key={ref.id}
-                                                                className="mx-auto w-full max-w-[120px] rounded-2xl bg-slate-950/50 ring-1 ring-white/5 p-2 space-y-1.5"
-                                                            >
-                                                                <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-950/40 aspect-[9/19]">
-                                                                    {brandRefUrls[ref.id] ? (
-                                                                        <img
-                                                                            src={brandRefUrls[ref.id]}
-                                                                            alt={text('screenshot_references')}
-                                                                            className="h-full w-full object-cover"
-                                                                        />
-                                                                    ) : (
-                                                                        <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
-                                                                    )}
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleDeleteBrandReference(ref)}
-                                                                    className="inline-flex items-center gap-2 rounded-full border border-white/10 px-2.5 py-1 text-[9px] tracking-[0.18em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                                >
-                                                                    {text('delete')}
-                                                                </button>
+                                                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                                                    <div>
+                                                        {brandScreenshotReferences.length === 0 ? (
+                                                            <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-xs text-indigo-200/60">
+                                                                {text('no_screenshot_refs')}
                                                             </div>
-                                                        ))}
+                                                        ) : (
+                                                            <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
+                                                                {brandScreenshotReferences.map((ref, index) => {
+                                                                    const isDragTarget = dragOverBrandRefId === ref.id && draggingBrandRefId !== ref.id;
+                                                                    return (
+                                                                        <div
+                                                                            key={ref.id}
+                                                                            draggable
+                                                                            onDragStart={(event) => {
+                                                                                event.dataTransfer.effectAllowed = 'move';
+                                                                                event.dataTransfer.setData('text/plain', ref.id);
+                                                                                setDraggingBrandRefId(ref.id);
+                                                                            }}
+                                                                            onDragEnd={() => {
+                                                                                setDraggingBrandRefId(null);
+                                                                                setDragOverBrandRefId(null);
+                                                                            }}
+                                                                            onDragOver={(event) => {
+                                                                                event.preventDefault();
+                                                                                setDragOverBrandRefId(ref.id);
+                                                                            }}
+                                                                            onDrop={(event) => {
+                                                                                event.preventDefault();
+                                                                                const draggedId = event.dataTransfer.getData('text/plain');
+                                                                                const fromIndex = brandScreenshotReferences.findIndex((item) => item.id === draggedId);
+                                                                                const toIndex = brandScreenshotReferences.findIndex((item) => item.id === ref.id);
+                                                                                if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
+                                                                                    handleReorderBrandReference(fromIndex, toIndex);
+                                                                                }
+                                                                                setDraggingBrandRefId(null);
+                                                                                setDragOverBrandRefId(null);
+                                                                            }}
+                                                                            className={`mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5 cursor-grab active:cursor-grabbing ${
+                                                                                isDragTarget ? 'ring-indigo-400/60 bg-indigo-500/10' : ''
+                                                                            }`}
+                                                                        >
+                                                                            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
+                                                                                {brandRefUrls[ref.id] ? (
+                                                                                    <img
+                                                                                        src={brandRefUrls[ref.id]}
+                                                                                        alt={text('screenshot_references')}
+                                                                                        className="h-full w-full object-cover cursor-zoom-in"
+                                                                                        loading="lazy"
+                                                                                        decoding="async"
+                                                                                        onClick={() => openLightbox(brandRefUrls[ref.id], text('screenshot_references'))}
+                                                                                    />
+                                                                                ) : (
+                                                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
+                                                                                <div className="inline-flex items-center gap-1">
+                                                                                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                                                                                        {index + 1}
+                                                                                    </span>
+                                                                                    <GripVertical size={12} />
+                                                                                </div>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDeleteBrandReference(ref)}
+                                                                                    className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                    aria-label={text('delete')}
+                                                                                >
+                                                                                    <Trash2 size={12} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                )}
-                                                <p className="text-[11px] text-indigo-200/60">{text('screenshot_ref_limit_note')}</p>
+                                                    <div>
+                                                        <div
+                                                            onDragOver={handleBrandReferenceDragOver}
+                                                            onDragLeave={handleBrandReferenceDragLeave}
+                                                            onDrop={handleBrandReferenceDrop}
+                                                            className={`flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-4 text-center transition ${
+                                                                isBrandRefDropActive
+                                                                    ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
+                                                                    : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
+                                                            } ${brandScreenshotReferences.length >= MAX_SCREENSHOT_REFS ? 'opacity-60 pointer-events-none' : ''}`}
+                                                        >
+                                                            <ImagePlus size={22} />
+                                                            <div className="text-xs font-semibold">{text('drop_references_title')}</div>
+                                                            <div className="text-[10px] text-indigo-200/60">{text('reference_limit_short')}</div>
+                                                            <label
+                                                                htmlFor="brand-screenshot-upload"
+                                                                className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                                            >
+                                                                {brandScreenshotsUploading ? text('uploading') : text('upload_references')}
+                                                            </label>
+                                                            <input
+                                                                id="brand-screenshot-upload"
+                                                                type="file"
+                                                                accept="image/png,image/jpeg"
+                                                                multiple
+                                                                className="hidden"
+                                                                onChange={handleBrandScreenshotUpload}
+                                                                disabled={brandScreenshotReferences.length >= MAX_SCREENSHOT_REFS || brandScreenshotsUploading}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </section>
 
                                     <div className="space-y-5">
-                                        <section className="rounded-[24px] bg-slate-900/80 ring-1 ring-indigo-400/20 p-4">
-                                            <div className="flex items-center justify-between">
-                                                <p className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('apps')}</p>
-                                                <button
-                                                    onClick={() => openAppForm()}
-                                                    className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30"
-                                                >
-                                                    <Plus size={12} />
-                                                    {text('add_app')}
-                                                </button>
-                                            </div>
-
-                                            {!selectedBrandApps.length ? (
-                                                <p className="mt-3 text-sm text-indigo-200/60">{text('no_apps_yet')}</p>
-                                            ) : (
-                                                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                                                    {selectedBrandApps.map((app) => {
-                                                        const isActive = app.id === selectedAppId;
-                                                        return (
-                                                            <button
-                                                                key={app.id}
-                                                                onClick={() => setSelectedAppId(app.id)}
-                                                                className={`shrink-0 rounded-full border px-3 py-1.5 text-left ${
-                                                                    isActive
-                                                                        ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
-                                                                        : 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
-                                                                }`}
-                                                            >
-                                                                <div className="text-[11px] font-semibold leading-tight">{app.name}</div>
-                                                                <div className="text-[10px] text-indigo-200/60">/{selectedBrand?.slug}/{app.alias}</div>
-                                                            </button>
-                                                        );
-                                                    })}
+                                        <section className="rounded-[22px] bg-slate-800/45 ring-1 ring-indigo-400/20 p-3">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('apps')}</p>
+                                                    <p className="text-xs text-indigo-200/60">{text('switch_fast_between_products')}</p>
                                                 </div>
-                                            )}
-
-                                            {appFormOpen && (
-                                                <form
-                                                    onSubmit={submitAppForm}
-                                                    className="mt-4 rounded-2xl bg-slate-950/40 ring-1 ring-white/5 p-4 space-y-3 animate-shelf"
-                                                >
-                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
-                                                        {editingAppId ? text('update_app') : text('create_app')}
-                                                    </p>
-                                                    {appFormFields}
-                                                </form>
-                                            )}
-
-                                            {selectedApp ? (
-                                                <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-indigo-200/60">
-                                                    <span>
-                                                        {text('selected_app')}: <span className="text-indigo-100">[{selectedApp.alias.toUpperCase()}] {selectedApp.name}</span>
-                                                    </span>
-                                                    <div className="flex items-center gap-2">
-                                                        <span>{text('ready_for_screenshots_icons')}</span>
+                                                <div className="flex items-center gap-2">
+                                                    {selectedApp && (
                                                         <button
                                                             type="button"
                                                             onClick={() => openAppForm(selectedApp)}
@@ -2019,109 +2402,198 @@ function App() {
                                                             <Pencil size={11} />
                                                             {text('edit')}
                                                         </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => openAppForm()}
+                                                        className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-2.5 py-1 text-[10px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30"
+                                                    >
+                                                        <Plus size={12} />
+                                                        {text('add_app')}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {!selectedBrandApps.length ? (
+                                                <p className="mt-3 text-sm text-indigo-200/60">{text('no_apps_yet')}</p>
+                                            ) : (
+                                                <div className="mt-3 rounded-2xl border border-white/5 bg-slate-900/30 p-2">
+                                                    <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label={text('apps')}>
+                                                        {selectedBrandApps.map((app) => {
+                                                            const isActive = app.id === selectedAppId;
+                                                            return (
+                                                                <button
+                                                                    key={app.id}
+                                                                    role="tab"
+                                                                    aria-selected={isActive}
+                                                                    onClick={() => setSelectedAppId(app.id)}
+                                                                    className={`shrink-0 min-w-[170px] rounded-2xl border px-3 py-2 text-left transition ${
+                                                                        isActive
+                                                                            ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
+                                                                            : 'border-white/10 bg-slate-950/30 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-indigo-200/60">
+                                                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.2em] ${
+                                                                            isActive ? 'bg-indigo-400/30 text-indigo-100' : 'bg-slate-900/50 text-indigo-200/70'
+                                                                        }`}>
+                                                                            {app.alias.toUpperCase()}
+                                                                        </span>
+                                                                        {isActive && (
+                                                                            <span className="text-[10px] font-semibold text-indigo-100">{text('active')}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="mt-1 text-sm font-semibold text-white">{app.name}</div>
+                                                                    <div className="text-[10px] text-indigo-200/50">/{selectedBrand?.slug}/{app.alias}</div>
+                                                                </button>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
-                                            ) : (
-                                                <p className="mt-3 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
+                                            )}
+
+                                            {appFormOpen && (
+                                                <form
+                                                    onSubmit={submitAppForm}
+                                                    className="mt-4 rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3 animate-shelf"
+                                                >
+                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
+                                                        {editingAppId ? text('update_app') : text('create_app')}
+                                                    </p>
+                                                    {appFormFields}
+                                                </form>
+                                            )}
+
+                                            {!selectedApp && (
+                                                <p className="mt-2 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
                                             )}
                                         </section>
 
-                                        <section className="rounded-[26px] bg-slate-900/60 ring-1 ring-white/5 p-5">
+                                        <section className="rounded-[26px] bg-slate-800/45 ring-1 ring-white/5 p-5">
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
                                                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
                                                     <p className="text-xs text-indigo-200/60">{text('simulator_screenshots_subtitle')}</p>
                                                 </div>
-                                                <label
-                                                    htmlFor="app-screenshots-upload"
-                                                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold border cursor-pointer ${
-                                                        canUploadAppScreenshots
-                                                            ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
-                                                            : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
-                                                    }`}
-                                                >
-                                                    {appScreenshotsUploading ? text('uploading') : text('upload_screenshots')}
-                                                </label>
-                                                <input
-                                                    id="app-screenshots-upload"
-                                                    type="file"
-                                                    accept="image/png,image/jpeg"
-                                                    multiple
-                                                    className="hidden"
-                                                    onChange={handleAppScreenshotsUpload}
-                                                    disabled={!canUploadAppScreenshots || appScreenshotsUploading}
-                                                />
+                                                <span className="text-[11px] text-indigo-200/60">{text('drag_to_reorder')}</span>
                                             </div>
 
                                             {!selectedApp ? (
                                                 <p className="mt-4 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
-                                            ) : selectedAppScreenshots.length === 0 ? (
-                                                <div className="mt-4 rounded-2xl border border-dashed border-indigo-900/40 p-4 text-sm text-indigo-200/60">
-                                                    {text('no_screenshots_yet')}
-                                                </div>
                                             ) : (
-                                                <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                                                    {selectedAppScreenshots.map((shot, index) => (
+                                                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                                                    <div>
+                                                        {selectedAppScreenshots.length === 0 ? (
+                                                            <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-sm text-indigo-200/60">
+                                                                {text('no_screenshots_yet')}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                                                                {selectedAppScreenshots.map((shot, index) => {
+                                                                    const isDragTarget = dragOverShotId === shot.id && draggingShotId !== shot.id;
+                                                                    return (
+                                                                        <div
+                                                                            key={shot.id}
+                                                                            draggable
+                                                                            onDragStart={(event) => {
+                                                                                event.dataTransfer.effectAllowed = 'move';
+                                                                                event.dataTransfer.setData('text/plain', shot.id);
+                                                                                setDraggingShotId(shot.id);
+                                                                            }}
+                                                                            onDragEnd={() => {
+                                                                                setDraggingShotId(null);
+                                                                                setDragOverShotId(null);
+                                                                            }}
+                                                                            onDragOver={(event) => {
+                                                                                event.preventDefault();
+                                                                                setDragOverShotId(shot.id);
+                                                                            }}
+                                                                            onDrop={(event) => {
+                                                                                event.preventDefault();
+                                                                                const draggedId = event.dataTransfer.getData('text/plain');
+                                                                                const fromIndex = selectedAppScreenshots.findIndex((item) => item.id === draggedId);
+                                                                                const toIndex = selectedAppScreenshots.findIndex((item) => item.id === shot.id);
+                                                                                if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
+                                                                                    handleReorderAppScreenshot(fromIndex, toIndex);
+                                                                                }
+                                                                                setDraggingShotId(null);
+                                                                                setDragOverShotId(null);
+                                                                            }}
+                                                                            className={`mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5 cursor-grab active:cursor-grabbing ${
+                                                                                isDragTarget ? 'ring-indigo-400/60 bg-indigo-500/10' : ''
+                                                                            }`}
+                                                                        >
+                                                                            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
+                                                                                {appScreenshotUrls[shot.id] ? (
+                                                                                    <img
+                                                                                        src={appScreenshotUrls[shot.id]}
+                                                                                        alt={`${text('screenshot')} ${index + 1}`}
+                                                                                        className="h-full w-full object-cover cursor-zoom-in"
+                                                                                        loading="lazy"
+                                                                                        decoding="async"
+                                                                                        onClick={() => openLightbox(appScreenshotUrls[shot.id], `${text('screenshot')} ${index + 1}`)}
+                                                                                    />
+                                                                                ) : (
+                                                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
+                                                                                <div className="inline-flex items-center gap-1">
+                                                                                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                                                                                        {index + 1}
+                                                                                    </span>
+                                                                                    <GripVertical size={12} />
+                                                                                </div>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDeleteAppScreenshot(shot)}
+                                                                                    className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                    aria-label={text('delete')}
+                                                                                >
+                                                                                    <Trash2 size={10} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div>
                                                         <div
-                                                            key={shot.id}
-                                                            className="rounded-2xl bg-slate-950/50 ring-1 ring-white/5 p-3 space-y-3"
+                                                            onDragOver={handleScreenshotDragOver}
+                                                            onDragLeave={handleScreenshotDragLeave}
+                                                            onDrop={handleScreenshotDrop}
+                                                            className={`flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-5 text-center transition ${
+                                                                isScreenshotDropActive
+                                                                    ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
+                                                                    : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
+                                                            } ${canUploadAppScreenshots ? '' : 'opacity-60 pointer-events-none'}`}
                                                         >
-                                                            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-950/40 aspect-[9/19]">
-                                                                {appScreenshotUrls[shot.id] ? (
-                                                                    <img
-                                                                        src={appScreenshotUrls[shot.id]}
-                                                                        alt={`${text('screenshot')} ${index + 1}`}
-                                                                        className="h-full w-full object-cover"
-                                                                    />
-                                                                ) : (
-                                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
-                                                                )}
-                                                            </div>
-                                                            <div className="flex items-center justify-between text-[11px] text-indigo-200/70">
-                                                                <span>{text('screenshot')} {index + 1}</span>
-                                                                <span>{text('order')} {index + 1}</span>
-                                                            </div>
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-1">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleReorderAppScreenshot(index, index - 1)}
-                                                                        disabled={index === 0}
-                                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white disabled:opacity-40"
-                                                                        aria-label={text('move_up')}
-                                                                        title={text('move_up')}
-                                                                    >
-                                                                        <ChevronUp size={12} />
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleReorderAppScreenshot(index, index + 1)}
-                                                                        disabled={index === selectedAppScreenshots.length - 1}
-                                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white disabled:opacity-40"
-                                                                        aria-label={text('move_down')}
-                                                                        title={text('move_down')}
-                                                                    >
-                                                                        <ChevronDown size={12} />
-                                                                    </button>
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleDeleteAppScreenshot(shot)}
-                                                                    className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                                    aria-label={text('delete')}
-                                                                    title={text('delete')}
-                                                                >
-                                                                    <Trash2 size={12} />
-                                                                </button>
-                                                            </div>
+                                                            <ImagePlus size={24} />
+                                                            <div className="text-sm font-semibold">{text('drop_screenshots_title')}</div>
+                                                            <label
+                                                                htmlFor="app-screenshots-upload"
+                                                                className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                                            >
+                                                                {appScreenshotsUploading ? text('uploading') : text('upload_screenshots')}
+                                                            </label>
+                                                            <input
+                                                                id="app-screenshots-upload"
+                                                                type="file"
+                                                                accept="image/png,image/jpeg"
+                                                                multiple
+                                                                className="hidden"
+                                                                onChange={handleAppScreenshotsUpload}
+                                                                disabled={!canUploadAppScreenshots || appScreenshotsUploading}
+                                                            />
                                                         </div>
-                                                    ))}
+                                                    </div>
                                                 </div>
                                             )}
                                             <p className="mt-3 text-[11px] text-indigo-200/60">{text('upload_rules_note')}</p>
                                         </section>
 
-                                        <section className="rounded-[28px] bg-slate-900/60 ring-1 ring-white/5 p-6">
+                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
                                                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generation')}</p>
@@ -2131,7 +2603,7 @@ function App() {
                                             </div>
 
                                             <div className="mt-5 space-y-4">
-                                                <div className="rounded-2xl bg-slate-950/40 ring-1 ring-white/5 p-4 space-y-3">
+                                                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div>
                                                             <p className="text-sm font-semibold text-white">{text('generate_icon')}</p>
@@ -2154,51 +2626,54 @@ function App() {
                                                                     : text('generate_icon')}
                                                         </button>
                                                     </div>
-                                                    <div className="grid gap-3 sm:grid-cols-2">
-                                                        <div className="rounded-xl bg-slate-950/50 border border-white/5 p-3">
-                                                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('icon_reference')}</p>
-                                                            <div className="mt-2 flex items-center justify-center aspect-square rounded-xl bg-slate-900/60 ring-1 ring-indigo-400/20">
-                                                                {brandIconReference && brandRefUrls[brandIconReference.id] ? (
-                                                                    <img
-                                                                        src={brandRefUrls[brandIconReference.id]}
-                                                                        alt={text('icon_reference')}
-                                                                        className="max-h-[80%] max-w-[80%] object-contain"
-                                                                    />
-                                                                ) : (
-                                                                    <span className="text-xs text-indigo-200/60">{text('icon_empty')}</span>
+                                                    <div className="max-w-[240px] space-y-3">
+                                                        <div className="rounded-xl bg-slate-900/35 border border-indigo-400/20 p-2.5">
+                                                            <div className="flex items-center justify-between">
+                                                                <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_icon')}</p>
+                                                                {generatedIcon && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleDownloadGeneratedAsset(
+                                                                            generatedIcon,
+                                                                            `${selectedApp?.alias ?? 'app'}-icon-1024.jpg`
+                                                                        )}
+                                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                        aria-label={text('download')}
+                                                                    >
+                                                                        <Download size={12} />
+                                                                    </button>
                                                                 )}
                                                             </div>
-                                                        </div>
-                                                        <div className="rounded-xl bg-slate-950/50 border border-white/5 p-3">
-                                                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_icon')}</p>
-                                                            <div className="mt-2 flex items-center justify-center aspect-square rounded-xl bg-slate-900/60 ring-1 ring-indigo-400/20">
+                                                            <div className="mt-2 mx-auto flex w-full items-center justify-center text-center aspect-square rounded-xl bg-slate-800/35 ring-1 ring-indigo-400/25">
                                                                 {generatedIcon && generatedUrls[generatedIcon.id] ? (
                                                                     <img
                                                                         src={generatedUrls[generatedIcon.id]}
                                                                         alt={text('generated_icon')}
-                                                                        className="max-h-[80%] max-w-[80%] object-contain"
+                                                                        className="max-h-[90%] max-w-[90%] object-contain cursor-zoom-in"
+                                                                        onClick={() => openLightbox(generatedUrls[generatedIcon.id], text('generated_icon'))}
                                                                     />
                                                                 ) : (
                                                                     <span className="text-xs text-indigo-200/60">{text('no_generated_icon')}</span>
                                                                 )}
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
-                                                        <textarea
-                                                            value={brandIconReference?.prompt ?? ''}
-                                                            onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
-                                                            onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
-                                                            placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
-                                                            rows={3}
-                                                            disabled={!brandIconReference}
-                                                            className="w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
-                                                        />
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
+                                                            <textarea
+                                                                value={brandIconReference?.prompt ?? ''}
+                                                                onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
+                                                                onInput={handleAutoGrowInput}
+                                                                onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
+                                                                placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
+                                                                rows={3}
+                                                                disabled={!brandIconReference}
+                                                                className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                                            />
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                <div className="rounded-2xl bg-slate-950/40 ring-1 ring-white/5 p-4 space-y-3">
+                                                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div>
                                                             <p className="text-sm font-semibold text-white">{text('generate_screenshots')}</p>
@@ -2257,65 +2732,128 @@ function App() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                <div className="text-xs text-indigo-200/60">
-                                                    {slotsToCreate.length ? (
-                                                        <span>{text('slots_to_create')}: {slotsToCreate.length}</span>
-                                                    ) : (
-                                                        <span>{text('all_slots_ready')}</span>
-                                                    )}
-                                                </div>
-                                                <p className="text-xs text-indigo-200/40">{text('generation_notice')}</p>
-                                                <div className="rounded-xl border border-indigo-900/40 bg-slate-950/40 p-3 space-y-3">
-                                                    <div className="flex items-center justify-between">
-                                                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_prompt_label')}</p>
-                                                        <span className="text-[11px] text-indigo-200/50">
-                                                            {brandScreenshotReferences.length}/{MAX_SCREENSHOT_REFS}
-                                                        </span>
-                                                    </div>
-                                                    {brandScreenshotReferences.length === 0 ? (
-                                                        <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_empty')}</p>
-                                                    ) : (
-                                                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                                            {brandScreenshotReferences.map((ref) => (
-                                                                <div
-                                                                    key={ref.id}
-                                                                    className="rounded-xl border border-indigo-900/40 bg-slate-950/40 p-2 space-y-2"
-                                                                >
-                                                                    <div className="relative overflow-hidden rounded-lg border border-dashed border-indigo-900/40 bg-slate-950/40 aspect-[9/19]">
-                                                                        {brandRefUrls[ref.id] ? (
-                                                                            <img
-                                                                                src={brandRefUrls[ref.id]}
-                                                                                alt={text('screenshot_references')}
-                                                                                className="h-full w-full object-cover"
-                                                                            />
-                                                                        ) : (
-                                                                            <span className="flex h-full w-full items-center justify-center text-[10px] text-indigo-200/60">
-                                                                                {text('loading')}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    <textarea
-                                                                        value={ref.prompt ?? ''}
-                                                                        onChange={(event) => handleBrandPromptChange(ref.id, event.target.value)}
-                                                                        onBlur={(event) => handleBrandPromptSave(ref.id, event.target.value)}
-                                                                        placeholder={text('prompt_placeholder')}
-                                                                        rows={2}
-                                                                        className="w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                                                    />
-                                                                </div>
-                                                            ))}
+                                                    <div className="rounded-xl border border-indigo-900/40 bg-slate-900/30 p-3 space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('slot_sources')}</p>
+                                                            <span className="text-[10px] text-indigo-200/50">{text('slot_sources_hint')}</span>
                                                         </div>
-                                                    )}
-                                                    <p className="text-[10px] text-indigo-200/50">{text('screenshot_prompt_hint')}</p>
+                                                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                                            {Array.from({ length: targetSlotCount }, (_, index) => {
+                                                                const slotIndex = index + 1;
+                                                                const mapping = getSlotMapping(slotIndex);
+                                                                return (
+                                                                    <div
+                                                                        key={slotIndex}
+                                                                        className="rounded-xl border border-indigo-900/40 bg-slate-900/35 p-2 space-y-2"
+                                                                    >
+                                                                        <div className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/70">
+                                                                            {text('slot')} {slotIndex}
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] text-indigo-200/60">{text('brand_reference_label')}</label>
+                                                                            <select
+                                                                                value={mapping.brandRefId ?? ''}
+                                                                                onChange={(event) => updateSlotMapping(slotIndex, { brandRefId: event.target.value || null })}
+                                                                                disabled={!brandScreenshotReferences.length}
+                                                                                className="mt-1 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                                                            >
+                                                                                {!brandScreenshotReferences.length ? (
+                                                                                    <option value="">{text('no_screenshot_refs')}</option>
+                                                                                ) : (
+                                                                                    brandScreenshotReferences.map((ref, refIndex) => (
+                                                                                        <option key={ref.id} value={ref.id}>
+                                                                                            {text('reference_short')} {refIndex + 1}
+                                                                                        </option>
+                                                                                    ))
+                                                                                )}
+                                                                            </select>
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] text-indigo-200/60">{text('simulator_shot_label')}</label>
+                                                                            <select
+                                                                                value={mapping.simShotId ?? ''}
+                                                                                onChange={(event) => updateSlotMapping(slotIndex, { simShotId: event.target.value || null })}
+                                                                                disabled={!selectedAppScreenshots.length}
+                                                                                className="mt-1 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                                                            >
+                                                                                {!selectedAppScreenshots.length ? (
+                                                                                    <option value="">{text('no_screenshots_yet')}</option>
+                                                                                ) : (
+                                                                                    selectedAppScreenshots.map((shot, shotIndex) => (
+                                                                                        <option key={shot.id} value={shot.id}>
+                                                                                            {text('simulator_short')} {shotIndex + 1}
+                                                                                        </option>
+                                                                                    ))
+                                                                                )}
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-xs text-indigo-200/60">
+                                                        {slotsToCreate.length ? (
+                                                            <span>{text('slots_to_create')}: {slotsToCreate.length}</span>
+                                                        ) : (
+                                                            <span>{text('all_slots_ready')}</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-indigo-200/40">{text('generation_notice')}</p>
+                                                    <div className="rounded-xl border border-indigo-900/40 bg-slate-900/30 p-3 space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_prompt_label')}</p>
+                                                            <span className="text-[11px] text-indigo-200/50">
+                                                                {brandScreenshotReferences.length}/{MAX_SCREENSHOT_REFS}
+                                                            </span>
+                                                        </div>
+                                                        {brandScreenshotReferences.length === 0 ? (
+                                                            <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_empty')}</p>
+                                                        ) : (
+                                                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                                                {brandScreenshotReferences.map((ref, index) => (
+                                                                    <div
+                                                                        key={ref.id}
+                                                                        className="rounded-xl border border-indigo-900/40 bg-slate-900/30 p-2 space-y-2"
+                                                                    >
+                                                                        <div className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">
+                                                                            {text('reference_short')} {index + 1}
+                                                                        </div>
+                                                                        <textarea
+                                                                            value={ref.prompt ?? ''}
+                                                                            onChange={(event) => handleBrandPromptChange(ref.id, event.target.value)}
+                                                                            onInput={handleAutoGrowInput}
+                                                                            onBlur={(event) => handleBrandPromptSave(ref.id, event.target.value)}
+                                                                            placeholder={text('prompt_placeholder')}
+                                                                            rows={2}
+                                                                            className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </section>
+                                        </section>
 
-                                        <section className="rounded-[28px] bg-slate-900/60 ring-1 ring-white/5 p-6">
-                                            <div>
-                                                <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
-                                                <p className="text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
+                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
+                                                    <p className="text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
+                                                </div>
+                                                {generatedScreenshotSlots.length > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleDownloadAllScreenshots}
+                                                        className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-400/10"
+                                                    >
+                                                        <Download size={12} />
+                                                        {text('download_all')}
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {!selectedApp ? (
@@ -2329,7 +2867,7 @@ function App() {
                                                     {generatedScreenshotSlots.map((slot) => (
                                                         <div
                                                             key={slot.slotIndex}
-                                                            className="rounded-2xl bg-slate-950/40 ring-1 ring-white/5 p-4 space-y-3"
+                                                            className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3"
                                                         >
                                                             <div className="flex flex-wrap items-center justify-between gap-2">
                                                                 <div>
@@ -2358,13 +2896,14 @@ function App() {
                                                                             key={asset.id}
                                                                             className="rounded-2xl bg-slate-950/60 ring-1 ring-white/5 p-3 space-y-3"
                                                                         >
-                                                                            <div className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/60 aspect-[9/19]">
+                                                                            <div className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-800/45 aspect-[9/19]">
                                                                                 {generatedUrls[asset.id] ? (
                                                                                     <>
                                                                                         <img
                                                                                             src={generatedUrls[asset.id]}
                                                                                             alt={`${text('slot')} ${slot.slotIndex}`}
-                                                                                            className="h-full w-full object-cover"
+                                                                                            className="h-full w-full object-cover cursor-zoom-in"
+                                                                                            onClick={() => openLightbox(generatedUrls[asset.id], `${text('slot')} ${slot.slotIndex}`)}
                                                                                         />
                                                                                         {layers.map((layer) => (
                                                                                             <div
@@ -2404,10 +2943,22 @@ function App() {
                                                                                     </button>
                                                                                     <button
                                                                                         type="button"
-                                                                                        onClick={() => handleDeleteGeneratedAsset(asset)}
-                                                                                        className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                        onClick={() => handleDownloadGeneratedAsset(
+                                                                                            asset,
+                                                                                            `${formatSlotIndex(slot.slotIndex)}-v${asset.version_index ?? 1}.jpg`
+                                                                                        )}
+                                                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                        aria-label={text('download')}
                                                                                     >
-                                                                                        {text('delete')}
+                                                                                        <Download size={12} />
+                                                                                    </button>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleDeleteGeneratedAsset(asset)}
+                                                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                        aria-label={text('delete')}
+                                                                                    >
+                                                                                        <Trash2 size={12} />
                                                                                     </button>
                                                                                 </div>
                                                                             </div>
@@ -2427,16 +2978,17 @@ function App() {
                                                                                     {(editDrafts[asset.id]?.layers ?? []).map((layer, index) => (
                                                                                         <div
                                                                                             key={layer.id}
-                                                                                            className="rounded-xl border border-indigo-900/40 bg-slate-950/40 p-3 space-y-2"
+                                                                                            className="rounded-xl border border-indigo-900/40 bg-slate-900/30 p-3 space-y-2"
                                                                                         >
                                                                                             <div className="flex items-center justify-between">
                                                                                                 <p className="text-[11px] font-semibold text-indigo-200/70">{text('layer')} {index + 1}</p>
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     onClick={() => removeLayer(asset.id, layer.id)}
-                                                                                                    className="text-[10px] text-indigo-200/60 hover:text-white"
+                                                                                                    className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                                    aria-label={text('delete')}
                                                                                                 >
-                                                                                                    {text('delete')}
+                                                                                                    <Trash2 size={10} />
                                                                                                 </button>
                                                                                             </div>
                                                                                             <div>
@@ -2575,7 +3127,7 @@ function App() {
                                             )}
                                         </section>
 
-                                        <section className="rounded-[28px] bg-slate-900/60 ring-1 ring-white/5 p-6">
+                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
                                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_data_placeholder')}</p>
                                             <div className="mt-3 space-y-2 text-xs text-indigo-200/70">
                                                 {[
@@ -2598,7 +3150,7 @@ function App() {
                                             </div>
                                         </section>
 
-                                        <section className="rounded-[28px] bg-slate-900/60 ring-1 ring-white/5 p-6">
+                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
                                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('dev_files_placeholder')}</p>
                                             <p className="mt-3 text-sm text-indigo-200/60">{text('dev_files_subtitle')}</p>
                                         </section>
@@ -2609,6 +3161,31 @@ function App() {
                     </div>
                 </div>
             </main>
+            {lightbox && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+                    onClick={closeLightbox}
+                >
+                    <div
+                        className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-indigo-400/30 bg-slate-950/70 p-3"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <button
+                            type="button"
+                            onClick={closeLightbox}
+                            className="absolute right-2 top-2 rounded-full border border-white/10 bg-slate-950/80 p-2 text-indigo-200/70 hover:text-white"
+                            aria-label={text('close')}
+                        >
+                            <X size={14} />
+                        </button>
+                        <img
+                            src={lightbox.src}
+                            alt={lightbox.alt}
+                            className="max-h-[85vh] w-auto max-w-[85vw] rounded-xl object-contain"
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
