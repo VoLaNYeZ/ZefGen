@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     Menu,
     DoorOpen,
@@ -26,6 +26,7 @@ import {
     VariableFontCursorProximity,
     VariableFontHoverByRandomLetter,
 } from './components/fancy/text';
+import GooeySvgFilter from './components/fancy/filter/GooeySvgFilter';
 
 type Brand = {
     id: string;
@@ -40,9 +41,12 @@ type AppItem = {
     brand_id: string;
     name: string;
     alias: string;
+    order_index?: number | null;
+    is_banned?: boolean | null;
     user_id?: string;
     created_at?: string;
 };
+
 
 type BrandReference = {
     id: string;
@@ -111,6 +115,7 @@ type AppFormState = {
 const MAX_FILE_MB = 10;
 const MAX_SCREENSHOT_REFS = 6;
 const MAX_SCREENSHOT_VERSIONS = 3;
+const MAX_ACTIVE_APPS = 7;
 const AUTO_GROW_MULTIPLIER = 5;
 const BRAND_BUCKET = 'brand-references';
 const APP_SCREENSHOT_BUCKET = 'app-screenshots';
@@ -397,6 +402,28 @@ function App() {
     const logoWord = 'ZEFGEN';
     const logoContainerRef = useRef<HTMLDivElement>(null);
     const [logoFontReady, setLogoFontReady] = useState(false);
+    const [isBannedView, setIsBannedView] = useState(false);
+    const appFolderWrapRef = useRef<HTMLDivElement>(null);
+    const appPickerRef = useRef<HTMLElement>(null);
+    const appSimulatorRef = useRef<HTMLElement>(null);
+    const appGenerationRef = useRef<HTMLElement>(null);
+    const appFolderContentRef = useRef<HTMLDivElement>(null);
+    const appFolderEndRef = useRef<HTMLDivElement>(null);
+    const appActivePillRef = useRef<HTMLButtonElement | null>(null);
+    const appPillScrollRef = useRef<HTMLDivElement>(null);
+    const appPillRowRef = useRef<HTMLDivElement>(null);
+    const [appFolderLayout, setAppFolderLayout] = useState({
+        bodyTop: 0,
+        bodyHeight: 0,
+        tabLeft: 0,
+        tabWidth: 0,
+        tabTop: 0,
+        tabHeight: 36,
+        clipPath: 'none',
+    });
+    const [gooeyDebug, setGooeyDebug] = useState(false);
+    const showGooeyDebug = import.meta.env.DEV;
+    const [appSwitching, setAppSwitching] = useState(false);
     const [generatedAssets, setGeneratedAssets] = useState<GeneratedAsset[]>([]);
     const [generatedUrls, setGeneratedUrls] = useState<Record<string, string>>({});
     const [iconGenerating, setIconGenerating] = useState(false);
@@ -409,6 +436,16 @@ function App() {
     const [editSaving, setEditSaving] = useState<string | null>(null);
     const [isScreenshotDropActive, setIsScreenshotDropActive] = useState(false);
     const [draggingShotId, setDraggingShotId] = useState<string | null>(null);
+    const [draggingAppId, setDraggingAppId] = useState<string | null>(null);
+    const [dragOverAppId, setDragOverAppId] = useState<string | null>(null);
+    const [isAppPillPanning, setIsAppPillPanning] = useState(false);
+    const appPillPanRef = useRef({
+        active: false,
+        startX: 0,
+        scrollLeft: 0,
+        didDrag: false,
+        lastDragTime: 0,
+    });
 
     useEffect(() => {
         let active = true;
@@ -424,6 +461,28 @@ function App() {
             active = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (!selectedAppId) return;
+        setAppSwitching(true);
+        const timer = window.setTimeout(() => setAppSwitching(false), 320);
+        return () => window.clearTimeout(timer);
+    }, [selectedAppId]);
+
+    const updateAppScreenshotPrompt = (appId: string, refId: string, value: string) => {
+        setAppScreenshotPrompts((prev) => {
+            const appEntry = prev[appId] ?? {};
+            if (appEntry[refId] === value) return prev;
+            return {
+                ...prev,
+                [appId]: {
+                    ...appEntry,
+                    [refId]: value,
+                },
+            };
+        });
+    };
+
     const [dragOverShotId, setDragOverShotId] = useState<string | null>(null);
     const [isBrandRefDropActive, setIsBrandRefDropActive] = useState(false);
     const [draggingBrandRefId, setDraggingBrandRefId] = useState<string | null>(null);
@@ -432,6 +491,7 @@ function App() {
     const signedUrlCacheRef = useRef<Record<string, { url: string; expiresAt: number }>>({});
     const lastFetchedUserIdRef = useRef<string | null>(null);
     const [slotMappings, setSlotMappings] = useState<Record<number, { brandRefId: string | null; simShotId: string | null }>>({});
+    const [appScreenshotPrompts, setAppScreenshotPrompts] = useState<Record<string, Record<string, string>>>({});
     const sessionUserId = session?.user.id ?? null;
 
     useEffect(() => {
@@ -506,7 +566,7 @@ function App() {
         }
 
         setBrands(brandRows || []);
-        setApps(appRows || []);
+        setApps((appRows || []).map((app) => ({ ...app, is_banned: app.is_banned ?? false })));
         setBrandReferences(brandRefRows || []);
         setAppScreenshots(screenshotRows || []);
         setGeneratedAssets(generatedRows || []);
@@ -521,15 +581,172 @@ function App() {
             lastFetchedUserIdRef.current = session.user.id;
         })();
     }, [session, brands.length]);
+    const orderedApps = useMemo(() => {
+        if (!apps.length) return apps;
+        return [...apps].sort((a, b) => {
+            const aIndex = a.order_index ?? Number.MAX_SAFE_INTEGER;
+            const bIndex = b.order_index ?? Number.MAX_SAFE_INTEGER;
+            if (aIndex !== bIndex) return aIndex - bIndex;
+            const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return aTime - bTime;
+        });
+    }, [apps]);
+
     const selectedBrand = useMemo(
         () => brands.find((brand) => brand.id === selectedBrandId) || null,
         [brands, selectedBrandId]
     );
 
     const selectedBrandApps = useMemo(
-        () => apps.filter((app) => app.brand_id === selectedBrandId),
-        [apps, selectedBrandId]
+        () => orderedApps.filter((app) => app.brand_id === selectedBrandId),
+        [orderedApps, selectedBrandId]
     );
+
+    const bannedAppIdSet = useMemo(
+        () => new Set(selectedBrandApps.filter((app) => app.is_banned).map((app) => app.id)),
+        [selectedBrandApps]
+    );
+    const activeApps = useMemo(
+        () => selectedBrandApps.filter((app) => !bannedAppIdSet.has(app.id)),
+        [selectedBrandApps, bannedAppIdSet]
+    );
+    const bannedApps = useMemo(
+        () => selectedBrandApps.filter((app) => bannedAppIdSet.has(app.id)),
+        [selectedBrandApps, bannedAppIdSet]
+    );
+    const visibleActiveApps = useMemo(
+        () => activeApps.slice(0, MAX_ACTIVE_APPS),
+        [activeApps]
+    );
+    const visibleApps = useMemo(
+        () => (isBannedView ? bannedApps : visibleActiveApps),
+        [isBannedView, bannedApps, visibleActiveApps]
+    );
+    const canAddApp = activeApps.length < MAX_ACTIVE_APPS;
+    const showBannedToggle = bannedApps.length > 0 || !canAddApp;
+
+    const activeAppIndex = useMemo(
+        () => visibleApps.findIndex((app) => app.id === selectedAppId),
+        [visibleApps, selectedAppId]
+    );
+    const hasApps = visibleApps.length > 0;
+    const isSingleApp = hasApps && visibleApps.length === 1;
+    const isFirstApp = hasApps && activeAppIndex === 0;
+    const isLastApp = hasApps && activeAppIndex === visibleApps.length - 1;
+    const bodyCornerRadius = `${isFirstApp || isSingleApp ? 0 : 26}px 26px 26px 26px`;
+    const appFolderTheme = isBannedView ? 'rgba(127, 29, 29, 0.55)' : 'rgba(30, 41, 59, 0.55)';
+    const tabButtonWidth = appFolderLayout.tabWidth > 0 ? appFolderLayout.tabWidth : 120;
+    const tabButtonHeight = appFolderLayout.tabHeight > 0 ? appFolderLayout.tabHeight : undefined;
+    const bannedSlotWidth = showBannedToggle ? tabButtonWidth + 12 : 0;
+
+    useLayoutEffect(() => {
+        const wrap = appFolderWrapRef.current;
+        const picker = appPickerRef.current;
+        const simulator = appSimulatorRef.current;
+        const generation = appGenerationRef.current;
+        if (!wrap || !picker || !simulator || !generation) return;
+
+        const minTabWidth = 120;
+
+        const update = () => {
+            const wrapRect = wrap.getBoundingClientRect();
+            const pickerRect = picker.getBoundingClientRect();
+            const endRect = (appFolderEndRef.current ?? generation).getBoundingClientRect();
+            const rowRect = appPillRowRef.current?.getBoundingClientRect() ?? pickerRect;
+            const activeIndex = visibleApps.findIndex((app) => app.id === selectedAppId);
+            const bodyInset = 6;
+            const bodyGap = 0;
+            const bodyTail = 30;
+            const verticalLift = 20;
+            const minBodyTop = rowRect.bottom - wrapRect.top + bodyGap;
+            let bodyTop = rowRect.top - wrapRect.top + bodyInset;
+            const bodyBottom = endRect.bottom - wrapRect.top;
+            let bodyHeight = Math.max(0, bodyBottom - bodyTop + bodyTail);
+            const rightClip = showBannedToggle ? `${Math.max(0, bannedSlotWidth)}px` : '0px';
+            let clipPath = 'none';
+
+            let tabLeft = rowRect.left - wrapRect.left + 12;
+            let tabWidth = minTabWidth;
+            let tabTop = bodyTop - 18;
+            let tabHeight = 36;
+            const activePill = selectedAppId ? appActivePillRef.current : null;
+            const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+            if (activePill) {
+                const pillRect = activePill.getBoundingClientRect();
+                tabWidth = pillRect.width;
+                tabHeight = Math.max(rowRect.height - 14, 36);
+                tabLeft = pillRect.left - wrapRect.left;
+                if (activeIndex === 0) {
+                    tabLeft = Math.min(0, tabLeft);
+                }
+                tabTop = rowRect.bottom - wrapRect.top - tabHeight;
+                bodyTop = minBodyTop;
+                bodyHeight = Math.max(0, bodyBottom - bodyTop + bodyTail);
+            } else {
+                const fallbackBodyTop = Math.max(bodyTop, minBodyTop);
+                bodyTop = fallbackBodyTop;
+                const overlapPx = clamp(tabHeight * 0.1, 6, 14);
+                tabTop = bodyTop - (tabHeight - overlapPx);
+            }
+
+            const minTabLeft = -tabWidth;
+            const maxTabLeft = Math.max(0, wrapRect.width - tabWidth);
+            tabLeft = clamp(tabLeft, minTabLeft, maxTabLeft);
+
+            bodyTop = Math.max(0, bodyTop - verticalLift);
+            tabTop -= verticalLift;
+
+            if (showBannedToggle) {
+                const rightClip = Math.max(0, bannedSlotWidth);
+                const splitY = tabTop + tabHeight - 2;
+                clipPath = `polygon(0 -400px, calc(100% - ${rightClip}px) -400px, calc(100% - ${rightClip}px) ${splitY}px, 100% ${splitY}px, 100% 4000px, 0 4000px)`;
+            }
+
+            if (appFolderContentRef.current) {
+                const contentRect = appFolderContentRef.current.getBoundingClientRect();
+                const contentBottom = contentRect.bottom - wrapRect.top;
+                bodyHeight = Math.max(bodyHeight, Math.max(0, contentBottom - bodyTop) + bodyTail);
+            }
+
+            setAppFolderLayout({
+                bodyTop,
+                bodyHeight,
+                tabLeft,
+                tabWidth,
+                tabTop,
+                tabHeight,
+                clipPath,
+            });
+        };
+
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(wrap);
+        observer.observe(picker);
+        observer.observe(simulator);
+        observer.observe(generation);
+        if (appFolderContentRef.current) {
+            observer.observe(appFolderContentRef.current);
+        }
+        if (appFolderEndRef.current) {
+            observer.observe(appFolderEndRef.current);
+        }
+        if (appPillRowRef.current) {
+            observer.observe(appPillRowRef.current);
+        }
+        const scrollEl = appPillScrollRef.current;
+        if (scrollEl) {
+            scrollEl.addEventListener('scroll', update, { passive: true });
+        }
+        window.addEventListener('resize', update);
+
+        return () => {
+            observer.disconnect();
+            if (scrollEl) scrollEl.removeEventListener('scroll', update);
+            window.removeEventListener('resize', update);
+        };
+    }, [selectedBrandId, selectedAppId, apps.length, visibleApps, isBannedView, bannedSlotWidth]);
 
     const selectedApp = useMemo(
         () => apps.find((app) => app.id === selectedAppId) || null,
@@ -618,12 +835,12 @@ function App() {
             );
             setSelectedAppId(nextApp?.id ?? null);
         } else {
-            const firstApp = apps.find((app) => app.brand_id === nextBrand?.id);
+            const firstApp = orderedApps.find((app) => app.brand_id === nextBrand?.id);
             setSelectedAppId(firstApp?.id ?? null);
         }
 
         setHasParsedRoute(true);
-    }, [dataLoading, hasParsedRoute, brands, apps]);
+    }, [dataLoading, hasParsedRoute, brands, apps, orderedApps]);
 
     useEffect(() => {
         if (!hasParsedRoute || dataLoading) return;
@@ -644,14 +861,20 @@ function App() {
     useEffect(() => {
         if (!selectedBrandId) {
             setSelectedAppId(null);
+            setIsBannedView(false);
             return;
         }
 
-        const hasSelected = selectedBrandApps.some((app) => app.id === selectedAppId);
-        if (!hasSelected) {
-            setSelectedAppId(selectedBrandApps[0]?.id ?? null);
+        if (isBannedView && bannedApps.length === 0) {
+            setIsBannedView(false);
+            return;
         }
-    }, [selectedBrandId, selectedBrandApps, selectedAppId]);
+
+        const hasSelected = visibleApps.some((app) => app.id === selectedAppId);
+        if (!hasSelected) {
+            setSelectedAppId(visibleApps[0]?.id ?? null);
+        }
+    }, [selectedBrandId, visibleApps, selectedAppId, isBannedView, bannedApps.length]);
 
     useEffect(() => {
         if (!hasParsedRoute) return;
@@ -1366,7 +1589,7 @@ function App() {
     };
 
     const handleBrandScreenshotUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []);
+        const files: File[] = event.target.files ? Array.from(event.target.files) : [];
         event.target.value = '';
         await uploadBrandScreenshotReferences(files);
     };
@@ -1375,7 +1598,7 @@ function App() {
         event.preventDefault();
         setIsBrandRefDropActive(false);
         if (brandScreenshotsUploading) return;
-        const files = Array.from(event.dataTransfer.files || []);
+        const files: File[] = Array.from(event.dataTransfer.files);
         await uploadBrandScreenshotReferences(files);
     };
 
@@ -1532,7 +1755,7 @@ function App() {
     };
 
     const handleAppScreenshotsUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []);
+        const files: File[] = event.target.files ? Array.from(event.target.files) : [];
         event.target.value = '';
         await uploadAppScreenshots(files);
     };
@@ -1541,7 +1764,7 @@ function App() {
         event.preventDefault();
         setIsScreenshotDropActive(false);
         if (!canUploadAppScreenshots || appScreenshotsUploading) return;
-        const files = Array.from(event.dataTransfer.files || []);
+        const files: File[] = Array.from(event.dataTransfer.files);
         await uploadAppScreenshots(files);
     };
 
@@ -1712,6 +1935,11 @@ function App() {
             return;
         }
 
+        if (!editingAppId && activeApps.length >= MAX_ACTIVE_APPS) {
+            setAppFormError(text('max_active_apps'));
+            return;
+        }
+
         const baseAlias = slugify(appForm.alias || name);
         const existingAliases = apps
             .filter((app) => app.brand_id === selectedBrand.id && app.id !== editingAppId)
@@ -1736,7 +1964,11 @@ function App() {
                 return;
             }
 
-            setApps((prev) => prev.map((app) => (app.id === editingAppId ? data : app)));
+            setApps((prev) =>
+                prev.map((app) =>
+                    app.id === editingAppId ? { ...app, ...data, is_banned: data.is_banned ?? app.is_banned ?? false } : app
+                )
+            );
             setSelectedAppId(data.id);
         } else {
             const { data, error } = await supabase
@@ -1746,6 +1978,7 @@ function App() {
                     alias,
                     brand_id: selectedBrand.id,
                     user_id: session.user.id,
+                    order_index: selectedBrandApps.length,
                 })
                 .select()
                 .single();
@@ -1756,12 +1989,154 @@ function App() {
                 return;
             }
 
-            setApps((prev) => [...prev, data]);
+            setApps((prev) => [...prev, { ...data, is_banned: data.is_banned ?? false }]);
             setSelectedAppId(data.id);
         }
 
         setAppFormLoading(false);
         setAppFormOpen(false);
+    };
+
+    const handleDeleteApp = async () => {
+        if (!session || !editingAppId) return;
+        const confirmed = window.confirm(text('confirm_delete_app'));
+        if (!confirmed) return;
+        setAppFormLoading(true);
+        setAppFormError(null);
+        const { error } = await supabase
+            .from('apps')
+            .delete()
+            .eq('id', editingAppId)
+            .eq('user_id', session.user.id);
+        if (error) {
+            setAppFormError(error.message);
+            setAppFormLoading(false);
+            return;
+        }
+        setApps((prev) => prev.filter((app) => app.id !== editingAppId));
+        setAppScreenshotPrompts((prev) => {
+            const next = { ...prev };
+            delete next[editingAppId];
+            return next;
+        });
+        const remaining = apps.filter((app) => app.brand_id === selectedBrand.id && app.id !== editingAppId);
+        setSelectedAppId(remaining[0]?.id ?? null);
+        setAppFormLoading(false);
+        setAppFormOpen(false);
+        setEditingAppId(null);
+    };
+
+    const updateAppBanStatus = async (appId: string, isBanned: boolean) => {
+        if (!session) return false;
+        setAppFormError(null);
+        const { data, error } = await supabase
+            .from('apps')
+            .update({ is_banned: isBanned })
+            .eq('id', appId)
+            .eq('user_id', session.user.id)
+            .select()
+            .single();
+        if (error) {
+            setAppFormError(error.message);
+            return false;
+        }
+        setApps((prev) =>
+            prev.map((app) =>
+                app.id === appId ? { ...app, is_banned: data?.is_banned ?? isBanned } : app
+            )
+        );
+        return true;
+    };
+
+    const handleBanApp = async (appId: string) => {
+        const ok = await updateAppBanStatus(appId, true);
+        if (!ok) return;
+        setIsBannedView(true);
+        setSelectedAppId(appId);
+    };
+
+    const handleUnbanApp = async (appId: string) => {
+        const wasLastBanned = bannedApps.length === 1 && bannedApps[0]?.id === appId;
+        const ok = await updateAppBanStatus(appId, false);
+        if (!ok) return;
+        if (isBannedView && wasLastBanned) {
+            setIsBannedView(false);
+            setSelectedAppId(visibleActiveApps[0]?.id ?? null);
+        }
+    };
+
+    const reorderBrandApps = async (sourceId: string, targetId: string) => {
+        if (!selectedBrandId || sourceId === targetId) return;
+        const brandApps = orderedApps.filter((app) => app.brand_id === selectedBrandId);
+        const sourceIndex = brandApps.findIndex((app) => app.id === sourceId);
+        const targetIndex = brandApps.findIndex((app) => app.id === targetId);
+        if (sourceIndex === -1 || targetIndex === -1) return;
+
+        const nextBrandApps = [...brandApps];
+        const [moved] = nextBrandApps.splice(sourceIndex, 1);
+        nextBrandApps.splice(targetIndex, 0, moved);
+        const orderMap = new Map(nextBrandApps.map((app, index) => [app.id, index]));
+
+        setApps((prev) =>
+            prev.map((app) =>
+                app.brand_id === selectedBrandId && orderMap.has(app.id)
+                    ? { ...app, order_index: orderMap.get(app.id) ?? app.order_index ?? 0 }
+                    : app
+            )
+        );
+
+        if (!session) return;
+        const updates = nextBrandApps.map((app, index) =>
+            supabase
+                .from('apps')
+                .update({ order_index: index })
+                .eq('id', app.id)
+                .eq('user_id', session.user.id)
+        );
+        const results = await Promise.all(updates);
+        const firstError = results.find((result) => result.error)?.error;
+        if (firstError) {
+            setAppFormError(firstError.message);
+        }
+    };
+
+    const handleAppPillPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (isAppReorderMode) return;
+        const scrollEl = appPillScrollRef.current;
+        if (!scrollEl) return;
+        appPillPanRef.current = {
+            active: true,
+            startX: event.clientX,
+            scrollLeft: scrollEl.scrollLeft,
+            didDrag: false,
+            lastDragTime: appPillPanRef.current.lastDragTime,
+        };
+    };
+
+    const handleAppPillPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (isAppReorderMode) return;
+        const scrollEl = appPillScrollRef.current;
+        if (!scrollEl || !appPillPanRef.current.active) return;
+        const delta = event.clientX - appPillPanRef.current.startX;
+        if (!appPillPanRef.current.didDrag && Math.abs(delta) < 6) return;
+        if (!appPillPanRef.current.didDrag) {
+            appPillPanRef.current.didDrag = true;
+            setIsAppPillPanning(true);
+        }
+        scrollEl.scrollLeft = appPillPanRef.current.scrollLeft - delta;
+        event.preventDefault();
+    };
+
+    const handleAppPillPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (isAppReorderMode) return;
+        const scrollEl = appPillScrollRef.current;
+        if (!scrollEl) return;
+        if (appPillPanRef.current.didDrag) {
+            appPillPanRef.current.lastDragTime = Date.now();
+        }
+        appPillPanRef.current.active = false;
+        appPillPanRef.current.didDrag = false;
+        setIsAppPillPanning(false);
     };
 
     const brandSlugPreview = slugify(brandForm.name || '');
@@ -1774,6 +2149,9 @@ function App() {
     );
     const canGenerateIcon = Boolean(selectedApp && selectedBrand && brandIconReference);
     const canGenerateScreenshots = Boolean(selectedApp && selectedBrand);
+    const isEditingBanned = Boolean(editingAppId && bannedAppIdSet.has(editingAppId));
+    const isAppReorderMode = appFormOpen;
+    const isTabMotionDisabled = isAppReorderMode || isAppPillPanning || Boolean(draggingAppId);
     const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
     const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
     const getSlotMapping = (slotIndex: number) => {
@@ -1835,6 +2213,35 @@ function App() {
                 >
                     {appFormLoading ? text('saving') : editingAppId ? text('update_app') : text('create_app')}
                 </button>
+                {editingAppId && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (isEditingBanned) {
+                                handleUnbanApp(editingAppId);
+                            } else {
+                                handleBanApp(editingAppId);
+                            }
+                        }}
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+                            isEditingBanned
+                                ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
+                                : 'border-rose-400/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20'
+                        }`}
+                    >
+                        {isEditingBanned ? text('unban_app') : text('ban_app')}
+                    </button>
+                )}
+                {editingAppId && (
+                    <button
+                        type="button"
+                        onClick={handleDeleteApp}
+                        disabled={appFormLoading}
+                        className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+                    >
+                        {text('delete_app')}
+                    </button>
+                )}
                 <button
                     type="button"
                     onClick={() => setAppFormOpen(false)}
@@ -1907,17 +2314,15 @@ function App() {
                         >
                             {(() => {
                                 const variants = [
-                                    <LetterSwapForward key="v1" label={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
-                                    <LetterSwapPingPong key="v2" label={logoWord} staggerFrom="center" className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
+                                    <LetterSwapForward label={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
+                                    <LetterSwapPingPong label={logoWord} staggerFrom="center" className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
                                     <VariableFontHoverByRandomLetter
-                                        key="v3"
                                         label={logoWord}
                                         className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
                                         fromFontVariationSettings="'wght' 300, 'slnt' 0"
                                         toFontVariationSettings="'wght' 900, 'slnt' 0"
                                     />,
                                     <VariableFontCursorProximity
-                                        key="v4"
                                         label={logoWord}
                                         className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
                                         fromFontVariationSettings="'wght' 300, 'slnt' 0"
@@ -1927,14 +2332,13 @@ function App() {
                                         containerRef={logoContainerRef}
                                     />,
                                     <BreathingText
-                                        key="v5"
                                         className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
                                         fromFontVariationSettings="'wght' 260, 'slnt' 0"
                                         toFontVariationSettings="'wght' 820, 'slnt' -8"
                                     >
                                         {logoWord}
                                     </BreathingText>,
-                                    <ScrambleHover key="v6" text={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" scrambleSpeed={45} maxIterations={8} />,
+                                    <ScrambleHover text={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" scrambleSpeed={45} maxIterations={8} />,
                                 ];
 
                                 return variants[logoVariantIndex] ?? variants[0];
@@ -2250,6 +2654,7 @@ function App() {
                             )}
 
                             {selectedBrand && (
+                                <>
                                 <div className="space-y-6">
                                     <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_26px_70px_-60px_rgba(15,23,42,0.9)] p-5">
                                         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -2385,18 +2790,50 @@ function App() {
                                         </div>
                                     </section>
 
-                                    <div className="space-y-5">
-                                        <section className="rounded-[22px] bg-slate-800/45 ring-1 ring-indigo-400/20 p-3">
-                                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('apps')}</p>
-                                                    <p className="text-xs text-indigo-200/60">{text('switch_fast_between_products')}</p>
-                                                </div>
-                                                <div className="flex items-center gap-2">
+                                    <div ref={appFolderWrapRef} className="relative mt-[5px]">
+                                        <GooeySvgFilter id="app-gooey-filter" strength={6} />
+                                        <div
+                                            className="app-folder-layer"
+                                            style={{
+                                                filter: gooeyDebug ? 'none' : 'url(#app-gooey-filter)',
+                                                opacity: appFolderLayout.bodyHeight ? 1 : 0,
+                                            }}
+                                            aria-hidden="true"
+                                        >
+                                            <div className="app-folder-curtain" style={{ clipPath: appFolderLayout.clipPath }}>
+                                                <div
+                                                className={`app-folder-body ${gooeyDebug ? 'gooey-debug-outline' : ''} ${isTabMotionDisabled ? 'is-static' : ''}`}
+                                                    style={{
+                                                        top: appFolderLayout.bodyTop,
+                                                        height: appFolderLayout.bodyHeight,
+                                                        background: appFolderTheme,
+                                                        borderRadius: bodyCornerRadius,
+                                                    }}
+                                                />
+                                                <div
+                                            className={`app-folder-tab ${appSwitching ? 'is-active' : ''} ${isFirstApp ? 'is-left' : ''} ${gooeyDebug ? 'gooey-debug-outline tab' : ''} ${isTabMotionDisabled ? 'is-static' : ''}`}
+                                                    style={{
+                                                        top: appFolderLayout.tabTop,
+                                                        left: appFolderLayout.tabLeft,
+                                                        width: appFolderLayout.tabWidth,
+                                                        height: appFolderLayout.tabHeight,
+                                                        background: appFolderTheme,
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="relative z-10 space-y-5">
+                                            <section ref={appPickerRef} className="app-folder-section px-3 pt-1 pb-2">
+                                            <div className="flex items-center justify-end gap-2">
                                                     {selectedApp && (
                                                         <button
                                                             type="button"
                                                             onClick={() => openAppForm(selectedApp)}
+                                                            onDoubleClick={() => {
+                                                                setAppFormOpen(false);
+                                                                setEditingAppId(null);
+                                                                setAppFormError(null);
+                                                            }}
                                                             className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                                                         >
                                                             <Pencil size={11} />
@@ -2405,49 +2842,140 @@ function App() {
                                                     )}
                                                     <button
                                                         onClick={() => openAppForm()}
-                                                        className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-2.5 py-1 text-[10px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30"
+                                                        disabled={!canAddApp}
+                                                        className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold border ${
+                                                            canAddApp
+                                                                ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                                                : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
+                                                        }`}
                                                     >
                                                         <Plus size={12} />
                                                         {text('add_app')}
                                                     </button>
-                                                </div>
                                             </div>
 
-                                            {!selectedBrandApps.length ? (
-                                                <p className="mt-3 text-sm text-indigo-200/60">{text('no_apps_yet')}</p>
+                                            {!visibleApps.length && !showBannedToggle ? (
+                                                <p className="mt-2 text-sm text-indigo-200/60">{text('no_apps_yet')}</p>
                                             ) : (
-                                                <div className="mt-3 rounded-2xl border border-white/5 bg-slate-900/30 p-2">
-                                                    <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label={text('apps')}>
-                                                        {selectedBrandApps.map((app) => {
+                                                <div
+                                                    ref={appPillRowRef}
+                                                    className="mt-1 h-16 rounded-2xl border border-transparent bg-transparent px-0 py-0 relative"
+                                                >
+                                                    <div className="w-full" style={showBannedToggle ? { paddingRight: bannedSlotWidth } : undefined}>
+                                                        <div
+                                                            ref={appPillScrollRef}
+                                                            className={`flex gap-2 overflow-x-auto pb-1 select-none ${
+                                                                isAppReorderMode ? '' : 'cursor-grab'
+                                                            } ${isAppPillPanning ? 'cursor-grabbing' : ''}`}
+                                                            role="tablist"
+                                                            aria-label={text('apps')}
+                                                            onPointerDown={handleAppPillPointerDown}
+                                                            onPointerMove={handleAppPillPointerMove}
+                                                            onPointerUp={handleAppPillPointerEnd}
+                                                            onPointerLeave={handleAppPillPointerEnd}
+                                                            onPointerCancel={handleAppPillPointerEnd}
+                                                        >
+                                                        {visibleApps.map((app, index) => {
                                                             const isActive = app.id === selectedAppId;
+                                                            const isFirst = index === 0;
+                                                            const isDragTarget = dragOverAppId === app.id && draggingAppId !== app.id;
+                                                            const displayName =
+                                                                app.name.length > 10 ? `${app.name.slice(0, 10).trimEnd()}…` : app.name;
+                                                            const firstShiftClass = isFirst ? '-translate-x-3' : '';
+                                                            const firstGapClass = isFirst ? '-mr-3' : '';
                                                             return (
                                                                 <button
                                                                     key={app.id}
                                                                     role="tab"
                                                                     aria-selected={isActive}
-                                                                    onClick={() => setSelectedAppId(app.id)}
-                                                                    className={`shrink-0 min-w-[170px] rounded-2xl border px-3 py-2 text-left transition ${
+                                                                    onClick={() => {
+                                                                        if (Date.now() - appPillPanRef.current.lastDragTime < 250) {
+                                                                            return;
+                                                                        }
+                                                                        setSelectedAppId(app.id);
+                                                                    }}
+                                                                    ref={(el) => {
+                                                                        if (isActive) appActivePillRef.current = el;
+                                                                    }}
+                                                                    draggable={isAppReorderMode}
+                                                                    onDragStart={(event) => {
+                                                                        if (!isAppReorderMode) return;
+                                                                        event.dataTransfer.effectAllowed = 'move';
+                                                                        event.dataTransfer.setData('text/plain', app.id);
+                                                                        setDraggingAppId(app.id);
+                                                                    }}
+                                                                    onDragEnd={() => {
+                                                                        if (!isAppReorderMode) return;
+                                                                        setDraggingAppId(null);
+                                                                        setDragOverAppId(null);
+                                                                    }}
+                                                                    onDragOver={(event) => {
+                                                                        if (!isAppReorderMode) return;
+                                                                        event.preventDefault();
+                                                                        setDragOverAppId(app.id);
+                                                                    }}
+                                                                    onDrop={(event) => {
+                                                                        if (!isAppReorderMode) return;
+                                                                        event.preventDefault();
+                                                                        const sourceId = draggingAppId || event.dataTransfer.getData('text/plain');
+                                                                        if (!sourceId || sourceId === app.id) return;
+                                                                        reorderBrandApps(sourceId, app.id);
+                                                                        setDraggingAppId(null);
+                                                                        setDragOverAppId(null);
+                                                                    }}
+                                                                    style={{ width: tabButtonWidth || undefined, height: tabButtonHeight || undefined }}
+                                                                    className={`shrink-0 rounded-2xl border px-0 py-0 text-center transition flex flex-col items-center justify-center gap-0.5 leading-none relative ${firstGapClass} ${
                                                                         isActive
-                                                                            ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
-                                                                            : 'border-white/10 bg-slate-950/30 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
-                                                                    }`}
+                                                                            ? 'border-transparent bg-transparent shadow-none text-indigo-100'
+                                                                            : 'border-transparent bg-transparent text-indigo-200/70 hover:text-white'
+                                                                    } ${isDragTarget ? 'ring-1 ring-indigo-400/40' : ''}`}
                                                                 >
-                                                                    <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-indigo-200/60">
-                                                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.2em] ${
-                                                                            isActive ? 'bg-indigo-400/30 text-indigo-100' : 'bg-slate-900/50 text-indigo-200/70'
-                                                                        }`}>
+                                                                    <div className={`flex w-full items-center justify-center text-[10px] uppercase tracking-[0.2em] text-indigo-200/60 leading-none ${firstShiftClass}`}>
+                                                                        <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.2em] text-indigo-200/70">
                                                                             {app.alias.toUpperCase()}
                                                                         </span>
-                                                                        {isActive && (
-                                                                            <span className="text-[10px] font-semibold text-indigo-100">{text('active')}</span>
-                                                                        )}
                                                                     </div>
-                                                                    <div className="mt-1 text-sm font-semibold text-white">{app.name}</div>
-                                                                    <div className="text-[10px] text-indigo-200/50">/{selectedBrand?.slug}/{app.alias}</div>
+                                                                    <div className={`w-full text-center text-sm font-semibold text-white leading-none ${firstShiftClass}`}>{displayName}</div>
+                                                                    {isAppReorderMode && (
+                                                                        <span className="absolute right-1 top-1 text-indigo-200/50">
+                                                                            <GripVertical size={12} />
+                                                                        </span>
+                                                                    )}
                                                                 </button>
                                                             );
                                                         })}
+                                                        </div>
                                                     </div>
+                                                    {showBannedToggle && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (Date.now() - appPillPanRef.current.lastDragTime < 250) {
+                                                                    return;
+                                                                }
+                                                                if (isBannedView) {
+                                                                    setIsBannedView(false);
+                                                                    setSelectedAppId(visibleActiveApps[0]?.id ?? null);
+                                                                } else {
+                                                                    setIsBannedView(true);
+                                                                    setSelectedAppId(bannedApps[0]?.id ?? null);
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                width: tabButtonWidth || 120,
+                                                                height: tabButtonHeight ? Math.max(28, Math.round(tabButtonHeight * 0.55)) : 32,
+                                                            }}
+                                                            className={`absolute right-0 top-1/2 -translate-y-1/2 rounded-2xl border px-0 py-0 text-center transition flex items-center justify-center leading-none ${
+                                                                isBannedView
+                                                                    ? 'border-indigo-400/40 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25'
+                                                                    : 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'
+                                                            }`}
+                                                        >
+                                                            <span className="text-[10px] uppercase tracking-[0.22em] text-current leading-none">
+                                                                {isBannedView ? text('active_apps') : text('banned_apps')}
+                                                            </span>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -2468,141 +2996,146 @@ function App() {
                                             )}
                                         </section>
 
-                                        <section className="rounded-[26px] bg-slate-800/45 ring-1 ring-white/5 p-5">
-                                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                                <div>
-                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
-                                                    <p className="text-xs text-indigo-200/60">{text('simulator_screenshots_subtitle')}</p>
-                                                </div>
-                                                <span className="text-[11px] text-indigo-200/60">{text('drag_to_reorder')}</span>
-                                            </div>
-
-                                            {!selectedApp ? (
-                                                <p className="mt-4 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
-                                            ) : (
-                                                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                                        <div
+                                            ref={appFolderContentRef}
+                                            className="app-folder-content space-y-5"
+                                            style={{ borderRadius: bodyCornerRadius, overflow: 'hidden' }}
+                                        >
+                                            <section ref={appSimulatorRef} className="app-folder-section p-5">
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
                                                     <div>
-                                                        {selectedAppScreenshots.length === 0 ? (
-                                                            <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-sm text-indigo-200/60">
-                                                                {text('no_screenshots_yet')}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                                                                {selectedAppScreenshots.map((shot, index) => {
-                                                                    const isDragTarget = dragOverShotId === shot.id && draggingShotId !== shot.id;
-                                                                    return (
-                                                                        <div
-                                                                            key={shot.id}
-                                                                            draggable
-                                                                            onDragStart={(event) => {
-                                                                                event.dataTransfer.effectAllowed = 'move';
-                                                                                event.dataTransfer.setData('text/plain', shot.id);
-                                                                                setDraggingShotId(shot.id);
-                                                                            }}
-                                                                            onDragEnd={() => {
-                                                                                setDraggingShotId(null);
-                                                                                setDragOverShotId(null);
-                                                                            }}
-                                                                            onDragOver={(event) => {
-                                                                                event.preventDefault();
-                                                                                setDragOverShotId(shot.id);
-                                                                            }}
-                                                                            onDrop={(event) => {
-                                                                                event.preventDefault();
-                                                                                const draggedId = event.dataTransfer.getData('text/plain');
-                                                                                const fromIndex = selectedAppScreenshots.findIndex((item) => item.id === draggedId);
-                                                                                const toIndex = selectedAppScreenshots.findIndex((item) => item.id === shot.id);
-                                                                                if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
-                                                                                    handleReorderAppScreenshot(fromIndex, toIndex);
-                                                                                }
-                                                                                setDraggingShotId(null);
-                                                                                setDragOverShotId(null);
-                                                                            }}
-                                                                            className={`mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5 cursor-grab active:cursor-grabbing ${
-                                                                                isDragTarget ? 'ring-indigo-400/60 bg-indigo-500/10' : ''
-                                                                            }`}
-                                                                        >
-                                                                            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
-                                                                                {appScreenshotUrls[shot.id] ? (
-                                                                                    <img
-                                                                                        src={appScreenshotUrls[shot.id]}
-                                                                                        alt={`${text('screenshot')} ${index + 1}`}
-                                                                                        className="h-full w-full object-cover cursor-zoom-in"
-                                                                                        loading="lazy"
-                                                                                        decoding="async"
-                                                                                        onClick={() => openLightbox(appScreenshotUrls[shot.id], `${text('screenshot')} ${index + 1}`)}
-                                                                                    />
-                                                                                ) : (
-                                                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
-                                                                                <div className="inline-flex items-center gap-1">
-                                                                                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
-                                                                                        {index + 1}
-                                                                                    </span>
-                                                                                    <GripVertical size={12} />
-                                                                                </div>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => handleDeleteAppScreenshot(shot)}
-                                                                                    className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                                                    aria-label={text('delete')}
-                                                                                >
-                                                                                    <Trash2 size={10} />
-                                                                                </button>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
+                                                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
+                                                        <p className="text-xs text-indigo-200/60">{text('simulator_screenshots_subtitle')}</p>
                                                     </div>
-                                                    <div>
-                                                        <div
-                                                            onDragOver={handleScreenshotDragOver}
-                                                            onDragLeave={handleScreenshotDragLeave}
-                                                            onDrop={handleScreenshotDrop}
-                                                            className={`flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-5 text-center transition ${
-                                                                isScreenshotDropActive
-                                                                    ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
-                                                                    : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
-                                                            } ${canUploadAppScreenshots ? '' : 'opacity-60 pointer-events-none'}`}
-                                                        >
-                                                            <ImagePlus size={24} />
-                                                            <div className="text-sm font-semibold">{text('drop_screenshots_title')}</div>
-                                                            <label
-                                                                htmlFor="app-screenshots-upload"
-                                                                className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                                    <span className="text-[11px] text-indigo-200/60">{text('drag_to_reorder')}</span>
+                                                </div>
+
+                                                {!selectedApp ? (
+                                                    <p className="mt-4 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
+                                                ) : (
+                                                    <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                                                        <div>
+                                                            {selectedAppScreenshots.length === 0 ? (
+                                                                <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-sm text-indigo-200/60">
+                                                                    {text('no_screenshots_yet')}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                                                                    {selectedAppScreenshots.map((shot, index) => {
+                                                                        const isDragTarget = dragOverShotId === shot.id && draggingShotId !== shot.id;
+                                                                        return (
+                                                                            <div
+                                                                                key={shot.id}
+                                                                                draggable
+                                                                                onDragStart={(event) => {
+                                                                                    event.dataTransfer.effectAllowed = 'move';
+                                                                                    event.dataTransfer.setData('text/plain', shot.id);
+                                                                                    setDraggingShotId(shot.id);
+                                                                                }}
+                                                                                onDragEnd={() => {
+                                                                                    setDraggingShotId(null);
+                                                                                    setDragOverShotId(null);
+                                                                                }}
+                                                                                onDragOver={(event) => {
+                                                                                    event.preventDefault();
+                                                                                    setDragOverShotId(shot.id);
+                                                                                }}
+                                                                                onDrop={(event) => {
+                                                                                    event.preventDefault();
+                                                                                    const draggedId = event.dataTransfer.getData('text/plain');
+                                                                                    const fromIndex = selectedAppScreenshots.findIndex((item) => item.id === draggedId);
+                                                                                    const toIndex = selectedAppScreenshots.findIndex((item) => item.id === shot.id);
+                                                                                    if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
+                                                                                        handleReorderAppScreenshot(fromIndex, toIndex);
+                                                                                    }
+                                                                                    setDraggingShotId(null);
+                                                                                    setDragOverShotId(null);
+                                                                                }}
+                                                                                className={`mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5 cursor-grab active:cursor-grabbing ${
+                                                                                    isDragTarget ? 'ring-indigo-400/60 bg-indigo-500/10' : ''
+                                                                                }`}
+                                                                            >
+                                                                                <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
+                                                                                    {appScreenshotUrls[shot.id] ? (
+                                                                                        <img
+                                                                                            src={appScreenshotUrls[shot.id]}
+                                                                                            alt={`${text('screenshot')} ${index + 1}`}
+                                                                                            className="h-full w-full object-cover cursor-zoom-in"
+                                                                                            loading="lazy"
+                                                                                            decoding="async"
+                                                                                            onClick={() => openLightbox(appScreenshotUrls[shot.id], `${text('screenshot')} ${index + 1}`)}
+                                                                                        />
+                                                                                    ) : (
+                                                                                        <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
+                                                                                    <div className="inline-flex items-center gap-1">
+                                                                                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                                                                                            {index + 1}
+                                                                                        </span>
+                                                                                        <GripVertical size={12} />
+                                                                                    </div>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleDeleteAppScreenshot(shot)}
+                                                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                                        aria-label={text('delete')}
+                                                                                    >
+                                                                                        <Trash2 size={10} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <div
+                                                                onDragOver={handleScreenshotDragOver}
+                                                                onDragLeave={handleScreenshotDragLeave}
+                                                                onDrop={handleScreenshotDrop}
+                                                                className={`flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-5 text-center transition ${
+                                                                    isScreenshotDropActive
+                                                                        ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
+                                                                        : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
+                                                                } ${canUploadAppScreenshots ? '' : 'opacity-60 pointer-events-none'}`}
                                                             >
-                                                                {appScreenshotsUploading ? text('uploading') : text('upload_screenshots')}
-                                                            </label>
-                                                            <input
-                                                                id="app-screenshots-upload"
-                                                                type="file"
-                                                                accept="image/png,image/jpeg"
-                                                                multiple
-                                                                className="hidden"
-                                                                onChange={handleAppScreenshotsUpload}
-                                                                disabled={!canUploadAppScreenshots || appScreenshotsUploading}
-                                                            />
+                                                                <ImagePlus size={24} />
+                                                                <div className="text-sm font-semibold">{text('drop_screenshots_title')}</div>
+                                                                <label
+                                                                    htmlFor="app-screenshots-upload"
+                                                                    className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                                                >
+                                                                    {appScreenshotsUploading ? text('uploading') : text('upload_screenshots')}
+                                                                </label>
+                                                                <input
+                                                                    id="app-screenshots-upload"
+                                                                    type="file"
+                                                                    accept="image/png,image/jpeg"
+                                                                    multiple
+                                                                    className="hidden"
+                                                                    onChange={handleAppScreenshotsUpload}
+                                                                    disabled={!canUploadAppScreenshots || appScreenshotsUploading}
+                                                                />
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            )}
-                                            <p className="mt-3 text-[11px] text-indigo-200/60">{text('upload_rules_note')}</p>
-                                        </section>
+                                                )}
+                                                <p className="mt-3 text-[11px] text-indigo-200/60">{text('upload_rules_note')}</p>
+                                            </section>
 
-                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
-                                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                                <div>
-                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generation')}</p>
-                                                    <p className="text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
+                                            <section ref={appGenerationRef} className="app-folder-section border-t border-indigo-900/30 p-6">
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generation')}</p>
+                                                        <p className="text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
+                                                    </div>
+                                                    <div className="text-[11px] text-indigo-200/60">{text('versions_limit_note')}</div>
                                                 </div>
-                                                <div className="text-[11px] text-indigo-200/60">{text('versions_limit_note')}</div>
-                                            </div>
 
-                                            <div className="mt-5 space-y-4">
+                                                <div className="mt-5 space-y-4">
                                                 <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div>
@@ -2812,7 +3345,11 @@ function App() {
                                                             <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_empty')}</p>
                                                         ) : (
                                                             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                                                {brandScreenshotReferences.map((ref, index) => (
+                                                                {brandScreenshotReferences.map((ref, index) => {
+                                                                    const promptValue = selectedAppId
+                                                                        ? appScreenshotPrompts[selectedAppId]?.[ref.id] ?? ''
+                                                                        : '';
+                                                                    return (
                                                                     <div
                                                                         key={ref.id}
                                                                         className="rounded-xl border border-indigo-900/40 bg-slate-900/30 p-2 space-y-2"
@@ -2821,16 +3358,19 @@ function App() {
                                                                             {text('reference_short')} {index + 1}
                                                                         </div>
                                                                         <textarea
-                                                                            value={ref.prompt ?? ''}
-                                                                            onChange={(event) => handleBrandPromptChange(ref.id, event.target.value)}
+                                                                            value={promptValue}
+                                                                            onChange={(event) => {
+                                                                                if (!selectedAppId) return;
+                                                                                updateAppScreenshotPrompt(selectedAppId, ref.id, event.target.value);
+                                                                            }}
                                                                             onInput={handleAutoGrowInput}
-                                                                            onBlur={(event) => handleBrandPromptSave(ref.id, event.target.value)}
                                                                             placeholder={text('prompt_placeholder')}
                                                                             rows={2}
                                                                             className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                                                         />
                                                                     </div>
-                                                                ))}
+                                                                );
+                                                                })}
                                                             </div>
                                                         )}
                                                     </div>
@@ -2838,7 +3378,8 @@ function App() {
                                             </div>
                                         </section>
 
-                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
+                                        <div className="space-y-6 mt-6" ref={appFolderEndRef}>
+                                            <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
                                                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
@@ -3127,7 +3668,7 @@ function App() {
                                             )}
                                         </section>
 
-                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
+                                            <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
                                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_data_placeholder')}</p>
                                             <div className="mt-3 space-y-2 text-xs text-indigo-200/70">
                                                 {[
@@ -3150,12 +3691,16 @@ function App() {
                                             </div>
                                         </section>
 
-                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6">
+                                        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
                                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('dev_files_placeholder')}</p>
                                             <p className="mt-3 text-sm text-indigo-200/60">{text('dev_files_subtitle')}</p>
                                         </section>
                                     </div>
                                 </div>
+                                </div>
+                            </div>
+                        </div>
+                                </>
                             )}
                         </div>
                     </div>

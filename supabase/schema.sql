@@ -18,6 +18,8 @@ create table if not exists public.apps (
     brand_id uuid not null references public.brands(id) on delete cascade,
     name text not null,
     alias text not null,
+    is_banned boolean not null default false,
+    order_index integer,
     created_at timestamptz not null default now()
 );
 
