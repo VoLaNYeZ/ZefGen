@@ -1,4 +1,11 @@
 -- ZefGen v1 schema (brands, apps, references, app screenshots, generated assets)
+-- CHANGELOG RULES (FOR AI/ASSISTANTS)
+-- 1) Any new table/index/policy must be preceded by a short comment block that includes:
+--    - Purpose of the change (1 line).
+--    - Timestamp in YYYY-MM-DD format.
+-- 2) Do not edit existing objects silently; add a note comment above the change.
+-- Example:
+-- -- Added app_screenshot_prompts for per-app prompt persistence. (2026-02-05)
 create extension if not exists "pgcrypto";
 
 create table if not exists public.brands (
@@ -42,6 +49,21 @@ create index if not exists brand_references_user_id_idx on public.brand_referenc
 create index if not exists brand_references_brand_id_idx on public.brand_references (brand_id);
 create unique index if not exists brand_references_one_icon_per_brand on public.brand_references (brand_id) where kind = 'icon';
 
+create table if not exists public.app_screenshot_prompts (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users(id) on delete cascade,
+    brand_id uuid not null references public.brands(id) on delete cascade,
+    app_id uuid not null references public.apps(id) on delete cascade,
+    brand_reference_id uuid not null references public.brand_references(id) on delete cascade,
+    prompt text not null default '',
+    updated_at timestamptz not null default now()
+);
+
+create unique index if not exists app_screenshot_prompts_app_ref_key on public.app_screenshot_prompts (app_id, brand_reference_id);
+create index if not exists app_screenshot_prompts_user_id_idx on public.app_screenshot_prompts (user_id);
+create index if not exists app_screenshot_prompts_brand_id_idx on public.app_screenshot_prompts (brand_id);
+create index if not exists app_screenshot_prompts_app_id_idx on public.app_screenshot_prompts (app_id);
+
 create table if not exists public.app_screenshots (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
@@ -81,6 +103,7 @@ create index if not exists app_generated_assets_slot_idx on public.app_generated
 alter table public.brands enable row level security;
 alter table public.apps enable row level security;
 alter table public.brand_references enable row level security;
+alter table public.app_screenshot_prompts enable row level security;
 alter table public.app_screenshots enable row level security;
 alter table public.app_generated_assets enable row level security;
 
@@ -109,6 +132,15 @@ create policy "brand_refs_insert_own" on public.brand_references
 create policy "brand_refs_update_own" on public.brand_references
     for update using (auth.uid() = user_id);
 create policy "brand_refs_delete_own" on public.brand_references
+    for delete using (auth.uid() = user_id);
+
+create policy "app_screenshot_prompts_select_own" on public.app_screenshot_prompts
+    for select using (auth.uid() = user_id);
+create policy "app_screenshot_prompts_insert_own" on public.app_screenshot_prompts
+    for insert with check (auth.uid() = user_id);
+create policy "app_screenshot_prompts_update_own" on public.app_screenshot_prompts
+    for update using (auth.uid() = user_id);
+create policy "app_screenshot_prompts_delete_own" on public.app_screenshot_prompts
     for delete using (auth.uid() = user_id);
 
 create policy "app_screenshots_select_own" on public.app_screenshots
