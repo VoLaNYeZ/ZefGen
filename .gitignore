@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
 
 # Editor directories and files
 .vscode/*
@@ -24,3 +26,12 @@ dist-ssr
 *.sw?
 
 supabase/.temp/
+
+# Tooling caches / outputs
+coverage/
+.vercel/
+.turbo/
+.cache/
+*.tsbuildinfo
+playwright-report/
+test-results/
