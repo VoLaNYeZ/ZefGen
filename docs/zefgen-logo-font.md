@@ -1,41 +1,21 @@
-# ZefGen Sidebar Title Font — Logic & Requirements
+# ZefGen Sidebar Title Hover Effect — Logic & Requirements
 
-> Target: sidebar title "ZefGen" (see screenshot). This describes the font setup, hover animation, and the minimal structure you need to recreate it in another project.
+> Target: sidebar title "ZefGen" (see screenshot). This describes the hover animation and the minimal structure you need to recreate it in another project.
 
 ## What It Is
-- **Font:** `NexoverDemo-Regular.otf`
+- **Font:** default app font (Manrope). Optional: add a custom logo font if you want.
 - **Effect:** per‑letter “bubble” on hover using `scaleX` with staggered delay.
 - **Usage:** sidebar title / logo word.
 
 ## Required Assets
-1. **Font file**
-   - `NexoverDemo-Regular.otf`
-   - In the current project it sits at the repo root and is referenced from `index.css` using `url('./NexoverDemo-Regular.otf')`.
-
-2. **CSS classes**
-   - `.font-nexover`
+1. **CSS classes**
    - `.logo-wrap`, `.logo-word`, `.logo-word span`
 
-3. **Markup structure**
+2. **Markup structure**
    - Each letter must be wrapped in its own `<span>`.
    - Each span must have `--char-index` for staggered delay.
 
 ## Current Implementation (Summary)
-**Font face** (from `index.css`):
-```css
-@font-face {
-  font-family: 'NexoverDemo';
-  src: url('./NexoverDemo-Regular.otf') format('opentype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-.font-nexover {
-  font-family: 'NexoverDemo', 'Manrope', sans-serif;
-}
-```
-
 **Logo/hover effect** (from `index.css`):
 ```css
 .logo-wrap {
@@ -68,7 +48,7 @@
 
 **React markup** (from `App.tsx`):
 ```tsx
-<h1 className="text-2xl font-semibold text-white font-nexover logo-word select-none">
+<h1 className="text-2xl font-semibold text-white logo-word select-none">
   {Array.from('ZefGen').map((char, index) => (
     <span key={`${char}-${index}`} style={{ ['--char-index' as any]: index }}>
       {char}
@@ -78,18 +58,13 @@
 ```
 
 ## Requirements Checklist (For a New Project)
-- [ ] `NexoverDemo-Regular.otf` is available in the path referenced by CSS.
-- [ ] `@font-face` for `NexoverDemo` is defined.
-- [ ] `font-nexover` class is applied to the word.
 - [ ] Each character is wrapped in a `<span>`.
 - [ ] Each `<span>` has `--char-index` (0..n) for stagger.
 - [ ] CSS for `.logo-wrap`, `.logo-word`, `.logo-word span` and `logo-letter-bubble` is present.
 
 ## Common Pitfalls
-- **Font not found:** If you move the font to `public/` or `assets/`, update the `url()` path.
 - **No stagger:** If `--char-index` is missing, all letters animate together.
 - **No animation:** If `display: inline-block` is missing on spans, transform won’t show.
-- **Bundler path issues:** Some setups require `url('/NexoverDemo-Regular.otf')` if served from `public/`.
 
 ## Suggested Defaults (Sidebar Title)
 - Font size: `text-2xl` (Tailwind) or ~24px.
@@ -99,7 +74,6 @@
 - Duration: `620ms` total.
 
 ## Status Check for This Repo
-✅ Font file exists: `NexoverDemo-Regular.otf` (root)
 ✅ CSS present in `index.css`
 ✅ Markup uses per‑letter spans with `--char-index` in `App.tsx`
 
@@ -251,13 +225,13 @@ return variants[pick]();
 ```
 
 ## Option B — Randomize only variants that don’t need variable font
-If you want to keep **Nexover** (non‑variable) as the font.
+If you want to keep a non-variable font (e.g. the default sans).
 
 ```tsx
 const variants = [
-  () => <LetterSwapForward label="ZefGen" className="font-nexover" />,
-  () => <LetterSwapPingPong label="ZefGen" className="font-nexover" />,
-  () => <ScrambleHover text="ZefGen" className="font-nexover" />,
+  () => <LetterSwapForward label="ZefGen" className="font-sans" />,
+  () => <LetterSwapPingPong label="ZefGen" className="font-sans" />,
+  () => <ScrambleHover text="ZefGen" className="font-sans" />,
 ];
 ```
 

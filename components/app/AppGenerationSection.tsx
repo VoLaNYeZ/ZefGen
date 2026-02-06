@@ -1,8 +1,18 @@
 import React from 'react';
 import { Download, Trash2 } from 'lucide-react';
-import type { AppItem, AppScreenshot, BrandReference, EditState, GeneratedAsset, TextLayer } from '../../types/zefgen';
+import type {
+    AppItem,
+    AppScreenshot,
+    BrandReference,
+    EditState,
+    GeneratedAsset,
+    ScreenshotProviderId,
+    TextLayer,
+} from '../../types/zefgen';
 import { TranslationKey } from '../../i18n';
 import { EditPanel } from './EditPanel';
+import { TextLayersCanvasOverlay } from './TextLayersCanvasOverlay';
+import { ConfirmIconButton } from './ConfirmIconButton';
 
 type GeneratedSlot = {
     slotIndex: number;
@@ -14,25 +24,43 @@ type AppGenerationSectionProps = {
     brandIconReference: BrandReference | null;
     brandScreenshotReferences: BrandReference[];
     selectedAppScreenshots: AppScreenshot[];
-    generatedIcon: GeneratedAsset | null;
+    generatedIconSlots: GeneratedSlot[];
+    enhancedIconSlots: GeneratedSlot[];
     generatedScreenshotSlots: GeneratedSlot[];
+    enhancedScreenshotSlots: GeneratedSlot[];
+    generatedPreviewUrls: Record<string, string>;
     generatedUrls: Record<string, string>;
     generationCount: number;
     setGenerationCount: (value: number) => void;
     generationSize: '6.5' | '6.9';
     setGenerationSize: (value: '6.5' | '6.9') => void;
     iconGenerating: boolean;
+    iconSlotGenerating: number | null;
+    enhanceIconSlotGenerating: number | null;
     screenshotsGenerating: boolean;
     slotGenerating: number | null;
+    enhanceSlotGenerating: number | null;
     canGenerateIcon: boolean;
     canGenerateScreenshots: boolean;
-    existingSlotCount: number;
-    slotsToCreate: number[];
     targetSlotCount: number;
     getSlotMapping: (slotIndex: number) => { brandRefId: string | null; simShotId: string | null };
     updateSlotMapping: (slotIndex: number, patch: { brandRefId?: string | null; simShotId?: string | null }) => void;
     promptsByRefId: Record<string, string>;
     setPrompt: (refId: string, value: string) => void;
+    iconProviderId: ScreenshotProviderId;
+    setIconProviderId: (value: ScreenshotProviderId) => void;
+    iconVariationsCount: number;
+    setIconVariationsCount: (value: number) => void;
+    screenshotProviderId: ScreenshotProviderId;
+    setScreenshotProviderId: (value: ScreenshotProviderId) => void;
+    slotHeadlineBySlotIndex: Record<number, string>;
+    slotHeadlinePosBySlotIndex: Record<number, { x: number; y: number }>;
+    setSlotHeadline: (slotIndex: number, value: string, opts?: { pushHistory?: boolean }) => void;
+    setSlotHeadlinePosition: (slotIndex: number, pos: { x: number; y: number }, opts?: { pushHistory?: boolean }) => void;
+    beginSlotHeadlineDrag: (slotIndex: number) => void;
+    beginSlotHeadlineTextEdit: (slotIndex: number) => void;
+    undoSlotHeadline: (slotIndex: number) => void;
+    redoSlotHeadline: (slotIndex: number) => void;
     editAssetId: string | null;
     editDrafts: Record<string, EditState>;
     editSaving: string | null;
@@ -43,15 +71,17 @@ type AppGenerationSectionProps = {
     removeLayer: (assetId: string, layerId: string) => void;
     handleSaveEdit: (assetId: string) => void;
     handleGenerateIcon: () => void;
-    handleGenerateScreenshots: () => void;
-    handleGenerateScreenshotVersion: (slotIndex: number) => void;
+    handleEnhanceIconSlot: (payload: { slotIndex: number; base: { kind: 'icon' | 'icon_enhanced'; assetId: string }; enhancePrompt: string }) => void;
+    handleGenerateAllScreenshots: () => void;
+    handleGenerateSlot: (slotIndex: number) => void;
+    handleEnhanceSlot: (payload: { slotIndex: number; base: { kind: 'screenshot' | 'screenshot_enhanced'; assetId: string }; enhancePrompt: string }) => void;
     handleDownloadGeneratedAsset: (asset: GeneratedAsset, filename: string) => void;
     handleDownloadAllScreenshots: () => void;
     handleDeleteGeneratedAsset: (asset: GeneratedAsset) => void;
     handleBrandPromptChange: (refId: string, value: string) => void;
     handleBrandPromptSave: (refId: string, value: string) => void;
     handleAutoGrowInput: (event: React.FormEvent<HTMLTextAreaElement>) => void;
-    openLightbox: (src: string, alt: string) => void;
+    openLightbox: (src: string, alt: string, options?: { layers?: TextLayer[]; fullSrc?: string }) => void;
     text: (key: TranslationKey) => string;
     fonts: string[];
 };
@@ -61,25 +91,43 @@ export const AppGenerationSection = ({
     brandIconReference,
     brandScreenshotReferences,
     selectedAppScreenshots,
-    generatedIcon,
+    generatedIconSlots,
+    enhancedIconSlots,
     generatedScreenshotSlots,
+    enhancedScreenshotSlots,
+    generatedPreviewUrls,
     generatedUrls,
     generationCount,
     setGenerationCount,
     generationSize,
     setGenerationSize,
     iconGenerating,
+    iconSlotGenerating,
+    enhanceIconSlotGenerating,
     screenshotsGenerating,
     slotGenerating,
+    enhanceSlotGenerating,
     canGenerateIcon,
     canGenerateScreenshots,
-    existingSlotCount,
-    slotsToCreate,
     targetSlotCount,
     getSlotMapping,
     updateSlotMapping,
     promptsByRefId,
     setPrompt,
+    iconProviderId,
+    setIconProviderId,
+    iconVariationsCount,
+    setIconVariationsCount,
+    screenshotProviderId,
+    setScreenshotProviderId,
+    slotHeadlineBySlotIndex,
+    slotHeadlinePosBySlotIndex,
+    setSlotHeadline,
+    setSlotHeadlinePosition,
+    beginSlotHeadlineDrag,
+    beginSlotHeadlineTextEdit,
+    undoSlotHeadline,
+    redoSlotHeadline,
     editAssetId,
     editDrafts,
     editSaving,
@@ -90,8 +138,10 @@ export const AppGenerationSection = ({
     removeLayer,
     handleSaveEdit,
     handleGenerateIcon,
-    handleGenerateScreenshots,
-    handleGenerateScreenshotVersion,
+    handleEnhanceIconSlot,
+    handleGenerateAllScreenshots,
+    handleGenerateSlot,
+    handleEnhanceSlot,
     handleDownloadGeneratedAsset,
     handleDownloadAllScreenshots,
     handleDeleteGeneratedAsset,
@@ -103,6 +153,21 @@ export const AppGenerationSection = ({
     fonts,
 }: AppGenerationSectionProps) => {
     const formatSlotIndex = (value: number) => String(value).padStart(2, '0');
+    const [slotPrimaryTabByIndex, setSlotPrimaryTabByIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
+    const [slotSelectedAssetIdByKey, setSlotSelectedAssetIdByKey] = React.useState<Record<string, string>>({});
+    const [enhancePromptBySlotIndex, setEnhancePromptBySlotIndex] = React.useState<Record<number, string>>({});
+    const [iconPrimaryTabBySlotIndex, setIconPrimaryTabBySlotIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
+    const [iconSelectedAssetIdByKey, setIconSelectedAssetIdByKey] = React.useState<Record<string, string>>({});
+    const [iconEnhancePromptBySlotIndex, setIconEnhancePromptBySlotIndex] = React.useState<Record<number, string>>({});
+    const dragRef = React.useRef<{
+        slotIndex: number;
+        pointerId: number;
+        startClientX: number;
+        startClientY: number;
+        startX: number;
+        startY: number;
+        containerRect: DOMRect;
+    } | null>(null);
 
     return (
         <>
@@ -115,98 +180,356 @@ export const AppGenerationSection = ({
             </div>
 
             <div className="mt-5 space-y-4">
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-white">{text('generate_icon')}</p>
                             <p className="text-xs text-indigo-200/60">{text('generate_icon_subtitle')}</p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handleGenerateIcon}
-                            disabled={!canGenerateIcon || iconGenerating}
-                            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
-                                canGenerateIcon
-                                    ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
-                                    : 'border-white/10 text-indigo-200/40'
-                            }`}
-                        >
-                            {iconGenerating
-                                ? text('generating')
-                                : generatedIcon
-                                    ? text('regenerate_icon')
-                                    : text('generate_icon')}
-                        </button>
                     </div>
-                    <div className="max-w-[240px] space-y-3">
-                        <div className="rounded-xl bg-slate-900/35 border border-indigo-400/20 p-2.5">
-                            <div className="flex items-center justify-between">
-                                <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_icon')}</p>
-                                {generatedIcon && (
-                                    <button
-                                        type="button"
-                                        onClick={() => handleDownloadGeneratedAsset(
-                                            generatedIcon,
-                                            `${selectedApp?.alias ?? 'app'}-icon-1024.jpg`
+
+                    <div className="max-w-[520px] space-y-2">
+                        <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
+                        <textarea
+                            value={brandIconReference?.prompt ?? ''}
+                            onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
+                            onInput={handleAutoGrowInput}
+                            onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
+                            placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
+                            rows={3}
+                            disabled={!brandIconReference}
+                            className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                        />
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('provider')}</span>
+                                <select
+                                    value={iconProviderId}
+                                    onChange={(event) => setIconProviderId(event.target.value as ScreenshotProviderId)}
+                                    className="rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    disabled={!selectedApp || iconGenerating}
+                                >
+                                    <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
+                                    <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
+                                    <option value="openai:gpt-image-1.5">{text('provider_openai_gpt_image_15')}</option>
+                                </select>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_variations')}</span>
+                                <select
+                                    value={iconVariationsCount}
+                                    onChange={(event) => setIconVariationsCount(Number(event.target.value))}
+                                    className="rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    disabled={!selectedApp || iconGenerating}
+                                >
+                                    {[1, 2, 3].map((v) => (
+                                        <option key={v} value={v}>
+                                            {v}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={handleGenerateIcon}
+                                disabled={!canGenerateIcon || iconGenerating}
+                                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
+                                    canGenerateIcon
+                                        ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                        : 'border-white/10 text-indigo-200/40'
+                                }`}
+                            >
+                                {iconGenerating ? text('generating') : text('generate_icon')}
+                            </button>
+                        </div>
+                    </div>
+
+                    {(() => {
+                        const iconSlotIndices = Array.from(
+                            new Set([
+                                ...generatedIconSlots.map((s) => s.slotIndex),
+                                ...enhancedIconSlots.map((s) => s.slotIndex),
+                            ])
+                        ).sort((a, b) => b - a);
+
+                        const pickLatest = (versions: GeneratedAsset[]) => {
+                            if (!versions.length) return null;
+                            return versions.reduce((prev, current) => {
+                                const prevIndex = prev.version_index ?? 1;
+                                const currentIndex = current.version_index ?? 1;
+                                return currentIndex > prevIndex ? current : prev;
+                            }, versions[0]);
+                        };
+
+                            const renderSlot = (slotIndex: number) => {
+                            const genVersions = generatedIconSlots.find((s) => s.slotIndex === slotIndex)?.versions ?? [];
+                            const enhVersions = enhancedIconSlots.find((s) => s.slotIndex === slotIndex)?.versions ?? [];
+
+                            const defaultTab: 'generated' | 'enhanced' =
+                                genVersions.length ? 'generated' : enhVersions.length ? 'enhanced' : 'generated';
+                            const primaryTab = iconPrimaryTabBySlotIndex[slotIndex] ?? defaultTab;
+                            const activeVersions = primaryTab === 'generated' ? genVersions : enhVersions;
+
+                            const selectForTab = (tab: 'generated' | 'enhanced') => {
+                                const versions = tab === 'generated' ? genVersions : enhVersions;
+                                if (!versions.length) return null;
+                                const key = `icon:${slotIndex}:${tab}`;
+                                const wantedId = iconSelectedAssetIdByKey[key];
+                                const found = wantedId ? versions.find((a) => a.id === wantedId) ?? null : null;
+                                return found ?? pickLatest(versions);
+                            };
+
+                            const selectedGenerated = selectForTab('generated');
+                            const selectedEnhanced = selectForTab('enhanced');
+                            const selectedAsset = primaryTab === 'generated' ? selectedGenerated : selectedEnhanced;
+
+                            const sorted = [...activeVersions].sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1));
+                            const versionIndices = sorted.map((a) => a.version_index ?? 1);
+                            const lastSix = versionIndices.slice(-6).reverse();
+                            const activeByVersionIndex = new Map(activeVersions.map((a) => [a.version_index ?? 1, a]));
+                            const enhancePrompt = iconEnhancePromptBySlotIndex[slotIndex] ?? '';
+                            const baseForEnhance = selectedEnhanced ?? selectedGenerated;
+                            const canEnhance = Boolean(selectedApp && baseForEnhance);
+
+                            return (
+                                <div
+                                    key={slotIndex}
+                                    className="snap-start shrink-0 w-[260px] rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3"
+                                >
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="text-sm font-semibold text-white">
+                                                {slotIndex === 0 ? `Icon Legacy` : `Icon ${slotIndex}`}
+                                            </p>
+                                            <p className="text-[11px] text-indigo-200/50">
+                                                {primaryTab === 'generated'
+                                                    ? `${text('tab_generated')} ${genVersions.length}`
+                                                    : `${text('tab_enhanced')} ${enhVersions.length}`}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIconPrimaryTabBySlotIndex((prev) => ({ ...prev, [slotIndex]: 'generated' }))}
+                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                    primaryTab === 'generated'
+                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                }`}
+                                            >
+                                                {text('tab_generated')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIconPrimaryTabBySlotIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
+                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                    primaryTab === 'enhanced'
+                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                }`}
+                                            >
+                                                {text('tab_enhanced')}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-1">
+                                        {lastSix.map((v) => {
+                                            const asset = activeByVersionIndex.get(v) ?? null;
+                                            const isSelected = Boolean(asset && selectedAsset?.id === asset.id);
+                                            const key = `icon:${slotIndex}:${primaryTab}`;
+                                            return (
+                                                <button
+                                                    key={v}
+                                                    type="button"
+                                                    disabled={!asset}
+                                                    onClick={() => asset && setIconSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
+                                                    className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                                        !asset
+                                                            ? 'border-white/10 text-indigo-200/30'
+                                                            : isSelected
+                                                                ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                                : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                    }`}
+                                                >
+                                                    v{v}
+                                                </button>
+                                            );
+                                        })}
+                                        {versionIndices.length > 6 && (
+                                            <select
+                                                value={selectedAsset?.version_index ?? ''}
+                                                onChange={(event) => {
+                                                    const v = Number(event.target.value);
+                                                    const asset = activeByVersionIndex.get(v);
+                                                    const key = `icon:${slotIndex}:${primaryTab}`;
+                                                    if (asset) setIconSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }));
+                                                }}
+                                                className="ml-auto rounded-full border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[10px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                disabled={!activeVersions.length}
+                                                aria-label={text('version')}
+                                            >
+                                                {[...versionIndices].reverse().map((v) => (
+                                                    <option key={v} value={v}>
+                                                        v{v}
+                                                    </option>
+                                                ))}
+                                            </select>
                                         )}
-                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                        aria-label={text('download')}
-                                    >
-                                        <Download size={12} />
-                                    </button>
-                                )}
+                                    </div>
+
+                                    <div className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/30 aspect-square">
+                                        {selectedAsset && (generatedPreviewUrls[selectedAsset.id] || generatedUrls[selectedAsset.id]) ? (
+                                            <img
+                                                src={generatedPreviewUrls[selectedAsset.id] ?? generatedUrls[selectedAsset.id]}
+                                                alt={`Icon ${slotIndex}`}
+                                                className="h-full w-full object-contain cursor-zoom-in"
+                                                loading="lazy"
+                                                decoding="async"
+                                                fetchPriority="low"
+                                                onClick={() => {
+                                                    const fullSrc = generatedUrls[selectedAsset.id];
+                                                    const previewSrc = generatedPreviewUrls[selectedAsset.id] ?? fullSrc;
+                                                    openLightbox(previewSrc, `Icon ${slotIndex}`, {
+                                                        fullSrc: previewSrc && fullSrc && previewSrc !== fullSrc ? fullSrc : undefined,
+                                                    });
+                                                }}
+                                            />
+                                        ) : (
+                                            <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">
+                                                {activeVersions.length ? text('loading') : text('no_generated_icon')}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {primaryTab === 'enhanced' && (
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('enhance_prompt_label')}</label>
+                                            <textarea
+                                                value={enhancePrompt}
+                                                onChange={(event) => setIconEnhancePromptBySlotIndex((prev) => ({ ...prev, [slotIndex]: event.target.value }))}
+                                                onInput={handleAutoGrowInput}
+                                                rows={2}
+                                                className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!baseForEnhance) return;
+                                                    handleEnhanceIconSlot({
+                                                        slotIndex,
+                                                        base: { kind: baseForEnhance.kind as any, assetId: baseForEnhance.id },
+                                                        enhancePrompt,
+                                                    });
+                                                }}
+                                                disabled={!canEnhance || enhanceIconSlotGenerating === slotIndex}
+                                                className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                                    !canEnhance
+                                                        ? 'border-white/10 text-indigo-200/40'
+                                                        : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                                }`}
+                                            >
+                                                {enhanceIconSlotGenerating === slotIndex ? text('generating') : text('enhance_icon')}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={!selectedAsset}
+                                            onClick={() => selectedAsset && handleDownloadGeneratedAsset(
+                                                selectedAsset,
+                                                `icon-${slotIndex}-${primaryTab}-v${selectedAsset.version_index ?? 1}.jpg`
+                                            )}
+                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                                selectedAsset
+                                                    ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
+                                                    : 'border-white/10 text-indigo-200/40'
+                                            }`}
+                                        >
+                                            {text('download')}
+                                        </button>
+                                        <ConfirmIconButton
+                                            label={text('delete')}
+                                            question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
+                                            confirmLabel={text('delete')}
+                                            cancelLabel={text('cancel')}
+                                            disabled={!selectedAsset}
+                                            onConfirm={() => selectedAsset && handleDeleteGeneratedAsset(selectedAsset)}
+                                            className="ml-auto"
+                                        >
+                                            <span
+                                                className={`inline-flex items-center justify-center rounded-full border p-2 text-indigo-200/70 hover:text-white ${
+                                                    selectedAsset ? 'border-white/10 hover:border-rose-400/40' : 'border-white/10 opacity-40'
+                                                }`}
+                                            >
+                                                <Trash2 size={12} />
+                                            </span>
+                                        </ConfirmIconButton>
+                                    </div>
+
+                                    {primaryTab === 'generated' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIconPrimaryTabBySlotIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
+                                            className="w-full rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                        >
+                                            {text('enhance_icon')}
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        };
+
+                        return iconSlotIndices.length ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {iconSlotIndices.map((slotIndex) => renderSlot(slotIndex))}
                             </div>
-                            <div className="mt-2 mx-auto flex w-full items-center justify-center text-center aspect-square rounded-xl bg-slate-800/35 ring-1 ring-indigo-400/25">
-                                {generatedIcon && generatedUrls[generatedIcon.id] ? (
-                                    <img
-                                        src={generatedUrls[generatedIcon.id]}
-                                        alt={text('generated_icon')}
-                                        className="max-h-[90%] max-w-[90%] object-contain cursor-zoom-in"
-                                        onClick={() => openLightbox(generatedUrls[generatedIcon.id], text('generated_icon'))}
-                                    />
-                                ) : (
-                                    <span className="text-xs text-indigo-200/60">{text('no_generated_icon')}</span>
-                                )}
+                        ) : (
+                            <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-4 text-sm text-indigo-200/60">
+                                {text('no_generated_icons')}
                             </div>
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
-                            <textarea
-                                value={brandIconReference?.prompt ?? ''}
-                                onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
-                                onInput={handleAutoGrowInput}
-                                onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
-                                placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
-                                rows={3}
-                                disabled={!brandIconReference}
-                                className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
-                            />
-                        </div>
-                    </div>
+                        );
+                    })()}
                 </div>
 
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                            <p className="text-sm font-semibold text-white">{text('generate_screenshots')}</p>
-                            <p className="text-xs text-indigo-200/60">{text('generate_screenshots_subtitle')}</p>
+                            <p className="text-sm font-semibold text-white">{text('screenshot_prompt_label')}</p>
+                            <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_hint')}</p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handleGenerateScreenshots}
-                            disabled={!canGenerateScreenshots || screenshotsGenerating}
-                            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
-                                canGenerateScreenshots
-                                    ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
-                                    : 'border-white/10 text-indigo-200/40'
-                            }`}
-                        >
-                            {screenshotsGenerating
-                                ? text('generating')
-                                : existingSlotCount
-                                    ? text('add_slots')
-                                    : text('create_slots')}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('provider')}</span>
+                                <select
+                                    value={screenshotProviderId}
+                                    onChange={(event) => setScreenshotProviderId(event.target.value as ScreenshotProviderId)}
+                                    className="rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    disabled={!selectedApp || screenshotsGenerating}
+                                >
+                                    <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
+                                    <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
+                                    <option value="openai:gpt-image-1.5">{text('provider_openai_gpt_image_15')}</option>
+                                </select>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleGenerateAllScreenshots}
+                                disabled={!canGenerateScreenshots || screenshotsGenerating}
+                                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
+                                    canGenerateScreenshots
+                                        ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                        : 'border-white/10 text-indigo-200/40'
+                                }`}
+                            >
+                                {screenshotsGenerating ? text('generating') : text('generate_all')}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -245,25 +568,27 @@ export const AppGenerationSection = ({
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-indigo-900/40 bg-slate-900/30 p-3 space-y-3">
-                        <div className="flex items-center justify-between">
-                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('slot_sources')}</p>
-                            <span className="text-[10px] text-indigo-200/50">{text('slot_sources_hint')}</span>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
-                                const mapping = getSlotMapping(slotIndex);
-                                return (
-                                    <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-3 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-sm font-semibold text-white">{text('slot')} {slotIndex}</p>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] text-indigo-200/60">{text('brand_reference_label')}</label>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
+                            const mapping = getSlotMapping(slotIndex);
+                            const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
+                            const atLimit = versions.length >= 3;
+                            const promptRefId = mapping.brandRefId;
+
+                            return (
+                                <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-2.5 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[11px] font-semibold text-white">{text('slot')} {slotIndex}</p>
+                                        <span className="text-[10px] text-indigo-200/50">{versions.length}/3</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="min-w-0">
+                                            <label className="text-[9px] leading-none text-indigo-200/50">{text('brand_reference_label')}</label>
                                             <select
                                                 value={mapping.brandRefId ?? ''}
                                                 onChange={(event) => updateSlotMapping(slotIndex, { brandRefId: event.target.value || null })}
-                                                className="mt-1 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                             >
                                                 <option value="">{text('no_screenshot_refs')}</option>
                                                 {brandScreenshotReferences.map((ref, refIndex) => (
@@ -273,12 +598,12 @@ export const AppGenerationSection = ({
                                                 ))}
                                             </select>
                                         </div>
-                                        <div>
-                                            <label className="text-[10px] text-indigo-200/60">{text('simulator_shot_label')}</label>
+                                        <div className="min-w-0">
+                                            <label className="text-[9px] leading-none text-indigo-200/50">{text('simulator_shot_label')}</label>
                                             <select
                                                 value={mapping.simShotId ?? ''}
                                                 onChange={(event) => updateSlotMapping(slotIndex, { simShotId: event.target.value || null })}
-                                                className="mt-1 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                             >
                                                 <option value="">{text('no_screenshots_yet')}</option>
                                                 {selectedAppScreenshots.map((shot, shotIndex) => (
@@ -289,47 +614,37 @@ export const AppGenerationSection = ({
                                             </select>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-indigo-200/60">
-                            {slotsToCreate.length ? (
-                                <span>{text('slots_to_create')}: {slotsToCreate.length}</span>
-                            ) : (
-                                <span>{text('all_slots_ready')}</span>
-                            )}
-                        </div>
-                    </div>
-                    <p className="text-xs text-indigo-200/40">{text('generation_notice')}</p>
-                </div>
 
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_prompt_label')}</p>
-                        <span className="text-[10px] text-indigo-200/60">{text('screenshot_prompt_empty')}</span>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                        {brandScreenshotReferences.map((ref, index) => (
-                            <div key={ref.id} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] text-indigo-200/60">{text('reference_short')} {index + 1}</span>
+                                    <textarea
+                                        value={selectedApp && promptRefId ? (promptsByRefId[promptRefId] ?? '') : ''}
+                                        onChange={(event) => selectedApp && promptRefId && setPrompt(promptRefId, event.target.value)}
+                                        onInput={handleAutoGrowInput}
+                                        placeholder={text('prompt_placeholder')}
+                                        rows={2}
+                                        disabled={!selectedApp || !promptRefId}
+                                        className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                    />
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleGenerateSlot(slotIndex)}
+                                        disabled={!canGenerateScreenshots || screenshotsGenerating || slotGenerating === slotIndex || atLimit}
+                                        className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                            !canGenerateScreenshots || atLimit
+                                                ? 'border-white/10 text-indigo-200/40'
+                                                : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                        }`}
+                                    >
+                                        {slotGenerating === slotIndex ? text('generating') : text('generate_screen')}
+                                    </button>
                                 </div>
-                                <textarea
-                                    value={selectedApp ? promptsByRefId[ref.id] ?? '' : ''}
-                                    onChange={(event) => selectedApp && setPrompt(ref.id, event.target.value)}
-                                    onInput={handleAutoGrowInput}
-                                    placeholder={text('prompt_placeholder')}
-                                    rows={2}
-                                    disabled={!selectedApp}
-                                    className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                />
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
 
                 <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                         <div>
                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
                             <p className="text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
@@ -348,97 +663,488 @@ export const AppGenerationSection = ({
                         </button>
                     </div>
 
-                    {!generatedScreenshotSlots.length ? (
-                        <p className="mt-4 text-sm text-indigo-200/60">{text('no_generated_screenshots')}</p>
-                    ) : (
-                        <div className="space-y-4">
-                            {generatedScreenshotSlots.map((slot) => (
-                                <div key={slot.slotIndex} className="rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-4 space-y-3">
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
+                        {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
+                            const genVersions =
+                                generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
+                            const enhVersions =
+                                enhancedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
+
+                            const defaultTab: 'generated' | 'enhanced' =
+                                genVersions.length ? 'generated' : enhVersions.length ? 'enhanced' : 'generated';
+                            const primaryTab = slotPrimaryTabByIndex[slotIndex] ?? defaultTab;
+
+                            const pickLatest = (versions: GeneratedAsset[]) => {
+                                if (!versions.length) return null;
+                                return versions.reduce((prev, current) => {
+                                    const prevIndex = prev.version_index ?? 1;
+                                    const currentIndex = current.version_index ?? 1;
+                                    return currentIndex > prevIndex ? current : prev;
+                                }, versions[0]);
+                            };
+
+                            const selectForTab = (tab: 'generated' | 'enhanced') => {
+                                const versions = tab === 'generated' ? genVersions : enhVersions;
+                                if (!versions.length) return null;
+                                const key = `${slotIndex}:${tab}`;
+                                const wantedId = slotSelectedAssetIdByKey[key];
+                                const found = wantedId ? versions.find((a) => a.id === wantedId) ?? null : null;
+                                return found ?? pickLatest(versions);
+                            };
+
+                            const selectedGenerated = selectForTab('generated');
+                            const selectedEnhanced = selectForTab('enhanced');
+                            const selectedAsset = primaryTab === 'generated' ? selectedGenerated : selectedEnhanced;
+                            const activeVersions = primaryTab === 'generated' ? genVersions : enhVersions;
+                            const activeByVersionIndex = new Map(activeVersions.map((a) => [a.version_index ?? 1, a]));
+
+                            const headlineText = slotHeadlineBySlotIndex[slotIndex] ?? '';
+                            const headlinePos = slotHeadlinePosBySlotIndex[slotIndex] ?? { x: 50, y: 12 };
+                            const enhancePrompt = enhancePromptBySlotIndex[slotIndex] ?? '';
+
+                            const baseForEnhance = selectedEnhanced ?? selectedGenerated;
+                            const enhancedAtLimit = enhVersions.length >= 3;
+                            const canEnhance = Boolean(selectedApp && baseForEnhance && !enhancedAtLimit);
+
+                            return (
+                                <div
+                                    key={slotIndex}
+                                    className="snap-start shrink-0 w-[290px] sm:w-[320px] rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3 outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    tabIndex={0}
+                                    onKeyDown={(event) => {
+                                        const isMac = navigator.platform.toLowerCase().includes('mac');
+                                        const mod = isMac ? event.metaKey : event.ctrlKey;
+                                        if (!mod) return;
+                                        const key = event.key.toLowerCase();
+                                        if (key === 'z' && event.shiftKey) {
+                                            event.preventDefault();
+                                            redoSlotHeadline(slotIndex);
+                                        } else if (key === 'z') {
+                                            event.preventDefault();
+                                            undoSlotHeadline(slotIndex);
+                                        } else if (key === 'y') {
+                                            event.preventDefault();
+                                            redoSlotHeadline(slotIndex);
+                                        }
+                                    }}
+                                >
+                                    <div className="flex items-start justify-between gap-2">
                                         <div>
-                                            <p className="text-sm font-semibold text-white">{text('slot')} {slot.slotIndex}</p>
-                                            <p className="text-xs text-indigo-200/60">{text('versions_limit_note')}</p>
+                                            <p className="text-sm font-semibold text-white">{text('slot')} {slotIndex}</p>
+                                            <p className="text-[11px] text-indigo-200/50">
+                                                {primaryTab === 'generated'
+                                                    ? `${text('tab_generated')} ${genVersions.length}/3`
+                                                    : `${text('tab_enhanced')} ${enhVersions.length}/3`}
+                                            </p>
                                         </div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [slotIndex]: 'generated' }))}
+                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                    primaryTab === 'generated'
+                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                }`}
+                                            >
+                                                {text('tab_generated')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
+                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                    primaryTab === 'enhanced'
+                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                }`}
+                                            >
+                                                {text('tab_enhanced')}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1">
+                                        {[1, 2, 3].map((v) => {
+                                            const asset = activeByVersionIndex.get(v) ?? null;
+                                            const isSelected = Boolean(asset && selectedAsset?.id === asset.id);
+                                            const key = `${slotIndex}:${primaryTab}`;
+                                            return (
+                                                <button
+                                                    key={v}
+                                                    type="button"
+                                                    disabled={!asset}
+                                                    onClick={() => asset && setSlotSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
+                                                    className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                                        !asset
+                                                            ? 'border-white/10 text-indigo-200/30'
+                                                            : isSelected
+                                                                ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                                : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                    }`}
+                                                >
+                                                    v{v}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div
+                                        className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/30 aspect-[9/19]"
+                                        data-screenshot-preview="true"
+                                    >
+                                        {selectedAsset && (generatedPreviewUrls[selectedAsset.id] || generatedUrls[selectedAsset.id]) ? (
+                                            <img
+                                                src={generatedPreviewUrls[selectedAsset.id] ?? generatedUrls[selectedAsset.id]}
+                                                alt={`${text('slot')} ${slotIndex}`}
+                                                className="h-full w-full object-cover cursor-zoom-in"
+                                                loading="lazy"
+                                                decoding="async"
+                                                fetchPriority="low"
+                                                onClick={() => {
+                                                    const fullSrc = generatedUrls[selectedAsset.id];
+                                                    const previewSrc = generatedPreviewUrls[selectedAsset.id] ?? fullSrc;
+                                                    const rawLayers =
+                                                        editDrafts[selectedAsset.id]?.layers ??
+                                                        ((selectedAsset.edit_state as any)?.layers ?? []);
+                                                    const layers = Array.isArray(rawLayers) ? rawLayers : [];
+
+                                                    const headlineBase = layers[0] ?? {
+                                                        id: 'headline',
+                                                        text: headlineText,
+                                                        font: 'Manrope',
+                                                        size: 40,
+                                                        color: '#ffffff',
+                                                        x: headlinePos.x,
+                                                        y: headlinePos.y,
+                                                        rotation: 0,
+                                                        align: 'center',
+                                                        weight: 700,
+                                                        shadow: { enabled: true, color: '#000000', blur: 14, offsetX: 0, offsetY: 8 },
+                                                        outline: { enabled: false, color: '#000000', width: 3 },
+                                                    };
+
+                                                    const headlineLayer = {
+                                                        ...headlineBase,
+                                                        text: headlineText,
+                                                        x: headlinePos.x,
+                                                        y: headlinePos.y,
+                                                    };
+
+                                                    const hasHeadline = String(headlineText ?? '').replace(/\s/g, '').length > 0;
+                                                    const overlayLayers = hasHeadline
+                                                        ? [headlineLayer, ...layers.slice(1)]
+                                                        : layers.slice(1);
+
+                                                    openLightbox(
+                                                        previewSrc,
+                                                        `${text('slot')} ${slotIndex}`,
+                                                        {
+                                                            layers: overlayLayers,
+                                                            fullSrc: previewSrc && fullSrc && previewSrc !== fullSrc ? fullSrc : undefined,
+                                                        }
+                                                    );
+                                                }}
+                                            />
+                                        ) : (
+                                            <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">
+                                                {activeVersions.length ? text('loading') : text('no_generated_screenshots')}
+                                            </span>
+                                        )}
+
+                                        {/* Live layer preview (so size/rotation/etc show immediately). */}
+                                        {selectedAsset && (
+                                            <div className="absolute inset-0 z-10 pointer-events-none">
+                                                {(() => {
+                                                    const rawLayers =
+                                                        editDrafts[selectedAsset.id]?.layers ??
+                                                        ((selectedAsset.edit_state as any)?.layers ?? []);
+                                                    const layers = Array.isArray(rawLayers) ? rawLayers : [];
+
+                                                    const headlineBase = layers[0] ?? {
+                                                        id: 'headline',
+                                                        text: headlineText,
+                                                        font: 'Manrope',
+                                                        size: 40,
+                                                        color: '#ffffff',
+                                                        x: headlinePos.x,
+                                                        y: headlinePos.y,
+                                                        rotation: 0,
+                                                        align: 'center',
+                                                        weight: 700,
+                                                        shadow: { enabled: true, color: '#000000', blur: 14, offsetX: 0, offsetY: 8 },
+                                                        outline: { enabled: false, color: '#000000', width: 3 },
+                                                    };
+
+                                                    const headlineLayer = {
+                                                        ...headlineBase,
+                                                        text: headlineText,
+                                                        x: headlinePos.x,
+                                                        y: headlinePos.y,
+                                                    };
+
+                                                    const hasHeadline = String(headlineText ?? '').replace(/\s/g, '').length > 0;
+                                                    const previewLayers = hasHeadline
+                                                        ? [headlineLayer, ...layers.slice(1)]
+                                                        : layers.slice(1);
+
+                                                    const translateForAlign = (align: any) => {
+                                                        if (align === 'left') return 'translate(0, -50%)';
+                                                        if (align === 'right') return 'translate(-100%, -50%)';
+                                                        return 'translate(-50%, -50%)';
+                                                    };
+
+                                                    const headline = previewLayers[0] as any | undefined;
+                                                    const headlineTextValue = String(headline?.text ?? '');
+                                                    const hasHeadlineText = headlineTextValue.replace(/\\s/g, '').length > 0;
+
+                                                    const x = typeof headline?.x === 'number' ? headline.x : 50;
+                                                    const y = typeof headline?.y === 'number' ? headline.y : 12;
+                                                    const rotation = typeof headline?.rotation === 'number' ? headline.rotation : 0;
+                                                    const align = headline?.align ?? 'center';
+                                                    const fontSize = Math.max(8, Number(headline?.size) || 40);
+                                                    const weight = Math.max(100, Math.min(900, Number(headline?.weight) || 700));
+                                                    const family = headline?.font || 'sans-serif';
+                                                    const color = headline?.color || '#ffffff';
+
+                                                    const sharedStyle: React.CSSProperties = {
+                                                        position: 'absolute',
+                                                        left: `${x}%`,
+                                                        top: `${y}%`,
+                                                        transform: `${translateForAlign(align)} rotate(${rotation}deg)`,
+                                                        display: 'inline-block',
+                                                        width: 'max-content',
+                                                        minWidth: 'max-content',
+                                                        maxWidth: 'none',
+                                                        fontFamily: family,
+                                                        fontSize: `${fontSize}px`,
+                                                        fontWeight: weight as any,
+                                                        color,
+                                                        textAlign: align as any,
+                                                        whiteSpace: 'pre',
+                                                        overflowWrap: 'normal',
+                                                        wordBreak: 'keep-all',
+                                                        hyphens: 'none',
+                                                        ...( { textWrap: 'nowrap', maxInlineSize: 'none' } as any ),
+                                                        writingMode: 'horizontal-tb',
+                                                        textOrientation: 'mixed',
+                                                        lineHeight: 1.12,
+                                                        textShadow: (() => {
+                                                            const sh = headline?.shadow;
+                                                            if (!sh?.enabled) return 'none';
+                                                            const colorValue = sh.color || 'rgba(0,0,0,0.55)';
+                                                            const blurValue = Math.max(0, Number(sh.blur) || 0);
+                                                            const ox = Number(sh.offsetX) || 0;
+                                                            const oy = Number(sh.offsetY) || 0;
+                                                            return `${ox}px ${oy}px ${blurValue}px ${colorValue}`;
+                                                        })(),
+                                                        WebkitTextStrokeWidth: (() => {
+                                                            const ol = headline?.outline;
+                                                            if (!ol?.enabled) return '0px';
+                                                            const w = Math.max(0, Number(ol.width) || 0);
+                                                            return `${w}px`;
+                                                        })(),
+                                                        WebkitTextStrokeColor: (() => {
+                                                            const ol = headline?.outline;
+                                                            if (!ol?.enabled) return 'transparent';
+                                                            return ol.color || '#000000';
+                                                        })(),
+                                                    };
+
+                                                    return (
+                                                        <>
+                                                            <TextLayersCanvasOverlay layers={(previewLayers.slice(1) as any) || []} />
+                                                            {hasHeadlineText && (
+                                                                <div
+                                                                    className="pointer-events-auto touch-none"
+                                                                    style={{
+                                                                        ...sharedStyle,
+                                                                        padding: '10px 12px',
+                                                                        borderRadius: '14px',
+                                                                        border: '2px dotted rgba(199,210,254,0.55)',
+                                                                    }}
+                                                                    onPointerDown={(event) => {
+                                                                        if (!event.isPrimary) return;
+                                                                        const container = (event.currentTarget.closest('[data-screenshot-preview]') as HTMLElement) ?? null;
+                                                                        if (!container) return;
+                                                                        const rect = container.getBoundingClientRect();
+                                                                        beginSlotHeadlineDrag(slotIndex);
+                                                                        (event.currentTarget.closest('[tabindex=\"0\"]') as HTMLElement | null)?.focus?.();
+                                                                        dragRef.current = {
+                                                                            slotIndex,
+                                                                            pointerId: event.pointerId,
+                                                                            startClientX: event.clientX,
+                                                                            startClientY: event.clientY,
+                                                                            startX: headlinePos.x,
+                                                                            startY: headlinePos.y,
+                                                                            containerRect: rect,
+                                                                        };
+                                                                        (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+                                                                        event.preventDefault();
+                                                                        event.stopPropagation();
+                                                                    }}
+                                                                    onPointerMove={(event) => {
+                                                                        const drag = dragRef.current;
+                                                                        if (!drag || drag.slotIndex !== slotIndex || drag.pointerId !== event.pointerId) return;
+                                                                        const dx = event.clientX - drag.startClientX;
+                                                                        const dy = event.clientY - drag.startClientY;
+                                                                        const nextX = drag.startX + (dx / Math.max(1, drag.containerRect.width)) * 100;
+                                                                        const nextY = drag.startY + (dy / Math.max(1, drag.containerRect.height)) * 100;
+                                                                        const clamp = (v: number) => Math.max(0, Math.min(100, v));
+                                                                        let nx = clamp(nextX);
+                                                                        let ny = clamp(nextY);
+
+                                                                        if (Math.abs(nx - 50) <= 2) nx = 50;
+                                                                        if (ny <= 25 && Math.abs(ny - 12) <= 2) ny = 12;
+
+                                                                        setSlotHeadlinePosition(slotIndex, { x: nx, y: ny }, { pushHistory: false });
+                                                                        event.preventDefault();
+                                                                        event.stopPropagation();
+                                                                    }}
+                                                                    onPointerUp={(event) => {
+                                                                        const drag = dragRef.current;
+                                                                        if (drag && drag.slotIndex === slotIndex && drag.pointerId === event.pointerId) {
+                                                                            dragRef.current = null;
+                                                                            event.preventDefault();
+                                                                            event.stopPropagation();
+                                                                        }
+                                                                    }}
+                                                                    onPointerCancel={(event) => {
+                                                                        const drag = dragRef.current;
+                                                                        if (drag && drag.slotIndex === slotIndex && drag.pointerId === event.pointerId) {
+                                                                            dragRef.current = null;
+                                                                            event.preventDefault();
+                                                                            event.stopPropagation();
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    {headlineTextValue}
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <div className="flex items-baseline justify-between gap-2">
+                                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('header_text_label')}</label>
+                                            <span className="text-[10px] text-indigo-200/40">{text('header_text_hint')}</span>
+                                        </div>
+                                        <textarea
+                                            value={headlineText}
+                                            onFocus={() => beginSlotHeadlineTextEdit(slotIndex)}
+                                            onChange={(event) => setSlotHeadline(slotIndex, event.target.value, { pushHistory: false })}
+                                            onInput={handleAutoGrowInput}
+                                            rows={2}
+                                            className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <button
                                             type="button"
-                                            onClick={() => handleGenerateScreenshotVersion(slot.slotIndex)}
-                                            disabled={slotGenerating === slot.slotIndex}
-                                            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
-                                                slotGenerating === slot.slotIndex
-                                                    ? 'border-white/10 text-indigo-200/40'
-                                                    : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                            disabled={!selectedAsset}
+                                            onClick={() => selectedAsset && handleDownloadGeneratedAsset(
+                                                selectedAsset,
+                                                `${formatSlotIndex(slotIndex)}-${primaryTab === 'enhanced' ? 'enh' : 'gen'}-v${selectedAsset.version_index ?? 1}.jpg`
+                                            )}
+                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                                selectedAsset
+                                                    ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
+                                                    : 'border-white/10 text-indigo-200/40'
                                             }`}
                                         >
-                                            {slotGenerating === slot.slotIndex ? text('generating') : text('new_version')}
+                                            {text('download_final')}
                                         </button>
+
+                                        <button
+                                            type="button"
+                                            disabled={!selectedAsset}
+                                            onClick={() => selectedAsset && beginEditAsset(selectedAsset)}
+                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                                selectedAsset
+                                                    ? 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
+                                                    : 'border-white/10 text-indigo-200/40'
+                                            }`}
+                                        >
+                                            {text('edit_layers')}
+                                        </button>
+
+                                        <ConfirmIconButton
+                                            label={text('delete')}
+                                            question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
+                                            confirmLabel={text('delete')}
+                                            cancelLabel={text('cancel')}
+                                            disabled={!selectedAsset}
+                                            onConfirm={() => selectedAsset && handleDeleteGeneratedAsset(selectedAsset)}
+                                        >
+                                            <span
+                                                className={`inline-flex items-center justify-center rounded-full border p-2 text-indigo-200/70 ${
+                                                    selectedAsset
+                                                        ? 'border-white/10 hover:border-indigo-400/40 hover:text-white'
+                                                        : 'border-white/10 text-indigo-200/40'
+                                                }`}
+                                            >
+                                                <Trash2 size={14} />
+                                            </span>
+                                        </ConfirmIconButton>
                                     </div>
-                                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                                        {slot.versions.map((asset) => (
-                                            <div key={asset.id} className="rounded-2xl border border-indigo-500/20 bg-slate-950/40 p-3 space-y-2">
-                                                <div className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
-                                                    {generatedUrls[asset.id] ? (
-                                                        <img
-                                                            src={generatedUrls[asset.id]}
-                                                            alt={`${text('slot')} ${slot.slotIndex}`}
-                                                            className="h-full w-full object-cover cursor-zoom-in"
-                                                            onClick={() => openLightbox(generatedUrls[asset.id], `${text('slot')} ${slot.slotIndex}`)}
-                                                        />
-                                                    ) : (
-                                                        <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center justify-between text-xs text-indigo-200/70">
-                                                    <span>{text('version')} {asset.version_index ?? 1}</span>
-                                                    <div className="flex items-center gap-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => beginEditAsset(asset)}
-                                                            className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                        >
-                                                            {text('edit')}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleDownloadGeneratedAsset(
-                                                                asset,
-                                                                `${formatSlotIndex(slot.slotIndex)}-v${asset.version_index ?? 1}.jpg`
-                                                            )}
-                                                            className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                            aria-label={text('download')}
-                                                        >
-                                                            <Download size={12} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleDeleteGeneratedAsset(asset)}
-                                                            className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                            aria-label={text('delete')}
-                                                        >
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                {editAssetId === asset.id && editDrafts[asset.id] && (
-                                                    <EditPanel
-                                                        asset={asset}
-                                                        layers={editDrafts[asset.id].layers}
-                                                        fonts={fonts}
-                                                        editSaving={editSaving}
-                                                        updateLayer={updateLayer}
-                                                        addLayer={addLayer}
-                                                        removeLayer={removeLayer}
-                                                        handleSaveEdit={handleSaveEdit}
-                                                        resetEditDraft={resetEditDraft}
-                                                        text={text}
-                                                    />
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
+
+                                    {selectedAsset && editAssetId === selectedAsset.id && editDrafts[selectedAsset.id] && (
+                                        <EditPanel
+                                            asset={selectedAsset}
+                                            layers={editDrafts[selectedAsset.id].layers}
+                                            fonts={fonts}
+                                            editSaving={editSaving}
+                                            updateLayer={updateLayer}
+                                            addLayer={addLayer}
+                                            removeLayer={removeLayer}
+                                            handleSaveEdit={handleSaveEdit}
+                                            resetEditDraft={resetEditDraft}
+                                            text={text}
+                                        />
+                                    )}
+
+                                    {primaryTab === 'enhanced' && (
+                                        <div className="rounded-xl border border-indigo-500/15 bg-slate-950/40 p-2.5 space-y-2">
+                                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('enhance_prompt_label')}</label>
+                                            <textarea
+                                                value={enhancePrompt}
+                                                onChange={(event) =>
+                                                    setEnhancePromptBySlotIndex((prev) => ({ ...prev, [slotIndex]: event.target.value }))
+                                                }
+                                                onInput={handleAutoGrowInput}
+                                                rows={2}
+                                                placeholder={text('prompt_placeholder')}
+                                                className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            />
+                                            <button
+                                                type="button"
+                                                disabled={!canEnhance || enhanceSlotGenerating === slotIndex}
+                                                onClick={() =>
+                                                    baseForEnhance &&
+                                                    handleEnhanceSlot({
+                                                        slotIndex,
+                                                        base: { kind: baseForEnhance.kind as any, assetId: baseForEnhance.id },
+                                                        enhancePrompt,
+                                                    })
+                                                }
+                                                className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                                    canEnhance
+                                                        ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                                        : 'border-white/10 text-indigo-200/40'
+                                                }`}
+                                            >
+                                                {enhanceSlotGenerating === slotIndex ? text('generating') : text('enhance_screenshot')}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
-                        </div>
-                    )}
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
         </>

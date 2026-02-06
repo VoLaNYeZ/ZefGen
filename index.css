@@ -7,18 +7,6 @@
   --font-sans: 'Manrope', 'sans-serif';
 }
 
-@font-face {
-  font-family: 'NexoverDemo';
-  src: url('./NexoverDemo-Regular.otf') format('opentype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-.font-nexover {
-  font-family: 'NexoverDemo', 'Manrope', sans-serif;
-}
-
 .font-roboto-flex {
   font-family: "Roboto Flex Variable", "Roboto Flex", sans-serif;
 }

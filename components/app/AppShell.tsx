@@ -23,6 +23,9 @@ import { AppFormCard } from './AppFormCard';
 import { AppSimulatorSection } from './AppSimulatorSection';
 import { AppGenerationSection } from './AppGenerationSection';
 import { Lightbox } from './Lightbox';
+import { GenerationQueueWidget } from './GenerationQueueWidget';
+import { ConfirmIconButton } from './ConfirmIconButton';
+import type { TextLayer } from '../../types/zefgen';
 
 type AppShellProps = {
     session: Session;
@@ -45,7 +48,7 @@ export function AppShell({ session }: AppShellProps) {
     const [appSwitching, setAppSwitching] = useState(false);
     const [draggingAppId, setDraggingAppId] = useState<string | null>(null);
     const [dragOverAppId, setDragOverAppId] = useState<string | null>(null);
-    const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+    const [lightbox, setLightbox] = useState<{ src: string; alt: string; layers?: TextLayer[]; fullSrc?: string } | null>(null);
 
     const reportActionError = useCallback((message: string) => {
         setActionError(message);
@@ -134,10 +137,6 @@ export function AppShell({ session }: AppShellProps) {
         brandIconUploading,
         brandScreenshotsUploading,
         isBrandRefDropActive,
-        draggingBrandRefId,
-        dragOverBrandRefId,
-        setDraggingBrandRefId,
-        setDragOverBrandRefId,
         handleBrandIconUpload,
         handleBrandScreenshotUpload,
         handleBrandReferenceDrop,
@@ -162,10 +161,6 @@ export function AppShell({ session }: AppShellProps) {
         appScreenshotUrls,
         appScreenshotsUploading,
         isScreenshotDropActive,
-        draggingShotId,
-        dragOverShotId,
-        setDraggingShotId,
-        setDragOverShotId,
         handleReorderAppScreenshot,
         handleDeleteAppScreenshot,
         handleScreenshotDragOver,
@@ -212,18 +207,42 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     const {
+        generatedPreviewUrls,
         generatedUrls,
+        generationJobs,
+        hasRunningJobs,
+        dismissJob,
+        clearFinished,
         loading: generatedAssetsLoading,
         refresh: refreshGeneratedAssets,
-        generatedIcon,
+        generatedIconSlots,
+        enhancedIconSlots,
         generatedScreenshotSlots,
+        enhancedScreenshotSlots,
         iconGenerating,
+        iconSlotGenerating,
+        enhanceIconSlotGenerating,
         screenshotsGenerating,
         slotGenerating,
+        enhanceSlotGenerating,
         generationCount,
         setGenerationCount,
         generationSize,
         setGenerationSize,
+        iconVariationsCount,
+        setIconVariationsCount,
+        iconProviderId,
+        setIconProviderId,
+        screenshotProviderId,
+        setScreenshotProviderId,
+        slotHeadlineBySlotIndex,
+        slotHeadlinePosBySlotIndex,
+        setSlotHeadline,
+        setSlotHeadlinePosition,
+        beginSlotHeadlineDrag,
+        beginSlotHeadlineTextEdit,
+        undoSlotHeadline,
+        redoSlotHeadline,
         editAssetId,
         editDrafts,
         editSaving,
@@ -234,8 +253,10 @@ export function AppShell({ session }: AppShellProps) {
         removeLayer,
         handleSaveEdit,
         handleGenerateIcon,
-        handleGenerateScreenshots,
-        handleGenerateScreenshotVersion,
+        handleEnhanceIconSlot,
+        handleGenerateSlot,
+        handleEnhanceSlot,
+        handleGenerateAllScreenshots,
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
         handleDeleteGeneratedAsset,
@@ -251,8 +272,10 @@ export function AppShell({ session }: AppShellProps) {
         selectedAppScreenshots,
         appScreenshotUrls,
         brandIconReference,
+        brandScreenshotReferences,
         brandRefUrls,
         getSlotMapping,
+        promptsByRefId,
         text,
         reportError: reportActionError,
         onDataError: setDataError,
@@ -353,8 +376,8 @@ export function AppShell({ session }: AppShellProps) {
         await signOut();
     };
 
-    const openLightbox = (src: string, alt: string) => {
-        setLightbox({ src, alt });
+    const openLightbox = (src: string, alt: string, options?: { layers?: TextLayer[]; fullSrc?: string }) => {
+        setLightbox({ src, alt, layers: options?.layers, fullSrc: options?.fullSrc });
     };
 
     const closeLightbox = () => {
@@ -366,8 +389,27 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     const isTabMotionDisabled = isAppReorderMode || isAppPillPanning || Boolean(draggingAppId);
+    const isBusy =
+        hasRunningJobs ||
+        iconGenerating ||
+        screenshotsGenerating ||
+        slotGenerating !== null ||
+        enhanceSlotGenerating !== null ||
+        iconSlotGenerating !== null ||
+        enhanceIconSlotGenerating !== null;
     const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
     const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
+
+    useEffect(() => {
+        if (!isBusy) return;
+        const handler = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+            return '';
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [isBusy]);
 
     
     return (
@@ -409,6 +451,8 @@ export function AppShell({ session }: AppShellProps) {
                 editingBrandId={editingBrandId}
                 brandSlugPreview={brandSlugPreview}
                 dataLoading={dataLoading}
+                isBusy={isBusy}
+                onBlockedAction={() => reportActionError(text('generation_in_progress'))}
                 openBrandForm={openBrandForm}
                 submitBrandForm={submitBrandForm}
                 setBrandForm={setBrandForm}
@@ -476,14 +520,17 @@ export function AppShell({ session }: AppShellProps) {
                                                     {brandIconUploading ? text('uploading') : brandIconReference ? text('replace_icon') : text('upload_icon')}
                                                 </label>
                                                 {brandIconReference && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteBrandReference(brandIconReference)}
-                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                        aria-label={text('delete')}
+                                                    <ConfirmIconButton
+                                                        label={text('delete')}
+                                                        question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
+                                                        confirmLabel={text('delete')}
+                                                        cancelLabel={text('cancel')}
+                                                        onConfirm={() => handleDeleteBrandReference(brandIconReference)}
                                                     >
-                                                        <Trash2 size={12} />
-                                                    </button>
+                                                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">
+                                                            <Trash2 size={12} />
+                                                        </span>
+                                                    </ConfirmIconButton>
                                                 )}
                                             </div>
                                         )}
@@ -567,10 +614,6 @@ export function AppShell({ session }: AppShellProps) {
                                     <BrandReferencesPanel
                                         brandScreenshotReferences={brandScreenshotReferences}
                                         brandRefUrls={brandRefUrls}
-                                        dragOverBrandRefId={dragOverBrandRefId}
-                                        draggingBrandRefId={draggingBrandRefId}
-                                        setDraggingBrandRefId={setDraggingBrandRefId}
-                                        setDragOverBrandRefId={setDragOverBrandRefId}
                                         handleReorderBrandReference={handleReorderBrandReference}
                                         handleDeleteBrandReference={handleDeleteBrandReference}
                                         handleBrandReferenceDragOver={handleBrandReferenceDragOver}
@@ -637,6 +680,8 @@ export function AppShell({ session }: AppShellProps) {
                                                         visibleApps={visibleApps}
                                                         selectedAppId={selectedAppId}
                                                         setSelectedAppId={setSelectedAppId}
+                                                        isBusy={isBusy}
+                                                        onBlockedAction={() => reportActionError(text('generation_in_progress'))}
                                                         isAppReorderMode={isAppReorderMode}
                                                         draggingAppId={draggingAppId}
                                                         setDraggingAppId={setDraggingAppId}
@@ -688,10 +733,6 @@ export function AppShell({ session }: AppShellProps) {
                                                 selectedApp={selectedApp}
                                                 selectedAppScreenshots={selectedAppScreenshots}
                                                 appScreenshotUrls={appScreenshotUrls}
-                                                dragOverShotId={dragOverShotId}
-                                                draggingShotId={draggingShotId}
-                                                setDraggingShotId={setDraggingShotId}
-                                                setDragOverShotId={setDragOverShotId}
                                                 handleReorderAppScreenshot={handleReorderAppScreenshot}
                                                 handleDeleteAppScreenshot={handleDeleteAppScreenshot}
                                                 handleScreenshotDragOver={handleScreenshotDragOver}
@@ -711,25 +752,43 @@ export function AppShell({ session }: AppShellProps) {
                                                 brandIconReference={brandIconReference}
                                                 brandScreenshotReferences={brandScreenshotReferences}
                                                 selectedAppScreenshots={selectedAppScreenshots}
-                                                generatedIcon={generatedIcon}
+                                                generatedIconSlots={generatedIconSlots}
+                                                enhancedIconSlots={enhancedIconSlots}
                                                 generatedScreenshotSlots={generatedScreenshotSlots}
+                                                enhancedScreenshotSlots={enhancedScreenshotSlots}
+                                                generatedPreviewUrls={generatedPreviewUrls}
                                                 generatedUrls={generatedUrls}
                                                 generationCount={generationCount}
                                                 setGenerationCount={setGenerationCount}
                                                 generationSize={generationSize}
                                                 setGenerationSize={setGenerationSize}
                                                 iconGenerating={iconGenerating}
+                                                iconSlotGenerating={iconSlotGenerating}
+                                                enhanceIconSlotGenerating={enhanceIconSlotGenerating}
                                                 screenshotsGenerating={screenshotsGenerating}
                                                 slotGenerating={slotGenerating}
+                                                enhanceSlotGenerating={enhanceSlotGenerating}
                                                 canGenerateIcon={canGenerateIcon}
                                                 canGenerateScreenshots={canGenerateScreenshots}
-                                                existingSlotCount={existingSlotCount}
-                                                slotsToCreate={slotsToCreate}
                                                 targetSlotCount={targetSlotCount}
                                                 getSlotMapping={getSlotMapping}
                                                 updateSlotMapping={updateSlotMapping}
                                                 promptsByRefId={promptsByRefId}
                                                 setPrompt={setPrompt}
+                                                iconProviderId={iconProviderId}
+                                                setIconProviderId={setIconProviderId}
+                                                iconVariationsCount={iconVariationsCount}
+                                                setIconVariationsCount={setIconVariationsCount}
+                                                screenshotProviderId={screenshotProviderId}
+                                                setScreenshotProviderId={setScreenshotProviderId}
+                                                slotHeadlineBySlotIndex={slotHeadlineBySlotIndex}
+                                                slotHeadlinePosBySlotIndex={slotHeadlinePosBySlotIndex}
+                                                setSlotHeadline={setSlotHeadline}
+                                                setSlotHeadlinePosition={setSlotHeadlinePosition}
+                                                beginSlotHeadlineDrag={beginSlotHeadlineDrag}
+                                                beginSlotHeadlineTextEdit={beginSlotHeadlineTextEdit}
+                                                undoSlotHeadline={undoSlotHeadline}
+                                                redoSlotHeadline={redoSlotHeadline}
                                                 editAssetId={editAssetId}
                                                 editDrafts={editDrafts}
                                                 editSaving={editSaving}
@@ -740,8 +799,10 @@ export function AppShell({ session }: AppShellProps) {
                                                 removeLayer={removeLayer}
                                                 handleSaveEdit={handleSaveEdit}
                                                 handleGenerateIcon={handleGenerateIcon}
-                                                handleGenerateScreenshots={handleGenerateScreenshots}
-                                                handleGenerateScreenshotVersion={handleGenerateScreenshotVersion}
+                                                handleEnhanceIconSlot={handleEnhanceIconSlot}
+                                                handleGenerateAllScreenshots={handleGenerateAllScreenshots}
+                                                handleGenerateSlot={handleGenerateSlot}
+                                                handleEnhanceSlot={handleEnhanceSlot}
                                                 handleDownloadGeneratedAsset={handleDownloadGeneratedAsset}
                                                 handleDownloadAllScreenshots={handleDownloadAllScreenshots}
                                                 handleDeleteGeneratedAsset={handleDeleteGeneratedAsset}
@@ -793,9 +854,9 @@ export function AppShell({ session }: AppShellProps) {
                 </div>
             </main>
             <Lightbox lightbox={lightbox} onClose={closeLightbox} closeLabel={text('close')} />
+            <GenerationQueueWidget jobs={generationJobs} onDismissJob={dismissJob} onClearFinished={clearFinished} />
         </div>
     );
 }
 
 export default AppShell;
-

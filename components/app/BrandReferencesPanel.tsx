@@ -2,14 +2,12 @@ import React from 'react';
 import { GripVertical, ImagePlus, Trash2 } from 'lucide-react';
 import type { BrandReference } from '../../types/zefgen';
 import { TranslationKey } from '../../i18n';
+import { SortableGrid, useSortableTile } from './dnd/sortable-grid';
+import { ConfirmIconButton } from './ConfirmIconButton';
 
 type BrandReferencesPanelProps = {
     brandScreenshotReferences: BrandReference[];
     brandRefUrls: Record<string, string>;
-    dragOverBrandRefId: string | null;
-    draggingBrandRefId: string | null;
-    setDraggingBrandRefId: (value: string | null) => void;
-    setDragOverBrandRefId: (value: string | null) => void;
     handleReorderBrandReference: (fromIndex: number, toIndex: number) => void;
     handleDeleteBrandReference: (ref: BrandReference) => void;
     handleBrandReferenceDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -19,17 +17,13 @@ type BrandReferencesPanelProps = {
     isBrandRefDropActive: boolean;
     brandScreenshotsUploading: boolean;
     maxScreenshotRefs: number;
-    openLightbox: (src: string, alt: string) => void;
+    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
     text: (key: TranslationKey) => string;
 };
 
 export const BrandReferencesPanel = ({
     brandScreenshotReferences,
     brandRefUrls,
-    dragOverBrandRefId,
-    draggingBrandRefId,
-    setDraggingBrandRefId,
-    setDragOverBrandRefId,
     handleReorderBrandReference,
     handleDeleteBrandReference,
     handleBrandReferenceDragOver,
@@ -42,6 +36,17 @@ export const BrandReferencesPanel = ({
     openLightbox,
     text,
 }: BrandReferencesPanelProps) => {
+    const refById = React.useMemo(() => {
+        const map = new Map<string, BrandReference>();
+        brandScreenshotReferences.forEach((ref) => map.set(ref.id, ref));
+        return map;
+    }, [brandScreenshotReferences]);
+
+    const orderedIds = React.useMemo(
+        () => brandScreenshotReferences.map((ref) => ref.id),
+        [brandScreenshotReferences]
+    );
+
     return (
         <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_26px_70px_-60px_rgba(15,23,42,0.9)] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -70,75 +75,54 @@ export const BrandReferencesPanel = ({
                                     {text('no_screenshot_refs')}
                                 </div>
                             ) : (
-                                <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
-                                    {brandScreenshotReferences.map((ref, index) => {
-                                        const isDragTarget = dragOverBrandRefId === ref.id && draggingBrandRefId !== ref.id;
+                                <SortableGrid
+                                    ids={orderedIds}
+                                    onCommitMove={({ fromIndex, toIndex }) => handleReorderBrandReference(fromIndex, toIndex)}
+                                    renderOverlay={(activeId) => {
+                                        const ref = refById.get(activeId);
+                                        if (!ref) return null;
+                                        const url = brandRefUrls[ref.id];
                                         return (
-                                            <div
-                                                key={ref.id}
-                                                draggable
-                                                onDragStart={(event) => {
-                                                    event.dataTransfer.effectAllowed = 'move';
-                                                    event.dataTransfer.setData('text/plain', ref.id);
-                                                    setDraggingBrandRefId(ref.id);
-                                                }}
-                                                onDragEnd={() => {
-                                                    setDraggingBrandRefId(null);
-                                                    setDragOverBrandRefId(null);
-                                                }}
-                                                onDragOver={(event) => {
-                                                    event.preventDefault();
-                                                    setDragOverBrandRefId(ref.id);
-                                                }}
-                                                onDrop={(event) => {
-                                                    event.preventDefault();
-                                                    const draggedId = event.dataTransfer.getData('text/plain');
-                                                    const fromIndex = brandScreenshotReferences.findIndex((item) => item.id === draggedId);
-                                                    const toIndex = brandScreenshotReferences.findIndex((item) => item.id === ref.id);
-                                                    if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
-                                                        handleReorderBrandReference(fromIndex, toIndex);
-                                                    }
-                                                    setDraggingBrandRefId(null);
-                                                    setDragOverBrandRefId(null);
-                                                }}
-                                                className={`mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5 cursor-grab active:cursor-grabbing ${
-                                                    isDragTarget ? 'ring-indigo-400/60 bg-indigo-500/10' : ''
-                                                }`}
-                                            >
-                                                <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
-                                                    {brandRefUrls[ref.id] ? (
+                                            <div className="w-[110px] rounded-2xl bg-slate-900/65 ring-2 ring-indigo-400/40 p-1.5 space-y-1.5 shadow-[0_20px_60px_-30px_rgba(99,102,241,0.55)] pointer-events-none">
+                                                <div className="relative overflow-hidden rounded-xl border border-indigo-400/30 bg-slate-900/40 aspect-[9/19]">
+                                                    {url ? (
                                                         <img
-                                                            src={brandRefUrls[ref.id]}
+                                                            src={url}
                                                             alt={text('screenshot_references')}
-                                                            className="h-full w-full object-cover cursor-zoom-in"
-                                                            loading="lazy"
-                                                            decoding="async"
-                                                            onClick={() => openLightbox(brandRefUrls[ref.id], text('screenshot_references'))}
+                                                            className="h-full w-full object-cover"
+                                                            draggable={false}
                                                         />
                                                     ) : (
-                                                        <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
-                                                    <div className="inline-flex items-center gap-1">
-                                                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
-                                                            {index + 1}
+                                                        <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/70">
+                                                            {text('loading')}
                                                         </span>
-                                                        <GripVertical size={12} />
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteBrandReference(ref)}
-                                                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                        aria-label={text('delete')}
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         );
-                                    })}
-                                </div>
+                                    }}
+                                >
+                                    {(previewIds) => (
+                                        <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
+                                            {previewIds.map((id, index) => {
+                                                const ref = refById.get(id);
+                                                if (!ref) return null;
+                                                return (
+                                                    <SortableBrandRefTile
+                                                        key={ref.id}
+                                                        id={ref.id}
+                                                        index={index}
+                                                        refItem={ref}
+                                                        url={brandRefUrls[ref.id]}
+                                                        onDelete={handleDeleteBrandReference}
+                                                        openLightbox={openLightbox}
+                                                        text={text}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </SortableGrid>
                             )}
                         </div>
                         <div>
@@ -178,3 +162,77 @@ export const BrandReferencesPanel = ({
         </section>
     );
 };
+
+function SortableBrandRefTile({
+    id,
+    index,
+    refItem,
+    url,
+    onDelete,
+    openLightbox,
+    text,
+}: {
+    id: string;
+    index: number;
+    refItem: BrandReference;
+    url: string | undefined;
+    onDelete: (ref: BrandReference) => void;
+    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    text: (key: TranslationKey) => string;
+}) {
+    const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id);
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className="mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5"
+        >
+            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
+                {url ? (
+                    <img
+                        src={url}
+                        alt={text('screenshot_references')}
+                        className="h-full w-full object-cover cursor-zoom-in select-none"
+                        loading="lazy"
+                        decoding="async"
+                        draggable={false}
+                        onClick={() => openLightbox(url, text('screenshot_references'))}
+                    />
+                ) : (
+                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">
+                        {text('loading')}
+                    </span>
+                )}
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
+                <div className="inline-flex items-center gap-1">
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                        {index + 1}
+                    </span>
+                    <button
+                        type="button"
+                        ref={setActivatorNodeRef}
+                        {...attributes}
+                        {...listeners}
+                        className="touch-none appearance-none bg-transparent border-0 inline-flex items-center justify-center cursor-grab active:cursor-grabbing rounded-md p-0.5 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+                        aria-label={text('drag_to_reorder')}
+                    >
+                        <GripVertical size={12} />
+                    </button>
+                </div>
+                <ConfirmIconButton
+                    label={text('delete')}
+                    question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
+                    confirmLabel={text('delete')}
+                    cancelLabel={text('cancel')}
+                    onConfirm={() => onDelete(refItem)}
+                >
+                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">
+                        <Trash2 size={12} />
+                    </span>
+                </ConfirmIconButton>
+            </div>
+        </div>
+    );
+}

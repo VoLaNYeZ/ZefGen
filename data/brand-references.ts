@@ -61,7 +61,8 @@ export const uploadBrandReferenceImage = async (payload: {
     supabase.storage.from(BRAND_BUCKET).upload(payload.path, payload.file, {
         upsert: true,
         contentType: payload.contentType,
-        cacheControl: '3600',
+        // Brand reference paths are immutable (unique ids in filename), so we can cache aggressively.
+        cacheControl: '31536000',
     });
 
 export const removeBrandReferenceImage = async (path: string) =>

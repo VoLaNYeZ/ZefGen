@@ -45,6 +45,9 @@ Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 - `components/app/AppGenerationSection.tsx` - Generation controls, slot mapping, outputs.
 - `components/app/EditPanel.tsx` - Text-layer editor for generated assets.
 - `components/app/Lightbox.tsx` - Image lightbox overlay.
+- `components/app/GenerationQueueWidget.tsx` - Bottom-right job/status widget for generation + ZIP downloads.
+- `components/app/TextLayersCanvasOverlay.tsx` - Canvas-rendered text overlay for accurate shadow/outline preview.
+- `components/app/ConfirmIconButton.tsx` - Reusable inline delete confirmation popover for image deletes.
 
 ## hooks Breakdown
 - `hooks/use-auth-session.ts` - Supabase auth session + loading state.
@@ -53,6 +56,7 @@ Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 - `hooks/use-brand-references.ts` - Brand references CRUD, uploads, and prompts.
 - `hooks/use-app-screenshots.ts` - Simulator screenshots CRUD and uploads.
 - `hooks/use-generated-assets.ts` - Generation actions, downloads, and edit state.
+- `hooks/use-generation-jobs.ts` - In-memory job tracking for long-running operations (generation, ZIP).
 - `hooks/use-app-screenshot-prompts.ts` - Screenshot prompt persistence in Supabase.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
@@ -80,6 +84,11 @@ Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 - `utils/download.ts` - Download trigger helper.
 - `utils/retry.ts` - Retry helper for async actions.
 
+## Generation/Download Notes
+- Generated assets upload a small `-preview.jpg` variant for fast UI thumbnails/lightbox.
+- “Download all screenshots” produces a ZIP of final-rendered images named in App Store order (`iOS 6.5 1.jpg`, ...).
+- While generation/ZIP is running, app/brand switching is blocked and the app warns on refresh/close to avoid wasting work.
+
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).
 1. Define or extend domain types in `types/zefgen.ts`.
@@ -90,3 +99,7 @@ Use this path when introducing a new domain feature (data + UI).
 6. Update `docs/PROJECT_STRUCTURE.md` to document the new files and responsibilities.
 
 Data flow: UI component → hook → data layer → Supabase.
+
+## Local Dev Notes
+- `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
+- To run Vercel Functions locally (for `/api/*`), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.

@@ -55,7 +55,8 @@ export const uploadAppScreenshotImage = async (payload: { path: string; file: Fi
     supabase.storage.from(APP_SCREENSHOT_BUCKET).upload(payload.path, payload.file, {
         upsert: true,
         contentType: payload.contentType,
-        cacheControl: '3600',
+        // App screenshot paths are immutable (unique ids in filename), so we can cache aggressively.
+        cacheControl: '31536000',
     });
 
 export const removeAppScreenshotImage = async (path: string) =>

@@ -1,9 +1,13 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import type { TextLayer } from '../../types/zefgen';
+import { TextLayersCanvasOverlay } from './TextLayersCanvasOverlay';
 
 type LightboxState = {
     src: string;
     alt: string;
+    layers?: TextLayer[];
+    fullSrc?: string;
 } | null;
 
 type LightboxProps = {
@@ -15,9 +19,25 @@ type LightboxProps = {
 export const Lightbox = ({ lightbox, onClose, closeLabel }: LightboxProps) => {
     if (!lightbox) return null;
 
+    const layers = Array.isArray(lightbox.layers) ? lightbox.layers : [];
+    const [displaySrc, setDisplaySrc] = React.useState(lightbox.src);
+    const [loaded, setLoaded] = React.useState(false);
+    React.useEffect(() => {
+        setDisplaySrc(lightbox.src);
+        setLoaded(false);
+    }, [lightbox.src]);
+
+    const translateForAlign = (align: TextLayer['align']) => {
+        if (align === 'left') return 'translate(0, -50%)';
+        if (align === 'right') return 'translate(-100%, -50%)';
+        return 'translate(-50%, -50%)';
+    };
+
+    const fullSrc = lightbox.fullSrc && lightbox.fullSrc !== lightbox.src ? lightbox.fullSrc : null;
+
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4"
             onClick={onClose}
         >
             <div
@@ -32,11 +52,32 @@ export const Lightbox = ({ lightbox, onClose, closeLabel }: LightboxProps) => {
                 >
                     <X size={14} />
                 </button>
-                <img
-                    src={lightbox.src}
-                    alt={lightbox.alt}
-                    className="max-h-[85vh] w-auto max-w-[85vw] rounded-xl object-contain"
-                />
+                <div className="relative inline-block">
+                    <img
+                        src={displaySrc}
+                        alt={lightbox.alt}
+                        className="max-h-[85vh] w-auto max-w-[85vw] rounded-xl object-contain block"
+                        loading="eager"
+                        decoding="async"
+                        fetchPriority="high"
+                        onLoad={() => setLoaded(true)}
+                    />
+                    {/* Preload the full-resolution image, then swap once loaded. */}
+                    {fullSrc && displaySrc !== fullSrc && (
+                        <img
+                            src={fullSrc}
+                            alt=""
+                            className="hidden"
+                            loading="eager"
+                            decoding="async"
+                            fetchPriority="high"
+                            onLoad={() => setDisplaySrc(fullSrc)}
+                        />
+                    )}
+
+                    {/* Optional overlay layers (used for generated screenshot zoom previews). */}
+                    {loaded && layers.length > 0 && <TextLayersCanvasOverlay layers={layers} />}
+                </div>
             </div>
         </div>
     );

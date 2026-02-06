@@ -27,6 +27,9 @@
     "noEmit": true
   },
   "exclude": [
-    "supabase"
+    "dist",
+    "node_modules.bak*",
+    "supabase",
+    "vite.config.ts"
   ]
 }
