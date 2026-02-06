@@ -88,7 +88,10 @@ export const AppFolder = ({
                         {simulator}
                     </section>
 
-                    <section ref={appGenerationRef} className="app-folder-section border-t border-indigo-900/30 p-6">
+                    <section
+                        ref={appGenerationRef}
+                        className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
+                    >
                         {generation}
                     </section>
                 </div>

@@ -39,9 +39,7 @@ export const useAppScreenshots = ({
     const [appScreenshotUrls, setAppScreenshotUrls] = useState<Record<string, string>>({});
     const [appScreenshotsUploading, setAppScreenshotsUploading] = useState(false);
     const [isScreenshotDropActive, setIsScreenshotDropActive] = useState(false);
-    const [draggingShotId, setDraggingShotId] = useState<string | null>(null);
-    const [dragOverShotId, setDragOverShotId] = useState<string | null>(null);
-    const { getSignedUrl } = useSignedUrlCache();
+    const { getSignedUrl } = useSignedUrlCache({ userId: session?.user.id ?? null });
     const sessionUserId = session?.user.id ?? null;
 
     const refresh = useCallback(async () => {
@@ -271,10 +269,6 @@ export const useAppScreenshots = ({
         appScreenshotUrls,
         appScreenshotsUploading,
         isScreenshotDropActive,
-        draggingShotId,
-        dragOverShotId,
-        setDraggingShotId,
-        setDragOverShotId,
         handleReorderAppScreenshot,
         handleDeleteAppScreenshot,
         handleScreenshotDragOver,

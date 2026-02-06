@@ -83,7 +83,8 @@ create table if not exists public.app_generated_assets (
     user_id uuid not null references auth.users(id) on delete cascade,
     brand_id uuid not null references public.brands(id) on delete cascade,
     app_id uuid not null references public.apps(id) on delete cascade,
-    kind text not null check (kind in ('icon', 'screenshot')),
+    -- Added screenshot_enhanced + icon_enhanced kinds for AI enhancement outputs. (2026-02-06)
+    kind text not null check (kind in ('icon', 'icon_enhanced', 'screenshot', 'screenshot_enhanced')),
     slot_index integer,
     version_index integer not null default 1,
     image_path text not null,

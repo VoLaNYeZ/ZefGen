@@ -38,12 +38,14 @@ type SidebarProps = {
     editingBrandId: string | null;
     brandSlugPreview: string;
     dataLoading: boolean;
+    isBusy: boolean;
+    onBlockedAction: () => void;
     openBrandForm: (brand?: Brand) => void;
     submitBrandForm: (event: React.FormEvent) => void;
     setBrandForm: React.Dispatch<React.SetStateAction<BrandFormState>>;
     setBrandFormOpen: (value: boolean) => void;
     setSelectedBrandId: (value: string | null) => void;
-    openLightbox: (src: string, alt: string) => void;
+    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
     handleLogout: () => void;
     text: (key: TranslationKey) => string;
 };
@@ -69,6 +71,8 @@ export const Sidebar = ({
     editingBrandId,
     brandSlugPreview,
     dataLoading,
+    isBusy,
+    onBlockedAction,
     openBrandForm,
     submitBrandForm,
     setBrandForm,
@@ -156,7 +160,13 @@ export const Sidebar = ({
                     <p className="text-sm text-indigo-100/80">{text('select_or_create')}</p>
                 </div>
                 <button
-                    onClick={() => openBrandForm()}
+                    onClick={() => {
+                        if (isBusy) {
+                            onBlockedAction();
+                            return;
+                        }
+                        openBrandForm();
+                    }}
                     className="inline-flex items-center gap-2 rounded-full bg-indigo-400/10 px-3 py-1.5 text-xs font-semibold text-indigo-200 border border-indigo-400/30 hover:bg-indigo-400/20"
                 >
                     <Plus size={14} />
@@ -224,6 +234,10 @@ export const Sidebar = ({
                         <button
                             key={brand.id}
                             onClick={() => {
+                                if (isBusy) {
+                                    onBlockedAction();
+                                    return;
+                                }
                                 setSelectedBrandId(brand.id);
                                 if (window.innerWidth < 768) setIsSidebarOpen(false);
                             }}

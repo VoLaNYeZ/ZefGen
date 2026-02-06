@@ -13,7 +13,7 @@ import {
 } from '../data/brand-references';
 import { BRAND_BUCKET, MAX_SCREENSHOT_REFS } from '../constants/zefgen';
 import { createId } from '../utils/id';
-import { convertToJpg, isFileTooLarge, isValidImageType, resizeImageToJpeg } from '../utils/images';
+import { isFileTooLarge, isValidImageType, resizeImageToJpeg } from '../utils/images';
 import { useSignedUrlCache } from './use-signed-url-cache';
 
 type Params = {
@@ -41,9 +41,7 @@ export const useBrandReferences = ({
     const [brandIconUploading, setBrandIconUploading] = useState(false);
     const [brandScreenshotsUploading, setBrandScreenshotsUploading] = useState(false);
     const [isBrandRefDropActive, setIsBrandRefDropActive] = useState(false);
-    const [draggingBrandRefId, setDraggingBrandRefId] = useState<string | null>(null);
-    const [dragOverBrandRefId, setDragOverBrandRefId] = useState<string | null>(null);
-    const { getSignedUrl } = useSignedUrlCache();
+    const { getSignedUrl } = useSignedUrlCache({ userId: session?.user.id ?? null });
 
     const sessionUserId = session?.user.id ?? null;
 
@@ -193,7 +191,8 @@ export const useBrandReferences = ({
         setBrandIconUploading(true);
 
         try {
-            const jpgFile = await convertToJpg(file);
+            // Keep icon references light and predictable for provider uploads (no upscaling).
+            const jpgFile = await resizeImageToJpeg(file, 1024, 1024);
             const path = `${session.user.id}/brands/${selectedBrand.id}/icon/${createId()}.jpg`;
             const { error: uploadError } = await uploadBrandReferenceImage({
                 path,
@@ -413,10 +412,6 @@ export const useBrandReferences = ({
         brandIconUploading,
         brandScreenshotsUploading,
         isBrandRefDropActive,
-        draggingBrandRefId,
-        dragOverBrandRefId,
-        setDraggingBrandRefId,
-        setDragOverBrandRefId,
         handleBrandIconUpload,
         handleBrandScreenshotUpload,
         handleBrandReferenceDrop,

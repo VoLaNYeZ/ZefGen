@@ -2,15 +2,13 @@ import React from 'react';
 import { GripVertical, ImagePlus, Trash2 } from 'lucide-react';
 import type { AppItem, AppScreenshot } from '../../types/zefgen';
 import { TranslationKey } from '../../i18n';
+import { SortableGrid, useSortableTile } from './dnd/sortable-grid';
+import { ConfirmIconButton } from './ConfirmIconButton';
 
 type AppSimulatorSectionProps = {
     selectedApp: AppItem | null;
     selectedAppScreenshots: AppScreenshot[];
     appScreenshotUrls: Record<string, string>;
-    dragOverShotId: string | null;
-    draggingShotId: string | null;
-    setDraggingShotId: (value: string | null) => void;
-    setDragOverShotId: (value: string | null) => void;
     handleReorderAppScreenshot: (fromIndex: number, toIndex: number) => void;
     handleDeleteAppScreenshot: (shot: AppScreenshot) => void;
     handleScreenshotDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -20,7 +18,7 @@ type AppSimulatorSectionProps = {
     isScreenshotDropActive: boolean;
     appScreenshotsUploading: boolean;
     canUploadAppScreenshots: boolean;
-    openLightbox: (src: string, alt: string) => void;
+    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
     text: (key: TranslationKey) => string;
 };
 
@@ -28,10 +26,6 @@ export const AppSimulatorSection = ({
     selectedApp,
     selectedAppScreenshots,
     appScreenshotUrls,
-    dragOverShotId,
-    draggingShotId,
-    setDraggingShotId,
-    setDragOverShotId,
     handleReorderAppScreenshot,
     handleDeleteAppScreenshot,
     handleScreenshotDragOver,
@@ -44,8 +38,16 @@ export const AppSimulatorSection = ({
     openLightbox,
     text,
 }: AppSimulatorSectionProps) => {
+    const shotById = React.useMemo(() => {
+        const map = new Map<string, AppScreenshot>();
+        selectedAppScreenshots.forEach((shot) => map.set(shot.id, shot));
+        return map;
+    }, [selectedAppScreenshots]);
+
+    const orderedIds = React.useMemo(() => selectedAppScreenshots.map((shot) => shot.id), [selectedAppScreenshots]);
+
     return (
-        <>
+        <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
@@ -64,75 +66,54 @@ export const AppSimulatorSection = ({
                                 {text('no_screenshots_yet')}
                             </div>
                         ) : (
-                            <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                                {selectedAppScreenshots.map((shot, index) => {
-                                    const isDragTarget = dragOverShotId === shot.id && draggingShotId !== shot.id;
+                            <SortableGrid
+                                ids={orderedIds}
+                                onCommitMove={({ fromIndex, toIndex }) => handleReorderAppScreenshot(fromIndex, toIndex)}
+                                renderOverlay={(activeId) => {
+                                    const shot = shotById.get(activeId);
+                                    if (!shot) return null;
+                                    const url = appScreenshotUrls[shot.id];
                                     return (
-                                        <div
-                                            key={shot.id}
-                                            draggable
-                                            onDragStart={(event) => {
-                                                event.dataTransfer.effectAllowed = 'move';
-                                                event.dataTransfer.setData('text/plain', shot.id);
-                                                setDraggingShotId(shot.id);
-                                            }}
-                                            onDragEnd={() => {
-                                                setDraggingShotId(null);
-                                                setDragOverShotId(null);
-                                            }}
-                                            onDragOver={(event) => {
-                                                event.preventDefault();
-                                                setDragOverShotId(shot.id);
-                                            }}
-                                            onDrop={(event) => {
-                                                event.preventDefault();
-                                                const draggedId = event.dataTransfer.getData('text/plain');
-                                                const fromIndex = selectedAppScreenshots.findIndex((item) => item.id === draggedId);
-                                                const toIndex = selectedAppScreenshots.findIndex((item) => item.id === shot.id);
-                                                if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
-                                                    handleReorderAppScreenshot(fromIndex, toIndex);
-                                                }
-                                                setDraggingShotId(null);
-                                                setDragOverShotId(null);
-                                            }}
-                                            className={`mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5 cursor-grab active:cursor-grabbing ${
-                                                isDragTarget ? 'ring-indigo-400/60 bg-indigo-500/10' : ''
-                                            }`}
-                                        >
-                                            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
-                                                {appScreenshotUrls[shot.id] ? (
+                                        <div className="w-[110px] rounded-2xl bg-slate-900/65 ring-2 ring-indigo-400/40 p-1.5 space-y-1.5 shadow-[0_20px_60px_-30px_rgba(99,102,241,0.55)] pointer-events-none">
+                                            <div className="relative overflow-hidden rounded-xl border border-indigo-400/30 bg-slate-900/40 aspect-[9/19]">
+                                                {url ? (
                                                     <img
-                                                        src={appScreenshotUrls[shot.id]}
-                                                        alt={`${text('screenshot')} ${index + 1}`}
-                                                        className="h-full w-full object-cover cursor-zoom-in"
-                                                        loading="lazy"
-                                                        decoding="async"
-                                                        onClick={() => openLightbox(appScreenshotUrls[shot.id], `${text('screenshot')} ${index + 1}`)}
+                                                        src={url}
+                                                        alt={text('screenshot')}
+                                                        className="h-full w-full object-cover"
+                                                        draggable={false}
                                                     />
                                                 ) : (
-                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">{text('loading')}</span>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
-                                                <div className="inline-flex items-center gap-1">
-                                                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
-                                                        {index + 1}
+                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/70">
+                                                        {text('loading')}
                                                     </span>
-                                                    <GripVertical size={12} />
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeleteAppScreenshot(shot)}
-                                                    className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                    aria-label={text('delete')}
-                                                >
-                                                    <Trash2 size={10} />
-                                                </button>
+                                                )}
                                             </div>
                                         </div>
                                     );
-                                })}
-                            </div>
+                                }}
+                            >
+                                {(previewIds) => (
+                                    <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                                        {previewIds.map((id, index) => {
+                                            const shot = shotById.get(id);
+                                            if (!shot) return null;
+                                            return (
+                                                <SortableSimulatorShotTile
+                                                    key={shot.id}
+                                                    id={shot.id}
+                                                    index={index}
+                                                    shot={shot}
+                                                    url={appScreenshotUrls[shot.id]}
+                                                    onDelete={handleDeleteAppScreenshot}
+                                                    openLightbox={openLightbox}
+                                                    text={text}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </SortableGrid>
                         )}
                     </div>
                     <div>
@@ -168,6 +149,81 @@ export const AppSimulatorSection = ({
                 </div>
             )}
             <p className="mt-3 text-[11px] text-indigo-200/60">{text('upload_rules_note')}</p>
-        </>
+        </div>
     );
 };
+
+function SortableSimulatorShotTile({
+    id,
+    index,
+    shot,
+    url,
+    onDelete,
+    openLightbox,
+    text,
+}: {
+    id: string;
+    index: number;
+    shot: AppScreenshot;
+    url: string | undefined;
+    onDelete: (shot: AppScreenshot) => void;
+    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    text: (key: TranslationKey) => string;
+}) {
+    const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id);
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className="mx-auto w-full max-w-[110px] rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-1.5 space-y-1.5"
+        >
+            <div className="relative overflow-hidden rounded-xl border border-dashed border-indigo-900/40 bg-slate-900/30 aspect-[9/19]">
+                {url ? (
+                    <img
+                        src={url}
+                        alt={`${text('screenshot')} ${index + 1}`}
+                        className="h-full w-full object-cover cursor-zoom-in select-none"
+                        loading="lazy"
+                        decoding="async"
+                        draggable={false}
+                        onClick={() => openLightbox(url, `${text('screenshot')} ${index + 1}`)}
+                    />
+                ) : (
+                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">
+                        {text('loading')}
+                    </span>
+                )}
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-indigo-200/50">
+                <div className="inline-flex items-center gap-1">
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                        {index + 1}
+                    </span>
+                    <button
+                        type="button"
+                        ref={setActivatorNodeRef}
+                        {...attributes}
+                        {...listeners}
+                        className="touch-none appearance-none bg-transparent border-0 inline-flex items-center justify-center cursor-grab active:cursor-grabbing rounded-md p-0.5 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+                        aria-label={text('drag_to_reorder')}
+                    >
+                        <GripVertical size={12} />
+                    </button>
+                </div>
+                <ConfirmIconButton
+                    label={text('delete')}
+                    question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
+                    confirmLabel={text('delete')}
+                    cancelLabel={text('cancel')}
+                    onConfirm={() => onDelete(shot)}
+                >
+                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">
+                        <Trash2 size={10} />
+                    </span>
+                </ConfirmIconButton>
+            </div>
+        </div>
+    );
+}

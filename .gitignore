@@ -8,11 +8,14 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+node_modules.bak*/
 dist
 dist-ssr
+package-lock.json.bak*
 *.local
 .env
 .env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*

@@ -43,7 +43,8 @@ export const uploadGeneratedAsset = async (payload: { path: string; file: File; 
     supabase.storage.from(GENERATED_BUCKET).upload(payload.path, payload.file, {
         upsert: true,
         contentType: payload.contentType,
-        cacheControl: '3600',
+        // Generated assets use immutable paths (unique ids in filename), so we can cache aggressively.
+        cacheControl: '31536000',
     });
 
 export const removeGeneratedAssets = async (paths: string[]) =>

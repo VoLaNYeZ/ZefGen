@@ -133,6 +133,22 @@ export const EditPanel = ({
                                 onChange={(event) => updateLayer(asset.id, layer.id, { x: Number(event.target.value) })}
                                 className="mt-1 w-full"
                             />
+                            <div className="mt-1 flex items-center justify-between">
+                                <button
+                                    type="button"
+                                    onClick={() => updateLayer(asset.id, layer.id, { x: 50, align: 'center' })}
+                                    className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-indigo-200/60 hover:border-indigo-400/40 hover:text-white"
+                                >
+                                    Center
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => updateLayer(asset.id, layer.id, { x: 50 })}
+                                    className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-indigo-200/60 hover:border-indigo-400/40 hover:text-white"
+                                >
+                                    Reset
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label className="text-[10px] text-indigo-200/60">{text('position_y')}</label>
@@ -144,6 +160,15 @@ export const EditPanel = ({
                                 onChange={(event) => updateLayer(asset.id, layer.id, { y: Number(event.target.value) })}
                                 className="mt-1 w-full"
                             />
+                            <div className="mt-1 flex items-center justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => updateLayer(asset.id, layer.id, { y: index === 0 ? 12 : 50 })}
+                                    className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-indigo-200/60 hover:border-indigo-400/40 hover:text-white"
+                                >
+                                    Reset
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label className="text-[10px] text-indigo-200/60">{text('rotation')}</label>
@@ -155,6 +180,165 @@ export const EditPanel = ({
                                 onChange={(event) => updateLayer(asset.id, layer.id, { rotation: Number(event.target.value) })}
                                 className="mt-1 w-full"
                             />
+                            <div className="mt-1 flex items-center justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => updateLayer(asset.id, layer.id, { rotation: 0 })}
+                                    className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-indigo-200/60 hover:border-indigo-400/40 hover:text-white"
+                                >
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl border border-indigo-500/15 bg-slate-950/40 p-2.5 space-y-2">
+                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">Shadow</label>
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-indigo-200/50">Enabled</span>
+                                <input
+                                    type="checkbox"
+                                    checked={layer.shadow?.enabled ?? true}
+                                    onChange={(event) => updateLayer(asset.id, layer.id, {
+                                        shadow: {
+                                            enabled: event.target.checked,
+                                            color: layer.shadow?.color ?? '#000000',
+                                            blur: layer.shadow?.blur ?? 14,
+                                            offsetX: layer.shadow?.offsetX ?? 0,
+                                            offsetY: layer.shadow?.offsetY ?? 8,
+                                        }
+                                    })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-indigo-200/50">Blur</label>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={40}
+                                        value={layer.shadow?.blur ?? 14}
+                                        onChange={(event) => updateLayer(asset.id, layer.id, {
+                                            shadow: {
+                                                enabled: true,
+                                                color: layer.shadow?.color ?? '#000000',
+                                                blur: Number(event.target.value),
+                                                offsetX: layer.shadow?.offsetX ?? 0,
+                                                offsetY: layer.shadow?.offsetY ?? 8,
+                                            }
+                                        })}
+                                        className="mt-1 w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-indigo-200/50">X</label>
+                                    <input
+                                        type="range"
+                                        min={-20}
+                                        max={20}
+                                        value={layer.shadow?.offsetX ?? 0}
+                                        onChange={(event) => updateLayer(asset.id, layer.id, {
+                                            shadow: {
+                                                enabled: true,
+                                                color: layer.shadow?.color ?? '#000000',
+                                                blur: layer.shadow?.blur ?? 14,
+                                                offsetX: Number(event.target.value),
+                                                offsetY: layer.shadow?.offsetY ?? 8,
+                                            }
+                                        })}
+                                        className="mt-1 w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-indigo-200/50">Y</label>
+                                    <input
+                                        type="range"
+                                        min={-20}
+                                        max={20}
+                                        value={layer.shadow?.offsetY ?? 8}
+                                        onChange={(event) => updateLayer(asset.id, layer.id, {
+                                            shadow: {
+                                                enabled: true,
+                                                color: layer.shadow?.color ?? '#000000',
+                                                blur: layer.shadow?.blur ?? 14,
+                                                offsetX: layer.shadow?.offsetX ?? 0,
+                                                offsetY: Number(event.target.value),
+                                            }
+                                        })}
+                                        className="mt-1 w-full"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-indigo-200/50">Color</label>
+                                <input
+                                    type="color"
+                                    value={layer.shadow?.color ?? '#000000'}
+                                    onChange={(event) => updateLayer(asset.id, layer.id, {
+                                        shadow: {
+                                            enabled: true,
+                                            color: event.target.value,
+                                            blur: layer.shadow?.blur ?? 14,
+                                            offsetX: layer.shadow?.offsetX ?? 0,
+                                            offsetY: layer.shadow?.offsetY ?? 8,
+                                        }
+                                    })}
+                                    className="mt-1 h-8 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-indigo-500/15 bg-slate-950/40 p-2.5 space-y-2">
+                            <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">Outline</label>
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-indigo-200/50">Enabled</span>
+                                <input
+                                    type="checkbox"
+                                    checked={layer.outline?.enabled ?? false}
+                                    onChange={(event) => updateLayer(asset.id, layer.id, {
+                                        outline: {
+                                            enabled: event.target.checked,
+                                            color: layer.outline?.color ?? '#000000',
+                                            width: layer.outline?.width ?? 3,
+                                        }
+                                    })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-indigo-200/50">Width</label>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={12}
+                                        value={layer.outline?.width ?? 3}
+                                        onChange={(event) => updateLayer(asset.id, layer.id, {
+                                            outline: {
+                                                enabled: true,
+                                                color: layer.outline?.color ?? '#000000',
+                                                width: Number(event.target.value),
+                                            }
+                                        })}
+                                        className="mt-1 w-full"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-indigo-200/50">Color</label>
+                                    <input
+                                        type="color"
+                                        value={layer.outline?.color ?? '#000000'}
+                                        onChange={(event) => updateLayer(asset.id, layer.id, {
+                                            outline: {
+                                                enabled: true,
+                                                color: event.target.value,
+                                                width: layer.outline?.width ?? 3,
+                                            }
+                                        })}
+                                        className="mt-1 h-8 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

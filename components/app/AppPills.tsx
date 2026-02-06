@@ -8,6 +8,8 @@ type AppPillsProps = {
     visibleApps: AppItem[];
     selectedAppId: string | null;
     setSelectedAppId: (value: string | null) => void;
+    isBusy: boolean;
+    onBlockedAction: () => void;
     isAppReorderMode: boolean;
     draggingAppId: string | null;
     setDraggingAppId: (value: string | null) => void;
@@ -40,6 +42,8 @@ export const AppPills = ({
     visibleApps,
     selectedAppId,
     setSelectedAppId,
+    isBusy,
+    onBlockedAction,
     isAppReorderMode,
     draggingAppId,
     setDraggingAppId,
@@ -96,6 +100,10 @@ export const AppPills = ({
                                 role="tab"
                                 aria-selected={isActive}
                                 onClick={() => {
+                                    if (isBusy) {
+                                        onBlockedAction();
+                                        return;
+                                    }
                                     if (Date.now() - appPillPanRef.current.lastDragTime < 250) {
                                         return;
                                     }
@@ -157,6 +165,10 @@ export const AppPills = ({
                 <button
                     type="button"
                     onClick={() => {
+                        if (isBusy) {
+                            onBlockedAction();
+                            return;
+                        }
                         if (Date.now() - appPillPanRef.current.lastDragTime < 250) {
                             return;
                         }

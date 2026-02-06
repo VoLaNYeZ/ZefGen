@@ -59,6 +59,18 @@ export type TextLayer = {
     rotation: number;
     align: 'left' | 'center' | 'right';
     weight: number;
+    shadow?: {
+        enabled: boolean;
+        color: string;
+        blur: number;
+        offsetX: number;
+        offsetY: number;
+    };
+    outline?: {
+        enabled: boolean;
+        color: string;
+        width: number;
+    };
 };
 
 export type EditState = {
@@ -70,7 +82,7 @@ export type GeneratedAsset = {
     app_id: string;
     brand_id: string;
     user_id?: string;
-    kind: 'icon' | 'screenshot';
+    kind: 'icon' | 'icon_enhanced' | 'screenshot' | 'screenshot_enhanced';
     slot_index: number | null;
     version_index: number | null;
     image_path: string;
@@ -90,3 +102,9 @@ export type AppFormState = {
     name: string;
     alias: string;
 };
+
+// Client-side generation provider selector (internal; no DB impact).
+export type ScreenshotProviderId =
+    | 'replicate:nano-banana-pro'
+    | 'replicate:seedream-4'
+    | 'openai:gpt-image-1.5';
