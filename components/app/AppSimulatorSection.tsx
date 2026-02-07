@@ -18,7 +18,11 @@ type AppSimulatorSectionProps = {
     isScreenshotDropActive: boolean;
     appScreenshotsUploading: boolean;
     canUploadAppScreenshots: boolean;
-    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    openLightbox: (
+        src: string,
+        alt: string,
+        options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => void;
     text: (key: TranslationKey) => string;
 };
 
@@ -167,7 +171,11 @@ function SortableSimulatorShotTile({
     shot: AppScreenshot;
     url: string | undefined;
     onDelete: (shot: AppScreenshot) => void;
-    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    openLightbox: (
+        src: string,
+        alt: string,
+        options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => void;
     text: (key: TranslationKey) => string;
 }) {
     const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id);

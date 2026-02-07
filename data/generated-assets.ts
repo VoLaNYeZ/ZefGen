@@ -25,6 +25,19 @@ export const updateGeneratedAsset = async (payload: { id: string; userId: string
         .select()
         .single();
 
+export const bulkAssignScreenshotSetId = async (payload: {
+    userId: string;
+    appId: string;
+    screenshotSetId: string;
+}) =>
+    supabase
+        .from('app_generated_assets')
+        .update({ screenshot_set_id: payload.screenshotSetId })
+        .eq('user_id', payload.userId)
+        .eq('app_id', payload.appId)
+        .in('kind', ['screenshot', 'screenshot_enhanced'])
+        .is('screenshot_set_id', null);
+
 export const deleteGeneratedAsset = async (payload: { id: string; userId: string }) =>
     supabase
         .from('app_generated_assets')

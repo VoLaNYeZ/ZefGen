@@ -8,6 +8,8 @@ type LightboxState = {
     alt: string;
     layers?: TextLayer[];
     fullSrc?: string;
+    overlayBaseWidth?: number;
+    overlayBaseHeight?: number;
 } | null;
 
 type LightboxProps = {
@@ -76,7 +78,13 @@ export const Lightbox = ({ lightbox, onClose, closeLabel }: LightboxProps) => {
                     )}
 
                     {/* Optional overlay layers (used for generated screenshot zoom previews). */}
-                    {loaded && layers.length > 0 && <TextLayersCanvasOverlay layers={layers} />}
+                    {loaded && layers.length > 0 && (
+                        <TextLayersCanvasOverlay
+                            layers={layers}
+                            baseWidth={lightbox.overlayBaseWidth}
+                            baseHeight={lightbox.overlayBaseHeight}
+                        />
+                    )}
                 </div>
             </div>
         </div>

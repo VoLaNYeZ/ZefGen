@@ -50,16 +50,15 @@ export const useAppFolderLayout = ({
     useLayoutEffect(() => {
         const wrap = appFolderWrapRef.current;
         const picker = appPickerRef.current;
-        const simulator = appSimulatorRef.current;
-        const generation = appGenerationRef.current;
-        if (!wrap || !picker || !simulator || !generation) return;
+        if (!wrap || !picker) return;
 
         const minTabWidth = 120;
 
         const update = () => {
             const wrapRect = wrap.getBoundingClientRect();
             const pickerRect = picker.getBoundingClientRect();
-            const endRect = (appFolderEndRef.current ?? generation).getBoundingClientRect();
+            const endEl = appFolderEndRef.current ?? appFolderContentRef.current ?? appGenerationRef.current ?? appSimulatorRef.current ?? picker;
+            const endRect = endEl.getBoundingClientRect();
             const rowRect = appPillRowRef.current?.getBoundingClientRect() ?? pickerRect;
             const activeIndex = visibleApps.findIndex((app) => app.id === selectedAppId);
             const bodyInset = 6;
@@ -130,8 +129,8 @@ export const useAppFolderLayout = ({
         const observer = new ResizeObserver(update);
         observer.observe(wrap);
         observer.observe(picker);
-        observer.observe(simulator);
-        observer.observe(generation);
+        if (appSimulatorRef.current) observer.observe(appSimulatorRef.current);
+        if (appGenerationRef.current) observer.observe(appGenerationRef.current);
         if (appFolderContentRef.current) {
             observer.observe(appFolderContentRef.current);
         }
