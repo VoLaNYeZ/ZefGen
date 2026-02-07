@@ -45,7 +45,11 @@ type SidebarProps = {
     setBrandForm: React.Dispatch<React.SetStateAction<BrandFormState>>;
     setBrandFormOpen: (value: boolean) => void;
     setSelectedBrandId: (value: string | null) => void;
-    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    openLightbox: (
+        src: string,
+        alt: string,
+        options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => void;
     handleLogout: () => void;
     text: (key: TranslationKey) => string;
 };

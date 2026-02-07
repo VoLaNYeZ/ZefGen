@@ -4,6 +4,9 @@ import type { TranslationKey } from '../i18n';
 import type {
     AppItem,
     AppScreenshot,
+    AppScreenshotSet,
+    AppExportStatus,
+    AssetPick,
     Brand,
     BrandReference,
     EditState,
@@ -35,10 +38,14 @@ import {
     deleteGeneratedAsset,
     deleteGeneratedAssetsByIds,
     fetchGeneratedAssets,
+    bulkAssignScreenshotSetId,
     removeGeneratedAssets,
     updateGeneratedAsset,
     uploadGeneratedAsset,
 } from '../data/generated-assets';
+import { fetchScreenshotSets, createScreenshotSet, updateScreenshotSet, deleteScreenshotSet } from '../data/screenshot-sets';
+import { fetchAssetPicks, setIconPick, setScreenshotPick } from '../data/asset-picks';
+import { fetchExportStatus, upsertExportStatus } from '../data/export-status';
 
 type SlotMapping = {
     brandRefId: string | null;
@@ -47,6 +54,8 @@ type SlotMapping = {
 
 type ScreenshotKind = 'screenshot' | 'screenshot_enhanced';
 type IconKind = 'icon' | 'icon_enhanced';
+type SystemPromptMode = 'generate' | 'enhance';
+type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 
 type Params = {
     session: Session | null;
@@ -97,12 +106,28 @@ export const useGeneratedAssets = ({
         clearFinished,
     } = useGenerationJobs();
 
+    // Allow canceling long-running client-side stages (download provider output, render, upload, DB insert).
+    // Note: this cannot reliably cancel the provider-side prediction once started.
+    const abortByJobIdRef = useRef<Record<string, AbortController>>({});
+    const cancelGenerationJob = useCallback(
+        (jobId: string) => {
+            const controller = abortByJobIdRef.current[jobId];
+            if (!controller) return;
+            if (!controller.signal.aborted) controller.abort();
+            finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+        },
+        [finishJob]
+    );
+
+    const [inflightScreenshotPreviewByKey, setInflightScreenshotPreviewByKey] = useState<Record<string, string>>({});
+
     const [iconGenerating, setIconGenerating] = useState(false);
     const [iconSlotGenerating, setIconSlotGenerating] = useState<number | null>(null);
     const [enhanceIconSlotGenerating, setEnhanceIconSlotGenerating] = useState<number | null>(null);
     const [screenshotsGenerating, setScreenshotsGenerating] = useState(false);
     const [slotGenerating, setSlotGenerating] = useState<number | null>(null);
     const [enhanceSlotGenerating, setEnhanceSlotGenerating] = useState<number | null>(null);
+    // These are driven by the active screenshot set (see screenshotSets below).
     const [generationCount, setGenerationCount] = useState(3);
     const [generationSize, setGenerationSize] = useState<'6.5' | '6.9'>('6.5');
     const [iconProviderId, setIconProviderId] = useState<ScreenshotProviderId>('replicate:seedream-4');
@@ -112,10 +137,60 @@ export const useGeneratedAssets = ({
     const [editDrafts, setEditDrafts] = useState<Record<string, EditState>>({});
     const [editSaving, setEditSaving] = useState<string | null>(null);
 
-    const headlineSaveTimersRef = useRef<Record<number, any>>({});
-    const [slotHeadlineBySlotIndex, setSlotHeadlineBySlotIndex] = useState<Record<number, string>>({});
-    const [slotHeadlinePosBySlotIndex, setSlotHeadlinePosBySlotIndex] = useState<Record<number, { x: number; y: number }>>({});
-    const slotHeadlineHistoryRef = useRef<Record<number, { undo: Array<{ text: string; x: number; y: number }>; redo: Array<{ text: string; x: number; y: number }> }>>({});
+    const [screenshotSets, setScreenshotSets] = useState<AppScreenshotSet[]>([]);
+    const [activeScreenshotSetId, setActiveScreenshotSetId] = useState<string | null>(null);
+    const [assetPicks, setAssetPicks] = useState<AssetPick[]>([]);
+    const [exportStatus, setExportStatus] = useState<AppExportStatus | null>(null);
+    const setsLoadedForAppRef = useRef<string | null>(null);
+    const backfillDoneForAppRef = useRef<Record<string, boolean>>({});
+
+    const setExportCompleted = useCallback(
+        async (isCompleted: boolean) => {
+            if (!session || !selectedBrand || !selectedApp) return;
+            const completedAt = isCompleted ? new Date().toISOString() : null;
+            const { data, error } = await upsertExportStatus({
+                app_id: selectedApp.id,
+                user_id: session.user.id,
+                brand_id: selectedBrand.id,
+                is_completed: isCompleted,
+                completed_at: completedAt,
+            });
+            if (error) {
+                const msg = String((error as any)?.message || error);
+                if (msg.toLowerCase().includes('app_export_status')) {
+                    reportError(
+                        `DB schema is missing export status tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                    );
+                } else {
+                    reportError(msg);
+                }
+                return;
+            }
+            if (data) setExportStatus(data as any);
+        },
+        [session, selectedBrand, selectedApp, reportError]
+    );
+
+    const invalidateCompletion = useCallback(async () => {
+        // Any changes should require re-locking.
+        if (exportStatus?.is_completed) {
+            await setExportCompleted(false);
+        }
+    }, [exportStatus?.is_completed, setExportCompleted]);
+
+    const headlineSaveTimersRef = useRef<Record<string, any>>({});
+    const [slotHeadlineBySlotKey, setSlotHeadlineBySlotKey] = useState<Record<string, string>>({});
+    const [slotHeadlinePosBySlotKey, setSlotHeadlinePosBySlotKey] = useState<Record<string, { x: number; y: number }>>({});
+    const [slotHeadlineLayerBySlotKey, setSlotHeadlineLayerBySlotKey] = useState<Record<string, TextLayer>>({});
+    const [systemPromptOverridesByKey, setSystemPromptOverridesByKey] = useState<
+        Record<string, { generate?: string; enhance?: string }>
+    >({});
+    const slotHeadlineHistoryRef = useRef<
+        Record<
+            string,
+            { undo: Array<{ text: string; x: number; y: number }>; redo: Array<{ text: string; x: number; y: number }> }
+        >
+    >({});
 
     const refresh = useCallback(async () => {
         if (!session) {
@@ -154,10 +229,163 @@ export const useGeneratedAssets = ({
         refresh();
     }, [session, generatedAssets.length, refresh]);
 
+    const ensureOriginalScreenshotSet = useCallback(
+        async (sets: AppScreenshotSet[]) => {
+            if (!session || !selectedBrand || !selectedApp) return { sets, original: null as AppScreenshotSet | null };
+
+            const wanted = text('set_original');
+            const existing =
+                sets.find((s) => s.name === wanted) ??
+                sets.find((s) => s.name.toLowerCase() === 'original') ??
+                null;
+            if (existing) return { sets, original: existing };
+
+            const { data, error } = await createScreenshotSet({
+                user_id: session.user.id,
+                brand_id: selectedBrand.id,
+                app_id: selectedApp.id,
+                name: wanted,
+                size_label: '6.5',
+                slot_count: 3,
+                order_index: 0,
+            });
+            if (error) throw error;
+            const next = data ? ([data as any, ...sets] as AppScreenshotSet[]) : sets;
+            return { sets: next, original: (data as any) ?? null };
+        },
+        [session, selectedBrand, selectedApp, text]
+    );
+
+    const loadSetsPicksStatus = useCallback(async () => {
+        if (!session || !selectedBrand || !selectedApp) {
+            setScreenshotSets([]);
+            setActiveScreenshotSetId(null);
+            setAssetPicks([]);
+            setExportStatus(null);
+            setsLoadedForAppRef.current = null;
+            return;
+        }
+
+        try {
+            const { data: setsData, error: setsError } = await fetchScreenshotSets({
+                userId: session.user.id,
+                appId: selectedApp.id,
+            });
+            if (setsError) {
+                const msg = String((setsError as any)?.message || setsError);
+                if (msg.toLowerCase().includes('app_screenshot_sets')) {
+                    reportError(
+                        `DB schema is missing screenshot set tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                    );
+                } else {
+                    reportError(msg);
+                }
+                return;
+            }
+
+            let sets = (setsData as any as AppScreenshotSet[]) || [];
+            const ensured = await ensureOriginalScreenshotSet(sets);
+            sets = ensured.sets;
+
+            // Decide active set (persisted per app).
+            const lsKey = `zefgen.activeScreenshotSet.${selectedApp.id}`;
+            const storedId = typeof window !== 'undefined' ? window.localStorage.getItem(lsKey) : null;
+            const defaultId = storedId && sets.some((s) => s.id === storedId) ? storedId : ensured.original?.id ?? sets[0]?.id ?? null;
+            if (typeof window !== 'undefined') {
+                if (defaultId) window.localStorage.setItem(lsKey, defaultId);
+                else window.localStorage.removeItem(lsKey);
+            }
+
+            setScreenshotSets(sets);
+            setActiveScreenshotSetId(defaultId);
+            setsLoadedForAppRef.current = selectedApp.id;
+
+            // Picks + completion status.
+            const [{ data: picksData, error: picksError }, { data: statusData, error: statusError }] = await Promise.all([
+                fetchAssetPicks({ userId: session.user.id, appId: selectedApp.id }),
+                fetchExportStatus({ userId: session.user.id, appId: selectedApp.id }),
+            ]);
+
+            if (picksError) {
+                const msg = String((picksError as any)?.message || picksError);
+                if (msg.toLowerCase().includes('app_asset_picks')) {
+                    reportError(
+                        `DB schema is missing picks tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                    );
+                } else {
+                    reportError(msg);
+                }
+            } else {
+                setAssetPicks((picksData as any as AssetPick[]) || []);
+            }
+
+            if (statusError) {
+                const msg = String((statusError as any)?.message || statusError);
+                if (msg.toLowerCase().includes('app_export_status')) {
+                    reportError(
+                        `DB schema is missing export status tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                    );
+                } else {
+                    reportError(msg);
+                }
+                setExportStatus(null);
+            } else {
+                setExportStatus((statusData as any) ?? null);
+            }
+        } catch (error: any) {
+            reportError(error?.message || 'Failed to load sets.');
+        }
+    }, [session, selectedBrand, selectedApp, ensureOriginalScreenshotSet, reportError]);
+
+    useEffect(() => {
+        // Reload when app changes or user changes.
+        if (!session || !selectedApp?.id) return;
+        if (setsLoadedForAppRef.current === selectedApp.id) return;
+        loadSetsPicksStatus();
+    }, [session, selectedApp?.id, loadSetsPicksStatus]);
+
     const selectedGeneratedAssets = useMemo(
         () => generatedAssets.filter((asset) => asset.app_id === selectedApp?.id),
         [generatedAssets, selectedApp?.id]
     );
+
+    useEffect(() => {
+        if (!session || !selectedApp?.id) return;
+        if (!screenshotSets.length) return;
+        if (backfillDoneForAppRef.current[selectedApp.id]) return;
+
+        const originalName = text('set_original');
+        const original =
+            screenshotSets.find((s) => s.name === originalName) ??
+            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
+            null;
+        if (!original) return;
+
+        const needsBackfill = selectedGeneratedAssets.some(
+            (asset) =>
+                (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced') &&
+                (asset as any).screenshot_set_id == null
+        );
+        if (!needsBackfill) {
+            backfillDoneForAppRef.current[selectedApp.id] = true;
+            return;
+        }
+
+        backfillDoneForAppRef.current[selectedApp.id] = true;
+        (async () => {
+            try {
+                const { error } = await bulkAssignScreenshotSetId({
+                    userId: session.user.id,
+                    appId: selectedApp.id,
+                    screenshotSetId: original.id,
+                });
+                if (error) throw error;
+                await refresh();
+            } catch (error: any) {
+                reportError(error?.message || 'Failed to backfill screenshot sets.');
+            }
+        })();
+    }, [session, selectedApp?.id, screenshotSets, selectedGeneratedAssets, bulkAssignScreenshotSetId, refresh, reportError, text]);
 
     const generatedIconSlots = useMemo(() => {
         const slotMap = new Map<number, GeneratedAsset[]>();
@@ -179,6 +407,211 @@ export const useGeneratedAssets = ({
             .sort((a, b) => b.slotIndex - a.slotIndex);
     }, [selectedGeneratedAssets]);
 
+    const activeScreenshotSet = useMemo(() => {
+        if (!activeScreenshotSetId) return null;
+        return screenshotSets.find((s) => s.id === activeScreenshotSetId) ?? null;
+    }, [screenshotSets, activeScreenshotSetId]);
+
+    useEffect(() => {
+        if (!activeScreenshotSet) return;
+        const nextCount = Math.min(6, Math.max(3, Number(activeScreenshotSet.slot_count) || 3));
+        const nextSize = (activeScreenshotSet.size_label === '6.9' ? '6.9' : '6.5') as '6.5' | '6.9';
+        setGenerationCount((prev) => (prev === nextCount ? prev : nextCount));
+        setGenerationSize((prev) => (prev === nextSize ? prev : nextSize));
+    }, [activeScreenshotSet]);
+
+    const setActiveScreenshotSet = useCallback(
+        (id: string | null) => {
+            setActiveScreenshotSetId(id);
+            if (typeof window !== 'undefined' && selectedApp?.id) {
+                const lsKey = `zefgen.activeScreenshotSet.${selectedApp.id}`;
+                if (id) window.localStorage.setItem(lsKey, id);
+                else window.localStorage.removeItem(lsKey);
+            }
+        },
+        [selectedApp?.id]
+    );
+
+    const setGenerationCountForActiveSet = useCallback(
+        async (value: number) => {
+            const next = Math.min(6, Math.max(3, Number(value) || 3));
+            setGenerationCount(next);
+            if (!session || !activeScreenshotSet) return;
+            const { data, error } = await updateScreenshotSet({
+                id: activeScreenshotSet.id,
+                userId: session.user.id,
+                patch: { slot_count: next },
+            });
+            if (error) {
+                reportError(String((error as any)?.message || error));
+                return;
+            }
+            if (data) {
+                setScreenshotSets((prev) => prev.map((s) => (s.id === data.id ? (data as any) : s)));
+            }
+            await invalidateCompletion();
+        },
+        [session, activeScreenshotSet, reportError, invalidateCompletion]
+    );
+
+    const setGenerationSizeForActiveSet = useCallback(
+        async (value: '6.5' | '6.9') => {
+            const next = value === '6.9' ? '6.9' : '6.5';
+            setGenerationSize(next);
+            if (!session || !activeScreenshotSet) return;
+            const { data, error } = await updateScreenshotSet({
+                id: activeScreenshotSet.id,
+                userId: session.user.id,
+                patch: { size_label: next },
+            });
+            if (error) {
+                reportError(String((error as any)?.message || error));
+                return;
+            }
+            if (data) {
+                setScreenshotSets((prev) => prev.map((s) => (s.id === data.id ? (data as any) : s)));
+            }
+            await invalidateCompletion();
+        },
+        [session, activeScreenshotSet, reportError, invalidateCompletion]
+    );
+
+    const handleAddScreenshotSet = useCallback(async () => {
+        if (!session || !selectedBrand || !selectedApp) return;
+        const prefix = text('set_ab_test_prefix');
+        const existing = screenshotSets
+            .map((s) => s.name)
+            .filter((n) => typeof n === 'string' && n.startsWith(prefix))
+            .map((n) => {
+                const rest = n.slice(prefix.length).trim();
+                const num = Number(rest);
+                return Number.isFinite(num) ? num : 0;
+            });
+        const nextNum = (existing.length ? Math.max(...existing) : 0) + 1;
+        const name = `${prefix}${nextNum}`;
+
+        const { data, error } = await createScreenshotSet({
+            user_id: session.user.id,
+            brand_id: selectedBrand.id,
+            app_id: selectedApp.id,
+            name,
+            size_label: generationSize,
+            slot_count: generationCount,
+            order_index: screenshotSets.length,
+        });
+        if (error) {
+            reportError(String((error as any)?.message || error));
+            return;
+        }
+        if (data) {
+            setScreenshotSets((prev) => [...prev, data as any]);
+            setActiveScreenshotSet((data as any).id);
+            await invalidateCompletion();
+        }
+    }, [
+        session,
+        selectedBrand,
+        selectedApp,
+        screenshotSets,
+        text,
+        createScreenshotSet,
+        setActiveScreenshotSet,
+        generationSize,
+        generationCount,
+        reportError,
+        invalidateCompletion,
+    ]);
+
+    const handleDeleteScreenshotSet = useCallback(
+        async (setId: string) => {
+            if (!session || !selectedBrand || !selectedApp) return;
+            if (!setId) return;
+
+            const original =
+                screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
+                screenshotSets.find((s) => s.name === text('set_original')) ??
+                screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
+                null;
+
+            if (original?.id && String(original.id) === String(setId)) {
+                reportError(text('cannot_delete_original_set'));
+                return;
+            }
+
+            try {
+                // Delete assets belonging to the set (and their previews) so they don't fall back into "Original".
+                const deletable = selectedGeneratedAssets.filter((asset) => {
+                    const kindOk = asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced';
+                    const setOk = String((asset as any).screenshot_set_id ?? '') === String(setId);
+                    return kindOk && setOk;
+                });
+
+                const paths: string[] = [];
+                for (const asset of deletable) {
+                    if (!asset.image_path) continue;
+                    paths.push(asset.image_path);
+                    if (/\.jpg$/i.test(asset.image_path)) {
+                        paths.push(asset.image_path.replace(/\.jpg$/i, '-preview.jpg'));
+                    }
+                }
+
+                if (paths.length) {
+                    const { error: storageError } = await removeGeneratedAssets(paths);
+                    if (storageError) {
+                        reportError(String((storageError as any)?.message || storageError));
+                        return;
+                    }
+                }
+
+                if (deletable.length) {
+                    const { error: deleteAssetsError } = await deleteGeneratedAssetsByIds({
+                        userId: session.user.id,
+                        ids: deletable.map((a) => a.id),
+                    });
+                    if (deleteAssetsError) {
+                        reportError(String((deleteAssetsError as any)?.message || deleteAssetsError));
+                        return;
+                    }
+                }
+
+                const { error: deleteSetError } = await deleteScreenshotSet({ id: setId, userId: session.user.id });
+                if (deleteSetError) {
+                    reportError(String((deleteSetError as any)?.message || deleteSetError));
+                    return;
+                }
+
+                setScreenshotSets((prev) => prev.filter((s) => s.id !== setId));
+                if (activeScreenshotSetId && String(activeScreenshotSetId) === String(setId)) {
+                    const nextActive = original?.id ?? screenshotSets.find((s) => s.id !== setId)?.id ?? null;
+                    setActiveScreenshotSet(nextActive);
+                }
+
+                await invalidateCompletion();
+                await refresh();
+                await loadSetsPicksStatus();
+            } catch (err: any) {
+                reportError(String(err?.message || err || 'Failed to delete set.'));
+            }
+        },
+        [
+            session,
+            selectedBrand,
+            selectedApp,
+            selectedGeneratedAssets,
+            screenshotSets,
+            activeScreenshotSetId,
+            text,
+            reportError,
+            removeGeneratedAssets,
+            deleteGeneratedAssetsByIds,
+            deleteScreenshotSet,
+            setActiveScreenshotSet,
+            invalidateCompletion,
+            refresh,
+            loadSetsPicksStatus,
+        ]
+    );
+
     const enhancedIconSlots = useMemo(() => {
         const slotMap = new Map<number, GeneratedAsset[]>();
         selectedGeneratedAssets
@@ -199,9 +632,23 @@ export const useGeneratedAssets = ({
     }, [selectedGeneratedAssets]);
 
     const generatedScreenshotSlots = useMemo(() => {
+        const original =
+            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
+            screenshotSets.find((s) => s.name === text('set_original')) ??
+            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
+            null;
+        const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
+
         const slotMap = new Map<number, GeneratedAsset[]>();
         selectedGeneratedAssets
-            .filter((asset) => asset.kind === 'screenshot' && asset.slot_index !== null)
+            .filter(
+                (asset) =>
+                    asset.kind === 'screenshot' &&
+                    asset.slot_index !== null &&
+                    (!activeScreenshotSetId ||
+                        String((asset as any).screenshot_set_id ?? '') === String(activeScreenshotSetId) ||
+                        (isOriginalActive && (asset as any).screenshot_set_id == null))
+            )
             .forEach((asset) => {
                 const slotIndex = asset.slot_index ?? 0;
                 const existing = slotMap.get(slotIndex) || [];
@@ -215,12 +662,26 @@ export const useGeneratedAssets = ({
                 versions: versions.sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1)),
             }))
             .sort((a, b) => a.slotIndex - b.slotIndex);
-    }, [selectedGeneratedAssets]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text]);
 
     const enhancedScreenshotSlots = useMemo(() => {
+        const original =
+            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
+            screenshotSets.find((s) => s.name === text('set_original')) ??
+            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
+            null;
+        const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
+
         const slotMap = new Map<number, GeneratedAsset[]>();
         selectedGeneratedAssets
-            .filter((asset) => asset.kind === 'screenshot_enhanced' && asset.slot_index !== null)
+            .filter(
+                (asset) =>
+                    asset.kind === 'screenshot_enhanced' &&
+                    asset.slot_index !== null &&
+                    (!activeScreenshotSetId ||
+                        String((asset as any).screenshot_set_id ?? '') === String(activeScreenshotSetId) ||
+                        (isOriginalActive && (asset as any).screenshot_set_id == null))
+            )
             .forEach((asset) => {
                 const slotIndex = asset.slot_index ?? 0;
                 const existing = slotMap.get(slotIndex) || [];
@@ -234,14 +695,230 @@ export const useGeneratedAssets = ({
                 versions: versions.sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1)),
             }))
             .sort((a, b) => a.slotIndex - b.slotIndex);
-    }, [selectedGeneratedAssets]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text]);
 
-    const deriveSlotHeadlineBySlotIndex = useMemo(() => {
-        const candidates = selectedGeneratedAssets.filter(
-            (asset) =>
-                (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced') &&
-                asset.slot_index !== null
-        );
+    const getScreenshotSlotKey = useCallback(
+        (slotIndex: number, screenshotSetId?: string | null) =>
+            `${screenshotSetId ?? activeScreenshotSetId ?? 'none'}:${slotIndex}`,
+        [activeScreenshotSetId]
+    );
+
+    const getInflightScreenshotKey = useCallback(
+        (slotIndex: number, tab: 'generated' | 'enhanced', screenshotSetId?: string | null) =>
+            `${getScreenshotSlotKey(slotIndex, screenshotSetId)}:${tab}`,
+        [getScreenshotSlotKey]
+    );
+
+    const setInflightScreenshotPreview = useCallback(
+        (slotIndex: number, tab: 'generated' | 'enhanced', url: string) => {
+            if (!activeScreenshotSetId) return;
+            const key = getInflightScreenshotKey(slotIndex, tab, activeScreenshotSetId);
+            setInflightScreenshotPreviewByKey((prev) => ({ ...prev, [key]: url }));
+        },
+        [activeScreenshotSetId, getInflightScreenshotKey]
+    );
+
+    const clearInflightScreenshotPreview = useCallback(
+        (slotIndex: number, tab: 'generated' | 'enhanced') => {
+            if (!activeScreenshotSetId) return;
+            const key = getInflightScreenshotKey(slotIndex, tab, activeScreenshotSetId);
+            setInflightScreenshotPreviewByKey((prev) => {
+                if (!prev[key]) return prev;
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        },
+        [activeScreenshotSetId, getInflightScreenshotKey]
+    );
+
+    useEffect(() => {
+        // Switching sets should drop any transient previews from prior set.
+        setInflightScreenshotPreviewByKey({});
+    }, [activeScreenshotSetId]);
+
+    const getSystemPromptStorageKey = useCallback(
+        (payload: { appId: string; screenshotSetId: string; slotIndex: number; mode: SystemPromptMode }) =>
+            `zefgen.sysPrompt.${payload.appId}.${payload.screenshotSetId}.${payload.slotIndex}.${payload.mode}`,
+        []
+    );
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!selectedApp?.id || !activeScreenshotSetId) return;
+
+        const next: Record<string, { generate?: string; enhance?: string }> = {};
+        for (let slotIndex = 1; slotIndex <= 6; slotIndex += 1) {
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            const genKey = getSystemPromptStorageKey({
+                appId: selectedApp.id,
+                screenshotSetId: activeScreenshotSetId,
+                slotIndex,
+                mode: 'generate',
+            });
+            const enhKey = getSystemPromptStorageKey({
+                appId: selectedApp.id,
+                screenshotSetId: activeScreenshotSetId,
+                slotIndex,
+                mode: 'enhance',
+            });
+            const genRaw = window.localStorage.getItem(genKey);
+            const enhRaw = window.localStorage.getItem(enhKey);
+            if (genRaw || enhRaw) {
+                next[key] = {
+                    generate: genRaw ?? undefined,
+                    enhance: enhRaw ?? undefined,
+                };
+            }
+        }
+
+        setSystemPromptOverridesByKey((prev) => ({ ...prev, ...next }));
+    }, [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptStorageKey]);
+
+    const buildDefaultSystemPrompt = useCallback(
+        (payload: {
+            providerId: ScreenshotProviderId;
+            mode: SystemPromptMode;
+            sizeLabel: '6.5' | '6.9';
+            width: number;
+            height: number;
+        }) => {
+            // Keep the prompt concise and non-contradictory.
+            // Important: avoid printing explicit "1234x5678" strings; some providers will echo them as corner text.
+            // We already send width/height as parameters to the generation endpoint.
+            const common = [
+                `Goal: an iOS App Store screenshot ready to upload to App Store Connect.`,
+                `Image 1 is the layout source of truth: preserve the UI exactly (same scale, positions, spacing, and readability).`,
+                `If the iOS status bar exists in image 1, keep it exactly as-is (do not remove or rewrite).`,
+                `Image 2 is style only: use it for colors/lighting/background mood, but do not change the UI geometry from image 1.`,
+                `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the UI upward to fill it.`,
+                `No device frames/mockups/hands/bezels/floating phones.`,
+                `No added text anywhere: no headlines, captions, badges, stickers, labels, logos, watermarks, or any extra UI.`,
+                `Never print any resolution/metadata text anywhere.`,
+                `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
+                `Keep it sharp and clean (no blur, no artifacts).`,
+            ].join(' ');
+
+            if (payload.mode === 'generate') {
+                return common;
+            }
+
+            // enhance
+            return [
+                `Goal: enhance image 1 into an iOS App Store screenshot ready to upload.`,
+                `Preserve image 1 layout exactly: same UI scale, same composition, same spacing, same content.`,
+                `If the iOS status bar exists in image 1, keep it exactly as-is.`,
+                `Image 2 is style only: colors/lighting/background mood; do not change UI geometry.`,
+                `Keep the top header band empty (do not move/enlarge the UI upward).`,
+                `No added text, logos, or watermarks. Never print resolution/metadata text.`,
+                `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
+                `Keep it sharp and clean.`,
+            ].join(' ');
+        },
+        []
+    );
+
+    const getSystemPromptForSlot = useCallback(
+        (slotIndex: number, mode: SystemPromptMode) => {
+            const setId = activeScreenshotSetId;
+            if (!selectedApp?.id || !setId) {
+                const size = SCREENSHOT_SIZES[generationSize];
+                const defaultPrompt = buildDefaultSystemPrompt({
+                    providerId: screenshotProviderId,
+                    mode,
+                    sizeLabel: generationSize,
+                    width: size.width,
+                    height: size.height,
+                });
+                return { defaultPrompt, effectivePrompt: defaultPrompt, isOverridden: false };
+            }
+
+            const size = SCREENSHOT_SIZES[generationSize];
+            const defaultPrompt = buildDefaultSystemPrompt({
+                providerId: screenshotProviderId,
+                mode,
+                sizeLabel: generationSize,
+                width: size.width,
+                height: size.height,
+            });
+            const key = getScreenshotSlotKey(slotIndex, setId);
+            const override = systemPromptOverridesByKey[key]?.[mode];
+            return {
+                defaultPrompt,
+                effectivePrompt: typeof override === 'string' && override.length ? override : defaultPrompt,
+                isOverridden: Boolean(typeof override === 'string' && override.length),
+            };
+        },
+        [
+            activeScreenshotSetId,
+            selectedApp?.id,
+            generationSize,
+            screenshotProviderId,
+            getScreenshotSlotKey,
+            systemPromptOverridesByKey,
+            buildDefaultSystemPrompt,
+        ]
+    );
+
+    const setSystemPromptOverride = useCallback(
+        (slotIndex: number, mode: SystemPromptMode, value: string) => {
+            if (!selectedApp?.id || !activeScreenshotSetId) return;
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            setSystemPromptOverridesByKey((prev) => ({
+                ...prev,
+                [key]: { ...(prev[key] ?? {}), [mode]: value },
+            }));
+            if (typeof window !== 'undefined') {
+                const lsKey = getSystemPromptStorageKey({
+                    appId: selectedApp.id,
+                    screenshotSetId: activeScreenshotSetId,
+                    slotIndex,
+                    mode,
+                });
+                window.localStorage.setItem(lsKey, value);
+            }
+        },
+        [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptStorageKey]
+    );
+
+    const resetSystemPromptOverride = useCallback(
+        (slotIndex: number, mode: SystemPromptMode) => {
+            if (!selectedApp?.id || !activeScreenshotSetId) return;
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            setSystemPromptOverridesByKey((prev) => ({
+                ...prev,
+                [key]: { ...(prev[key] ?? {}), [mode]: undefined },
+            }));
+            if (typeof window !== 'undefined') {
+                const lsKey = getSystemPromptStorageKey({
+                    appId: selectedApp.id,
+                    screenshotSetId: activeScreenshotSetId,
+                    slotIndex,
+                    mode,
+                });
+                window.localStorage.removeItem(lsKey);
+            }
+        },
+        [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptStorageKey]
+    );
+
+    const deriveSlotHeadlineBySlotKey = useMemo(() => {
+        const original =
+            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
+            screenshotSets.find((s) => s.name === text('set_original')) ??
+            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
+            null;
+        const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
+
+        const candidates = selectedGeneratedAssets.filter((asset) => {
+            const kindOk = asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced';
+            const slotOk = asset.slot_index !== null;
+            const setOk =
+                !activeScreenshotSetId ||
+                String((asset as any).screenshot_set_id ?? '') === String(activeScreenshotSetId);
+            const legacyOriginalOk = Boolean(isOriginalActive && (asset as any).screenshot_set_id == null);
+            return kindOk && slotOk && (setOk || legacyOriginalOk);
+        });
 
         const bySlot: Record<number, { text: string; kind: ScreenshotKind; createdAt: number }> = {};
         for (const asset of candidates) {
@@ -267,19 +944,30 @@ export const useGeneratedAssets = ({
             if (kind === 'screenshot') bySlot[slotIndex] = { text: textValue, kind, createdAt };
         }
 
-        const result: Record<number, string> = {};
+        const result: Record<string, string> = {};
         for (const [slotIndex, payload] of Object.entries(bySlot)) {
-            result[Number(slotIndex)] = payload.text;
+            result[getScreenshotSlotKey(Number(slotIndex), activeScreenshotSetId)] = payload.text;
         }
         return result;
-    }, [selectedGeneratedAssets]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text, getScreenshotSlotKey]);
 
-    const deriveSlotHeadlinePosBySlotIndex = useMemo(() => {
-        const candidates = selectedGeneratedAssets.filter(
-            (asset) =>
-                (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced') &&
-                asset.slot_index !== null
-        );
+    const deriveSlotHeadlinePosBySlotKey = useMemo(() => {
+        const original =
+            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
+            screenshotSets.find((s) => s.name === text('set_original')) ??
+            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
+            null;
+        const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
+
+        const candidates = selectedGeneratedAssets.filter((asset) => {
+            const kindOk = asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced';
+            const slotOk = asset.slot_index !== null;
+            const setOk =
+                !activeScreenshotSetId ||
+                String((asset as any).screenshot_set_id ?? '') === String(activeScreenshotSetId);
+            const legacyOriginalOk = Boolean(isOriginalActive && (asset as any).screenshot_set_id == null);
+            return kindOk && slotOk && (setOk || legacyOriginalOk);
+        });
 
         const bySlot: Record<number, { x: number; y: number; kind: ScreenshotKind; createdAt: number }> = {};
         for (const asset of candidates) {
@@ -307,22 +995,18 @@ export const useGeneratedAssets = ({
             if (kind === 'screenshot') bySlot[slotIndex] = { x: xValue, y: yValue, kind, createdAt };
         }
 
-        const result: Record<number, { x: number; y: number }> = {};
+        const result: Record<string, { x: number; y: number }> = {};
         for (const [slotIndex, payload] of Object.entries(bySlot)) {
-            result[Number(slotIndex)] = { x: payload.x, y: payload.y };
+            result[getScreenshotSlotKey(Number(slotIndex), activeScreenshotSetId)] = { x: payload.x, y: payload.y };
         }
         return result;
-    }, [selectedGeneratedAssets]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text, getScreenshotSlotKey]);
 
     useEffect(() => {
-        if (!selectedApp?.id) {
-            setSlotHeadlineBySlotIndex({});
-            setSlotHeadlinePosBySlotIndex({});
-            return;
-        }
-        setSlotHeadlineBySlotIndex(deriveSlotHeadlineBySlotIndex);
-        setSlotHeadlinePosBySlotIndex(deriveSlotHeadlinePosBySlotIndex);
-    }, [selectedApp?.id, deriveSlotHeadlineBySlotIndex, deriveSlotHeadlinePosBySlotIndex]);
+        if (!selectedApp?.id) return;
+        setSlotHeadlineBySlotKey((prev) => ({ ...prev, ...deriveSlotHeadlineBySlotKey }));
+        setSlotHeadlinePosBySlotKey((prev) => ({ ...prev, ...deriveSlotHeadlinePosBySlotKey }));
+    }, [selectedApp?.id, activeScreenshotSetId, deriveSlotHeadlineBySlotKey, deriveSlotHeadlinePosBySlotKey]);
 
     useEffect(() => {
         if (!session?.user.id) {
@@ -422,21 +1106,67 @@ export const useGeneratedAssets = ({
         }, versions[0]);
     };
 
-    const handleDownloadAllScreenshots = async () => {
+    const sanitizeFilenamePart = (value: string) =>
+        String(value || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .replace(/[^a-z0-9 _.-]+/gi, '')
+            .replace(/\s/g, '-')
+            .slice(0, 60) || 'set';
+
+    const handleDownloadScreenshotSetZip = async (payload: { setId: string; preferPicks?: boolean }) => {
         if (!selectedApp) return;
+        const set = screenshotSets.find((s) => s.id === payload.setId) ?? null;
+        if (!set) return;
+
+        const slotCount = Math.min(6, Math.max(3, Number(set.slot_count) || 3));
+        const preferPicks = Boolean(payload.preferPicks);
+
+        const bySlot = (kind: 'screenshot' | 'screenshot_enhanced') => {
+            const map = new Map<number, GeneratedAsset[]>();
+            for (const asset of selectedGeneratedAssets) {
+                if (asset.kind !== kind) continue;
+                if (asset.slot_index == null) continue;
+                if (String((asset as any).screenshot_set_id ?? '') !== String(set.id)) continue;
+                const slot = asset.slot_index ?? 0;
+                const existing = map.get(slot) ?? [];
+                existing.push(asset);
+                map.set(slot, existing);
+            }
+            for (const [slot, versions] of map.entries()) {
+                map.set(
+                    slot,
+                    [...versions].sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1))
+                );
+            }
+            return map;
+        };
+
+        const enhBySlot = bySlot('screenshot_enhanced');
+        const genBySlot = bySlot('screenshot');
 
         const items: Array<{ slotIndex: number; asset: GeneratedAsset }> = [];
-        for (let slotIndex = 1; slotIndex <= targetSlotCount; slotIndex += 1) {
-            const enh = enhancedScreenshotSlots.find((s) => s.slotIndex === slotIndex)?.versions ?? [];
-            const gen = generatedScreenshotSlots.find((s) => s.slotIndex === slotIndex)?.versions ?? [];
-            const chosen = pickLatest(enh) ?? pickLatest(gen);
-            if (chosen) items.push({ slotIndex, asset: chosen });
+        for (let slotIndex = 1; slotIndex <= slotCount; slotIndex += 1) {
+            if (preferPicks) {
+                const pickId = pickedScreenshotAssetIdBySetSlot[`${set.id}:${slotIndex}`];
+                const pickedAsset = pickId ? selectedGeneratedAssets.find((a) => a.id === pickId) ?? null : null;
+                if (pickedAsset) {
+                    items.push({ slotIndex, asset: pickedAsset });
+                } else {
+                    reportError(text('need_picks_to_complete'));
+                    return;
+                }
+            } else {
+                const chosen =
+                    pickLatest(enhBySlot.get(slotIndex) ?? []) ?? pickLatest(genBySlot.get(slotIndex) ?? []);
+                if (chosen) items.push({ slotIndex, asset: chosen });
+            }
         }
 
         if (!items.length) return;
 
         const jobId = createJob({
-            title: 'Download screenshots zip',
+            title: `Download ${set.name} zip`,
             kind: 'download_zip',
             progressTotal: items.length,
         });
@@ -451,7 +1181,7 @@ export const useGeneratedAssets = ({
                 setJobMessage(jobId, `Rendering slot ${slotIndex}`);
 
                 const url = await resolveGeneratedUrl(asset);
-                const sizeLabel = (asset.size_label as '6.5' | '6.9' | null) ?? generationSize;
+                const sizeLabel = (set.size_label as '6.5' | '6.9') ?? generationSize;
                 const fallbackSize = SCREENSHOT_SIZES[sizeLabel === '6.9' ? '6.9' : '6.5'];
                 const width = asset.width ?? fallbackSize.width;
                 const height = asset.height ?? fallbackSize.height;
@@ -466,7 +1196,7 @@ export const useGeneratedAssets = ({
             setJobMessage(jobId, 'Packaging zip');
             const blob = await zip.generateAsync({ type: 'blob' });
 
-            const zipName = `${selectedApp.alias || 'app'}-screenshots.zip`;
+            const zipName = `${selectedApp.alias || 'app'}-${sanitizeFilenamePart(set.name)}-screenshots.zip`;
             downloadBlob(blob, zipName);
 
             finishJob(jobId, { status: 'success' });
@@ -474,6 +1204,12 @@ export const useGeneratedAssets = ({
             finishJob(jobId, { status: 'error', message: String(error?.message || 'ZIP failed').slice(0, 200) });
             reportError(error.message || text('download_failed'));
         }
+    };
+
+    const handleDownloadAllScreenshots = async () => {
+        if (!activeScreenshotSetId) return;
+        const preferPicks = Boolean(exportStatus?.is_completed);
+        await handleDownloadScreenshotSetZip({ setId: activeScreenshotSetId, preferPicks });
     };
 
     const createDefaultLayer = () => ({
@@ -514,12 +1250,15 @@ export const useGeneratedAssets = ({
         }
     };
 
-    const getCarryForwardLayersForSlot = (slotIndex: number) => {
+    const getCarryForwardLayersForSlot = (slotIndex: number, screenshotSetId?: string | null) => {
+        const setId = screenshotSetId ?? activeScreenshotSetId;
+        if (!setId) return null;
         const candidates = selectedGeneratedAssets
             .filter(
                 (asset) =>
                     (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced') &&
-                    (asset.slot_index ?? 0) === slotIndex
+                    (asset.slot_index ?? 0) === slotIndex &&
+                    String((asset as any).screenshot_set_id ?? '') === String(setId)
             )
             .sort((a, b) => {
                 const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -534,12 +1273,13 @@ export const useGeneratedAssets = ({
         return null;
     };
 
-    const persistSlotHeadlineState = async (slotIndex: number, headline: { text: string; x: number; y: number }) => {
-        if (!session) return;
+    const persistSlotHeadlineState = async (slotIndex: number, headline: TextLayer) => {
+        if (!session || !activeScreenshotSetId) return;
         const assetsToUpdate = selectedGeneratedAssets.filter(
             (asset) =>
                 (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced') &&
-                (asset.slot_index ?? 0) === slotIndex
+                (asset.slot_index ?? 0) === slotIndex &&
+                String((asset as any).screenshot_set_id ?? '') === String(activeScreenshotSetId)
         );
         if (!assetsToUpdate.length) return;
 
@@ -549,21 +1289,49 @@ export const useGeneratedAssets = ({
                 // Important: headline autosave must NOT persist unrelated unsaved draft edits.
                 // Always base the DB write on stored layers, and patch only layer[0].
                 const layers = cloneLayers(storedLayers ?? []);
-                if (!layers.length) {
-                    layers.push(createHeadlineLayer(headline.text, { x: headline.x, y: headline.y }));
-                } else {
-                    layers[0] = { ...layers[0], text: headline.text, x: headline.x, y: headline.y };
-                }
+                const storedFirst = layers[0] ?? null;
+                const next = storedFirst
+                    ? {
+                          ...storedFirst,
+                          ...headline,
+                          shadow: (headline as any).shadow
+                              ? { ...(storedFirst as any).shadow, ...(headline as any).shadow }
+                              : (storedFirst as any).shadow,
+                          outline: (headline as any).outline
+                              ? { ...(storedFirst as any).outline, ...(headline as any).outline }
+                              : (storedFirst as any).outline,
+                          id: storedFirst.id,
+                      }
+                    : createHeadlineLayer(String((headline as any)?.text ?? ''), {
+                          x: typeof (headline as any)?.x === 'number' ? (headline as any).x : 50,
+                          y: typeof (headline as any)?.y === 'number' ? (headline as any).y : 12,
+                      });
+                if (!layers.length) layers.push(next);
+                else layers[0] = next;
 
                 setEditDrafts((prev) => {
                     const existing = prev[asset.id];
                     if (!existing) return prev;
                     const nextDraftLayers = cloneLayers(existing.layers ?? []);
-                    if (!nextDraftLayers.length) {
-                        nextDraftLayers.push(createHeadlineLayer(headline.text, { x: headline.x, y: headline.y }));
-                    } else {
-                        nextDraftLayers[0] = { ...nextDraftLayers[0], text: headline.text, x: headline.x, y: headline.y };
-                    }
+                    const draftFirst = nextDraftLayers[0] ?? null;
+                    const nextDraft = draftFirst
+                        ? {
+                              ...draftFirst,
+                              ...headline,
+                              shadow: (headline as any).shadow
+                                  ? { ...(draftFirst as any).shadow, ...(headline as any).shadow }
+                                  : (draftFirst as any).shadow,
+                              outline: (headline as any).outline
+                                  ? { ...(draftFirst as any).outline, ...(headline as any).outline }
+                                  : (draftFirst as any).outline,
+                              id: draftFirst.id,
+                          }
+                        : createHeadlineLayer(String((headline as any)?.text ?? ''), {
+                              x: typeof (headline as any)?.x === 'number' ? (headline as any).x : 50,
+                              y: typeof (headline as any)?.y === 'number' ? (headline as any).y : 12,
+                          });
+                    if (!nextDraftLayers.length) nextDraftLayers.push(nextDraft);
+                    else nextDraftLayers[0] = nextDraft;
                     return { ...prev, [asset.id]: { ...existing, layers: nextDraftLayers } };
                 });
 
@@ -582,18 +1350,20 @@ export const useGeneratedAssets = ({
     };
 
     const getSlotHeadlineState = (slotIndex: number) => {
-        const textValue = slotHeadlineBySlotIndex[slotIndex] ?? '';
-        const pos = slotHeadlinePosBySlotIndex[slotIndex];
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        const textValue = slotHeadlineBySlotKey[key] ?? '';
+        const pos = slotHeadlinePosBySlotKey[key];
         const x = typeof pos?.x === 'number' ? pos.x : 50;
         const y = typeof pos?.y === 'number' ? pos.y : 12;
         return { text: textValue, x, y };
     };
 
-    const schedulePersistSlotHeadline = (slotIndex: number, headline: { text: string; x: number; y: number }) => {
-        if (headlineSaveTimersRef.current[slotIndex]) {
-            clearTimeout(headlineSaveTimersRef.current[slotIndex]);
+    const schedulePersistSlotHeadline = (slotIndex: number, headline: TextLayer) => {
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        if (headlineSaveTimersRef.current[key]) {
+            clearTimeout(headlineSaveTimersRef.current[key]);
         }
-        headlineSaveTimersRef.current[slotIndex] = setTimeout(() => {
+        headlineSaveTimersRef.current[key] = setTimeout(() => {
             persistSlotHeadlineState(slotIndex, headline).catch((error: any) => {
                 reportError(error.message || text('generation_failed'));
             });
@@ -601,7 +1371,8 @@ export const useGeneratedAssets = ({
     };
 
     const pushHeadlineHistory = (slotIndex: number, prev: { text: string; x: number; y: number }) => {
-        const existing = slotHeadlineHistoryRef.current[slotIndex] ?? { undo: [], redo: [] };
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        const existing = slotHeadlineHistoryRef.current[key] ?? { undo: [], redo: [] };
         const last = existing.undo[existing.undo.length - 1];
         const isSameAsLast =
             last &&
@@ -612,7 +1383,7 @@ export const useGeneratedAssets = ({
             existing.undo = [...existing.undo, prev].slice(-50);
         }
         existing.redo = [];
-        slotHeadlineHistoryRef.current[slotIndex] = existing;
+        slotHeadlineHistoryRef.current[key] = existing;
     };
 
     const applyHeadlineState = (slotIndex: number, next: { text: string; x: number; y: number }, opts?: { pushHistory?: boolean }) => {
@@ -621,9 +1392,13 @@ export const useGeneratedAssets = ({
             pushHeadlineHistory(slotIndex, prev);
         }
 
-        setSlotHeadlineBySlotIndex((p) => ({ ...p, [slotIndex]: next.text }));
-        setSlotHeadlinePosBySlotIndex((p) => ({ ...p, [slotIndex]: { x: next.x, y: next.y } }));
-        schedulePersistSlotHeadline(slotIndex, next);
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        setSlotHeadlineBySlotKey((p) => ({ ...p, [key]: next.text }));
+        setSlotHeadlinePosBySlotKey((p) => ({ ...p, [key]: { x: next.x, y: next.y } }));
+        const baseLayer = slotHeadlineLayerBySlotKey[key] ?? createHeadlineLayer(next.text, { x: next.x, y: next.y });
+        const mergedLayer: TextLayer = { ...baseLayer, text: next.text, x: next.x, y: next.y, id: baseLayer.id };
+        setSlotHeadlineLayerBySlotKey((p) => ({ ...p, [key]: mergedLayer }));
+        schedulePersistSlotHeadline(slotIndex, mergedLayer);
     };
 
     const setSlotHeadline = (slotIndex: number, headlineText: string, opts?: { pushHistory?: boolean }) => {
@@ -649,24 +1424,26 @@ export const useGeneratedAssets = ({
     };
 
     const undoSlotHeadline = (slotIndex: number) => {
-        const history = slotHeadlineHistoryRef.current[slotIndex];
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        const history = slotHeadlineHistoryRef.current[key];
         if (!history?.undo?.length) return;
         const prev = history.undo[history.undo.length - 1];
         const current = getSlotHeadlineState(slotIndex);
         history.undo = history.undo.slice(0, -1);
         history.redo = [...history.redo, current].slice(-50);
-        slotHeadlineHistoryRef.current[slotIndex] = history;
+        slotHeadlineHistoryRef.current[key] = history;
         applyHeadlineState(slotIndex, prev, { pushHistory: false });
     };
 
     const redoSlotHeadline = (slotIndex: number) => {
-        const history = slotHeadlineHistoryRef.current[slotIndex];
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        const history = slotHeadlineHistoryRef.current[key];
         if (!history?.redo?.length) return;
         const next = history.redo[history.redo.length - 1];
         const current = getSlotHeadlineState(slotIndex);
         history.redo = history.redo.slice(0, -1);
         history.undo = [...history.undo, current].slice(-50);
-        slotHeadlineHistoryRef.current[slotIndex] = history;
+        slotHeadlineHistoryRef.current[key] = history;
         applyHeadlineState(slotIndex, next, { pushHistory: false });
     };
 
@@ -678,14 +1455,15 @@ export const useGeneratedAssets = ({
         const layers = cloneLayers(baseLayers);
 
         const slotIndex = asset.slot_index ?? 0;
-        const headlineText = slotHeadlineBySlotIndex[slotIndex] ?? (layers[0]?.text ?? '');
-        const headlinePos = slotHeadlinePosBySlotIndex[slotIndex] ?? { x: layers[0]?.x ?? 50, y: layers[0]?.y ?? 12 };
-
-        if (!layers.length) {
-            layers.push(createHeadlineLayer(headlineText, headlinePos));
-        } else {
-            layers[0] = { ...layers[0], text: headlineText, x: headlinePos.x, y: headlinePos.y };
-        }
+        const setId = (asset as any).screenshot_set_id ?? activeScreenshotSetId;
+        const key = getScreenshotSlotKey(slotIndex, setId);
+        const headlineText = slotHeadlineBySlotKey[key] ?? (layers[0]?.text ?? '');
+        const headlinePos = slotHeadlinePosBySlotKey[key] ?? { x: layers[0]?.x ?? 50, y: layers[0]?.y ?? 12 };
+        const canonical = slotHeadlineLayerBySlotKey[key] ?? layers[0] ?? createHeadlineLayer(headlineText, headlinePos);
+        const id = layers[0]?.id ?? canonical.id;
+        const nextHeadline = { ...canonical, text: headlineText, x: headlinePos.x, y: headlinePos.y, id };
+        if (!layers.length) layers.push(nextHeadline);
+        else layers[0] = nextHeadline;
         return layers;
     };
 
@@ -701,6 +1479,67 @@ export const useGeneratedAssets = ({
     };
 
     const updateLayer = (assetId: string, layerId: string, patch: Partial<TextLayer>) => {
+        const asset = selectedGeneratedAssets.find((a) => a.id === assetId) || null;
+        const isScreenshotAsset =
+            asset && (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced');
+        const layer0Id =
+            (editDrafts[assetId]?.layers?.[0]?.id as any) ??
+            ((asset?.edit_state as any)?.layers?.[0]?.id as any) ??
+            null;
+        const isHeadlineLayer = Boolean(isScreenshotAsset && layer0Id && String(layer0Id) === String(layerId));
+
+        if (isHeadlineLayer && asset) {
+            const slotIndex = asset.slot_index ?? 0;
+            const setId = (asset as any).screenshot_set_id ?? activeScreenshotSetId;
+            const key = getScreenshotSlotKey(slotIndex, setId);
+
+            // Merge headline edits into the slot-level canonical layer so style doesn't "reset" between versions.
+            setSlotHeadlineLayerBySlotKey((prev) => {
+                const base = prev[key] ?? (cloneLayers((asset.edit_state as any)?.layers ?? [])[0] ?? createHeadlineLayer('', { x: 50, y: 12 }));
+                const merged: TextLayer = {
+                    ...base,
+                    ...patch,
+                    shadow: (patch as any).shadow ? { ...(base as any).shadow, ...(patch as any).shadow } : (base as any).shadow,
+                    outline: (patch as any).outline ? { ...(base as any).outline, ...(patch as any).outline } : (base as any).outline,
+                    id: base.id,
+                } as any;
+                return { ...prev, [key]: merged };
+            });
+
+            if (typeof patch.text === 'string') {
+                setSlotHeadlineBySlotKey((p) => ({ ...p, [key]: patch.text as string }));
+            }
+            if (typeof patch.x === 'number' || typeof patch.y === 'number') {
+                setSlotHeadlinePosBySlotKey((p) => {
+                    const existing = p[key] ?? { x: 50, y: 12 };
+                    return {
+                        ...p,
+                        [key]: {
+                            x: typeof patch.x === 'number' ? patch.x : existing.x,
+                            y: typeof patch.y === 'number' ? patch.y : existing.y,
+                        },
+                    };
+                });
+            }
+
+            // Debounced DB write based on stored layers only (avoids committing unrelated drafts).
+            // We persist the full headline layer so style stays consistent across versions.
+            const nextText = typeof patch.text === 'string' ? patch.text : (slotHeadlineBySlotKey[key] ?? '');
+            const nextPos = slotHeadlinePosBySlotKey[key] ?? { x: 50, y: 12 };
+            const baseLayer = slotHeadlineLayerBySlotKey[key] ?? createHeadlineLayer(nextText, nextPos);
+            const nextLayer: any = {
+                ...baseLayer,
+                ...patch,
+                shadow: (patch as any).shadow ? { ...(baseLayer as any).shadow, ...(patch as any).shadow } : (baseLayer as any).shadow,
+                outline: (patch as any).outline ? { ...(baseLayer as any).outline, ...(patch as any).outline } : (baseLayer as any).outline,
+                text: nextText,
+                x: typeof patch.x === 'number' ? patch.x : nextPos.x,
+                y: typeof patch.y === 'number' ? patch.y : nextPos.y,
+                id: baseLayer.id,
+            };
+            schedulePersistSlotHeadline(slotIndex, nextLayer);
+        }
+
         setEditDrafts((prev) => {
             const draft = prev[assetId];
             if (!draft) return prev;
@@ -837,14 +1676,24 @@ export const useGeneratedAssets = ({
                 providerId: iconProviderId,
                 progressTotal: variations,
             });
+            const controller = new AbortController();
+            abortByJobIdRef.current[jobId] = controller;
+            const eta =
+                iconProviderId === 'replicate:seedream-4'
+                    ? 'Dream ETA ~40s'
+                    : iconProviderId === 'replicate:nano-banana-pro'
+                        ? 'Nano ETA ~2m'
+                        : 'Giga ETA ~2m';
+            setJobMessage(jobId, `${eta} · generating`);
 
             const failed: number[] = [];
             for (let i = 0; i < variations; i += 1) {
+                if (controller.signal.aborted) break;
                 const slotIndex = maxSlotIndex + 1 + i;
                 setIconSlotGenerating(slotIndex);
                 try {
                     setJobProgress(jobId, { current: i, total: variations });
-                    setJobMessage(jobId, `Variation ${i + 1}/${variations}`);
+                    setJobMessage(jobId, `${eta} · Variation ${i + 1}/${variations}`);
 
                     const result = await requestGeneratedScreenshot({
                         providerId: iconProviderId,
@@ -853,13 +1702,23 @@ export const useGeneratedAssets = ({
                         brandRefImageUrl: iconUrl,
                         width: 1024,
                         height: 1024,
+                        signal: controller.signal,
                     });
 
-                    const blob = base64ToBlob(result.b64, result.mimeType);
+                    let blob: Blob;
+                    if (result.kind === 'url') {
+                        const resp = await fetch(result.outputUrl, { signal: controller.signal });
+                        if (!resp.ok) throw new Error(`Failed to fetch provider output (${resp.status}).`);
+                        blob = await resp.blob();
+                    } else {
+                        blob = base64ToBlob(result.b64, result.mimeType);
+                    }
                     // Icons should not be cropped; preserve by containing into the square if needed.
                     const jpgFile = await renderBlobToJpeg(blob, 1024, 1024, 'contain');
                     const version = 1;
                     const path = `${session.user.id}/apps/${selectedApp.id}/generated/icons/slot-${slotIndex}/v${version}-${createId()}.jpg`;
+
+                    if (controller.signal.aborted) throw new Error('Canceled');
 
                     const { error: uploadError } = await uploadGeneratedAsset({
                         path,
@@ -898,8 +1757,15 @@ export const useGeneratedAssets = ({
                     if (error) throw error;
                     if (data) setGeneratedAssets((prev) => [...prev, data]);
                 } catch {
-                    failed.push(slotIndex);
+                    if (!controller.signal.aborted) failed.push(slotIndex);
                 }
+            }
+
+            delete abortByJobIdRef.current[jobId];
+
+            if (controller.signal.aborted) {
+                finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+                return;
             }
 
             if (failed.length) {
@@ -931,6 +1797,15 @@ export const useGeneratedAssets = ({
             kind: 'icon_enhance',
             providerId: iconProviderId,
         });
+        const controller = new AbortController();
+        abortByJobIdRef.current[jobId] = controller;
+        const eta =
+            iconProviderId === 'replicate:seedream-4'
+                ? 'Dream ETA ~40s'
+                : iconProviderId === 'replicate:nano-banana-pro'
+                    ? 'Nano ETA ~2m'
+                    : 'Giga ETA ~2m';
+        setJobMessage(jobId, `${eta} · generating`);
 
         try {
             const baseAsset = selectedGeneratedAssets.find((asset) => asset.id === base.assetId) || null;
@@ -968,11 +1843,21 @@ export const useGeneratedAssets = ({
                 brandRefImageUrl: iconRefUrl,
                 width: 1024,
                 height: 1024,
+                signal: controller.signal,
             });
 
-            const blob = base64ToBlob(result.b64, result.mimeType);
+            let blob: Blob;
+            if (result.kind === 'url') {
+                const resp = await fetch(result.outputUrl, { signal: controller.signal });
+                if (!resp.ok) throw new Error(`Failed to fetch provider output (${resp.status}).`);
+                blob = await resp.blob();
+            } else {
+                blob = base64ToBlob(result.b64, result.mimeType);
+            }
             const jpgFile = await renderBlobToJpeg(blob, 1024, 1024, 'contain');
             const path = `${session.user.id}/apps/${selectedApp.id}/generated/icons-enhanced/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
+
+            if (controller.signal.aborted) throw new Error('Canceled');
 
             const { error: uploadError } = await uploadGeneratedAsset({
                 path,
@@ -1012,9 +1897,14 @@ export const useGeneratedAssets = ({
             if (data) setGeneratedAssets((prev) => [...prev, data]);
             finishJob(jobId, { status: 'success' });
         } catch (error: any) {
-            reportError(error.message || text('generation_failed'));
-            finishJob(jobId, { status: 'error', message: String(error?.message || 'Failed').slice(0, 200) });
+            if (controller.signal.aborted) {
+                finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+            } else {
+                reportError(error.message || text('generation_failed'));
+                finishJob(jobId, { status: 'error', message: String(error?.message || 'Failed').slice(0, 200) });
+            }
         } finally {
+            delete abortByJobIdRef.current[jobId];
             setEnhanceIconSlotGenerating(null);
         }
     };
@@ -1026,10 +1916,16 @@ export const useGeneratedAssets = ({
         brandRefImageUrl: string;
         width: number;
         height: number;
-    }) => {
+        signal?: AbortSignal;
+    }): Promise<GenerationApiResult> => {
         if (!session?.access_token) {
             throw new Error('Missing session token.');
         }
+
+        const responseMode =
+            typeof payload.providerId === 'string' && payload.providerId.startsWith('replicate:')
+                ? 'url'
+                : 'b64';
 
         const response = await fetch('/api/generate-screenshot', {
             method: 'POST',
@@ -1037,7 +1933,16 @@ export const useGeneratedAssets = ({
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${session.access_token}`,
             },
-            body: JSON.stringify(payload),
+            signal: payload.signal,
+            body: JSON.stringify({
+                providerId: payload.providerId,
+                prompt: payload.prompt,
+                simulatorImageUrl: payload.simulatorImageUrl,
+                brandRefImageUrl: payload.brandRefImageUrl,
+                width: payload.width,
+                height: payload.height,
+                responseMode,
+            }),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -1046,17 +1951,27 @@ export const useGeneratedAssets = ({
             throw new Error(message);
         }
 
+        const outputUrl = (data as any)?.outputUrl;
+        if (typeof outputUrl === 'string' && outputUrl.length) {
+            return { kind: 'url', outputUrl };
+        }
+
         const mimeType = (data as any)?.mimeType;
         const b64 = (data as any)?.b64;
         if (typeof mimeType !== 'string' || typeof b64 !== 'string' || !b64.length) {
             throw new Error('Generation API returned an invalid payload.');
         }
 
-        return { mimeType, b64 };
+        return { kind: 'b64', mimeType, b64 };
     };
 
-    const generateSlotOrThrow = async (slotIndex: number) => {
+    const generateSlotOrThrow = async (slotIndex: number, ctx?: { signal?: AbortSignal; jobId?: string }) => {
         if (!session || !selectedBrand || !selectedApp) return;
+        if (!activeScreenshotSetId) {
+            throw new Error(
+                `Screenshot sets are not initialized. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then reload.`
+            );
+        }
         if (!selectedAppScreenshots.length) {
             throw new Error(text('need_simulator_screenshots'));
         }
@@ -1100,37 +2015,42 @@ export const useGeneratedAssets = ({
         const sizeLabel = (existingSlot?.versions?.[0]?.size_label as '6.5' | '6.9' | null) ?? generationSize;
         const size = SCREENSHOT_SIZES[sizeLabel];
 
-        const basePrompt = [
-            // App Store readiness + strict constraints.
-            `Create an App Store-ready iOS App Store screenshot (ready to upload to App Store Connect).`,
-            `Use image 1 as the exact UI/layout source of truth (preserve the screen content, hierarchy, spacing, and readability).`,
-            `Use image 2 only for styling (colors, lighting, background mood, composition), but do not obscure or distort the UI from image 1.`,
-            `No device frame, no mockups, no hands, no floating phone, no bezels, no rounded outer corners, no drop-shadow that implies a device.`,
-            `Do not add ANY promotional text or typography: no headings, captions, callouts, badges, stickers, labels, watermarks, logos, translations, or extra UI not present in image 1.`,
-            `No watermarks, no brand marks, no provider marks.`,
-            `If image 1 contains a promotional headline area at the top: remove that promotional text, but keep the layout scale the same and leave that area empty background (do not move/enlarge the UI to fill it).`,
-            `Output must be a single full-bleed image at EXACTLY ${size.width}x${size.height} pixels (${sizeLabel}).`,
-            `Match the target aspect ratio so the result needs no padding.`,
-            `Do not crop away any important UI from image 1. Preserve the UI scale so text stays readable.`,
-            `If you must crop slightly, crop only background areas, never the UI.`,
-            `Keep the key UI content safely inside the frame (no critical elements touching the edges).`,
-            `Keep it sharp and clean (no blur, no artifacts, no heavy grain).`,
-        ].join(' ');
+        const { effectivePrompt: basePrompt } = getSystemPromptForSlot(slotIndex, 'generate');
         const userPrompt = (promptsByRefId[brandRef.id] ?? '').trim();
         const prompt = userPrompt ? `${basePrompt}\n\n${userPrompt}` : basePrompt;
+
+        const image1 = simulatorImageUrl;
+        const image2 = brandRefImageUrl;
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
             prompt,
-            simulatorImageUrl,
-            brandRefImageUrl,
+            simulatorImageUrl: image1,
+            brandRefImageUrl: image2,
             width: size.width,
             height: size.height,
+            signal: ctx?.signal,
         });
 
-        const blob = base64ToBlob(result.b64, result.mimeType);
+        if (ctx?.signal?.aborted) throw new Error('Canceled');
+        if (ctx?.jobId) {
+            setJobProgress(ctx.jobId, { current: 1, total: 2 });
+            setJobMessage(ctx.jobId, 'Saving…');
+        }
+
+        let blob: Blob;
+        if (result.kind === 'url') {
+            setInflightScreenshotPreview(slotIndex, 'generated', result.outputUrl);
+            const resp = await fetch(result.outputUrl, { signal: ctx?.signal });
+            if (!resp.ok) throw new Error(`Failed to fetch provider output (${resp.status}).`);
+            blob = await resp.blob();
+        } else {
+            blob = base64ToBlob(result.b64, result.mimeType);
+        }
         const jpgFile = await renderBlobToJpegAutoFit(blob, size.width, size.height);
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
+
+        if (ctx?.signal?.aborted) throw new Error('Canceled');
 
         const { error: uploadError } = await uploadGeneratedAsset({
             path,
@@ -1176,9 +2096,10 @@ export const useGeneratedAssets = ({
             reportError(error?.message ? `Preview upload failed: ${error.message}` : 'Preview upload failed.');
         }
 
-        const headlineText = (slotHeadlineBySlotIndex[slotIndex] ?? '').trim();
-        const headlinePos = slotHeadlinePosBySlotIndex[slotIndex] ?? { x: 50, y: 12 };
-        const carryForward = getCarryForwardLayersForSlot(slotIndex);
+        const headline = getSlotHeadlineState(slotIndex);
+        const headlineText = String(headline.text ?? '').trim();
+        const headlinePos = { x: headline.x, y: headline.y };
+        const carryForward = getCarryForwardLayersForSlot(slotIndex, activeScreenshotSetId);
         const layers = carryForward?.length ? carryForward : [createHeadlineLayer(headlineText, headlinePos)];
         if (layers.length) layers[0] = { ...layers[0], text: headlineText, x: headlinePos.x, y: headlinePos.y };
 
@@ -1190,6 +2111,7 @@ export const useGeneratedAssets = ({
             slot_index: slotIndex,
             version_index: nextVersion,
             image_path: path,
+            screenshot_set_id: activeScreenshotSetId,
             size_label: sizeLabel,
             width: size.width,
             height: size.height,
@@ -1198,14 +2120,23 @@ export const useGeneratedAssets = ({
         });
         if (error) throw error;
         if (data) setGeneratedAssets((prev) => [...prev, data]);
+        clearInflightScreenshotPreview(slotIndex, 'generated');
     };
 
-    const enhanceSlotOrThrow = async (payload: {
-        slotIndex: number;
-        base: { kind: ScreenshotKind; assetId: string };
-        enhancePrompt: string;
-    }) => {
+    const enhanceSlotOrThrow = async (
+        payload: {
+            slotIndex: number;
+            base: { kind: ScreenshotKind; assetId: string };
+            enhancePrompt: string;
+        },
+        ctx?: { signal?: AbortSignal; jobId?: string }
+    ) => {
         if (!session || !selectedBrand || !selectedApp) return;
+        if (!activeScreenshotSetId) {
+            throw new Error(
+                `Screenshot sets are not initialized. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then reload.`
+            );
+        }
 
         const { slotIndex, base, enhancePrompt } = payload;
 
@@ -1242,15 +2173,7 @@ export const useGeneratedAssets = ({
             brandRefUrls[brandRef.id] ??
             (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
 
-        const enhanceBasePrompt = [
-            `Enhance image 1 into an App Store-ready iOS App Store screenshot (ready to upload to App Store Connect).`,
-            `Preserve image 1 layout exactly: same UI scale, same composition, same spacing, same content.`,
-            `Use image 2 only for styling (colors, lighting, background mood), but do not change the UI from image 1.`,
-            `Remove any promotional text/headlines, but do not move/enlarge the UI to fill that space; leave it as empty background.`,
-            `No device frame, no mockups, no watermarks, no added text.`,
-            `Output must be EXACTLY ${size.width}x${size.height} pixels (${sizeLabel}).`,
-            `Keep it sharp and clean (no blur, no artifacts).`,
-        ].join(' ');
+        const { effectivePrompt: enhanceBasePrompt } = getSystemPromptForSlot(slotIndex, 'enhance');
         const extra = String(enhancePrompt || '').trim();
         const prompt = extra ? `${enhanceBasePrompt}\n\n${extra}` : enhanceBasePrompt;
 
@@ -1261,11 +2184,28 @@ export const useGeneratedAssets = ({
             brandRefImageUrl,
             width: size.width,
             height: size.height,
+            signal: ctx?.signal,
         });
 
-        const blob = base64ToBlob(result.b64, result.mimeType);
+        if (ctx?.signal?.aborted) throw new Error('Canceled');
+        if (ctx?.jobId) {
+            setJobProgress(ctx.jobId, { current: 1, total: 2 });
+            setJobMessage(ctx.jobId, 'Saving…');
+        }
+
+        let blob: Blob;
+        if (result.kind === 'url') {
+            setInflightScreenshotPreview(slotIndex, 'enhanced', result.outputUrl);
+            const resp = await fetch(result.outputUrl, { signal: ctx?.signal });
+            if (!resp.ok) throw new Error(`Failed to fetch provider output (${resp.status}).`);
+            blob = await resp.blob();
+        } else {
+            blob = base64ToBlob(result.b64, result.mimeType);
+        }
         const jpgFile = await renderBlobToJpegAutoFit(blob, size.width, size.height);
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots-enhanced/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
+
+        if (ctx?.signal?.aborted) throw new Error('Canceled');
 
         const { error: uploadError } = await uploadGeneratedAsset({
             path,
@@ -1289,9 +2229,10 @@ export const useGeneratedAssets = ({
             reportError(error?.message ? `Preview upload failed: ${error.message}` : 'Preview upload failed.');
         }
 
-        const headlineText = (slotHeadlineBySlotIndex[slotIndex] ?? '').trim();
-        const headlinePos = slotHeadlinePosBySlotIndex[slotIndex] ?? { x: 50, y: 12 };
-        const carryForward = getCarryForwardLayersForSlot(slotIndex);
+        const headline = getSlotHeadlineState(slotIndex);
+        const headlineText = String(headline.text ?? '').trim();
+        const headlinePos = { x: headline.x, y: headline.y };
+        const carryForward = getCarryForwardLayersForSlot(slotIndex, activeScreenshotSetId);
         const layers = carryForward?.length ? carryForward : [createHeadlineLayer(headlineText, headlinePos)];
         if (layers.length) layers[0] = { ...layers[0], text: headlineText, x: headlinePos.x, y: headlinePos.y };
 
@@ -1303,6 +2244,7 @@ export const useGeneratedAssets = ({
             slot_index: slotIndex,
             version_index: nextVersion,
             image_path: path,
+            screenshot_set_id: activeScreenshotSetId,
             size_label: sizeLabel,
             width: size.width,
             height: size.height,
@@ -1319,6 +2261,7 @@ export const useGeneratedAssets = ({
             throw error;
         }
         if (data) setGeneratedAssets((prev) => [...prev, data]);
+        clearInflightScreenshotPreview(slotIndex, 'enhanced');
     };
 
     const handleGenerateSlot = async (slotIndex: number) => {
@@ -1328,14 +2271,35 @@ export const useGeneratedAssets = ({
             title: `Generate screenshot ${slotIndex}`,
             kind: 'screenshot_generate',
             providerId: screenshotProviderId,
+            progressTotal: 2,
         });
+        const controller = new AbortController();
+        abortByJobIdRef.current[jobId] = controller;
+        const eta =
+            screenshotProviderId === 'replicate:seedream-4'
+                ? 'ETA ~40s'
+                : screenshotProviderId === 'replicate:nano-banana-pro'
+                    ? 'ETA ~2m'
+                    : 'ETA ~2m';
+        setJobMessage(jobId, `${eta} · generating`);
         try {
-            await generateSlotOrThrow(slotIndex);
-            finishJob(jobId, { status: 'success' });
+            await generateSlotOrThrow(slotIndex, { signal: controller.signal, jobId });
+            if (controller.signal.aborted) {
+                finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+            } else {
+                setJobProgress(jobId, { current: 2, total: 2 });
+                finishJob(jobId, { status: 'success' });
+            }
         } catch (error: any) {
-            reportError(error.message || text('generation_failed'));
-            finishJob(jobId, { status: 'error', message: String(error?.message || 'Failed').slice(0, 200) });
+            if (controller.signal.aborted) {
+                finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+            } else {
+                reportError(error.message || text('generation_failed'));
+                finishJob(jobId, { status: 'error', message: String(error?.message || 'Failed').slice(0, 200) });
+            }
         } finally {
+            delete abortByJobIdRef.current[jobId];
+            clearInflightScreenshotPreview(slotIndex, 'generated');
             setSlotGenerating(null);
         }
     };
@@ -1351,14 +2315,35 @@ export const useGeneratedAssets = ({
             title: `Enhance screenshot ${payload.slotIndex}`,
             kind: 'screenshot_enhance',
             providerId: screenshotProviderId,
+            progressTotal: 2,
         });
+        const controller = new AbortController();
+        abortByJobIdRef.current[jobId] = controller;
+        const eta =
+            screenshotProviderId === 'replicate:seedream-4'
+                ? 'ETA ~40s'
+                : screenshotProviderId === 'replicate:nano-banana-pro'
+                    ? 'ETA ~2m'
+                    : 'ETA ~2m';
+        setJobMessage(jobId, `${eta} · generating`);
         try {
-            await enhanceSlotOrThrow(payload);
-            finishJob(jobId, { status: 'success' });
+            await enhanceSlotOrThrow(payload, { signal: controller.signal, jobId });
+            if (controller.signal.aborted) {
+                finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+            } else {
+                setJobProgress(jobId, { current: 2, total: 2 });
+                finishJob(jobId, { status: 'success' });
+            }
         } catch (error: any) {
-            reportError(error.message || text('generation_failed'));
-            finishJob(jobId, { status: 'error', message: String(error?.message || 'Failed').slice(0, 200) });
+            if (controller.signal.aborted) {
+                finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+            } else {
+                reportError(error.message || text('generation_failed'));
+                finishJob(jobId, { status: 'error', message: String(error?.message || 'Failed').slice(0, 200) });
+            }
         } finally {
+            delete abortByJobIdRef.current[jobId];
+            clearInflightScreenshotPreview(payload.slotIndex, 'enhanced');
             setEnhanceSlotGenerating(null);
         }
     };
@@ -1376,30 +2361,45 @@ export const useGeneratedAssets = ({
             providerId: screenshotProviderId,
             progressTotal: targetSlotCount,
         });
+        const controller = new AbortController();
+        abortByJobIdRef.current[jobId] = controller;
+        const eta =
+            screenshotProviderId === 'replicate:seedream-4'
+                ? 'Dream ~40s/slot'
+                : screenshotProviderId === 'replicate:nano-banana-pro'
+                    ? 'Nano ~2m/slot'
+                    : 'Giga ~2m/slot';
+        setJobMessage(jobId, `${eta}`);
 
         const failedSlots: number[] = [];
         setScreenshotsGenerating(true);
         try {
             for (let slotIndex = 1; slotIndex <= targetSlotCount; slotIndex++) {
+                if (controller.signal.aborted) break;
                 setJobProgress(jobId, { current: slotIndex - 1, total: targetSlotCount });
-                setJobMessage(jobId, `Slot ${slotIndex}/${targetSlotCount}`);
+                setJobMessage(jobId, `${eta} · Slot ${slotIndex}/${targetSlotCount}`);
                 const existingSlot = generatedScreenshotSlots.find((item) => item.slotIndex === slotIndex) || null;
                 if (existingSlot && existingSlot.versions.length >= MAX_SCREENSHOT_VERSIONS) {
                     continue;
                 }
                 setSlotGenerating(slotIndex);
                 try {
-                    await generateSlotOrThrow(slotIndex);
+                    await generateSlotOrThrow(slotIndex, { signal: controller.signal });
                 } catch {
+                    clearInflightScreenshotPreview(slotIndex, 'generated');
+                    if (controller.signal.aborted) break;
                     failedSlots.push(slotIndex);
                 }
             }
         } finally {
+            delete abortByJobIdRef.current[jobId];
             setSlotGenerating(null);
             setScreenshotsGenerating(false);
         }
 
-        if (failedSlots.length) {
+        if (controller.signal.aborted) {
+            finishJob(jobId, { status: 'canceled', message: 'Canceled' });
+        } else if (failedSlots.length) {
             reportError(`${text('generation_failed')} Slots: ${failedSlots.join(', ')}`);
             finishJob(jobId, { status: 'error', message: `Failed slots: ${failedSlots.join(', ')}` });
         } else {
@@ -1416,12 +2416,202 @@ export const useGeneratedAssets = ({
     const canGenerateIcon = Boolean(selectedApp && selectedBrand && brandIconReference);
     const canGenerateScreenshots = Boolean(selectedApp && selectedBrand);
 
+    const slotHeadlineBySlotIndex = useMemo(() => {
+        const out: Record<number, string> = {};
+        if (!activeScreenshotSetId) return out;
+        for (let i = 1; i <= targetSlotCount; i += 1) {
+            const key = getScreenshotSlotKey(i, activeScreenshotSetId);
+            out[i] = slotHeadlineBySlotKey[key] ?? '';
+        }
+        return out;
+    }, [slotHeadlineBySlotKey, activeScreenshotSetId, targetSlotCount, getScreenshotSlotKey]);
+
+    const slotHeadlinePosBySlotIndex = useMemo(() => {
+        const out: Record<number, { x: number; y: number }> = {};
+        if (!activeScreenshotSetId) return out;
+        for (let i = 1; i <= targetSlotCount; i += 1) {
+            const key = getScreenshotSlotKey(i, activeScreenshotSetId);
+            out[i] = slotHeadlinePosBySlotKey[key] ?? { x: 50, y: 12 };
+        }
+        return out;
+    }, [slotHeadlinePosBySlotKey, activeScreenshotSetId, targetSlotCount, getScreenshotSlotKey]);
+
+    const pickedIconAssetId = useMemo(
+        () => assetPicks.find((p) => p.kind === 'icon')?.generated_asset_id ?? null,
+        [assetPicks]
+    );
+
+    const pickedScreenshotAssetIdBySetSlot = useMemo(() => {
+        const map: Record<string, string> = {};
+        for (const pick of assetPicks) {
+            if (pick.kind !== 'screenshot') continue;
+            if (!pick.screenshot_set_id || typeof pick.slot_index !== 'number') continue;
+            map[`${pick.screenshot_set_id}:${pick.slot_index}`] = pick.generated_asset_id;
+        }
+        return map;
+    }, [assetPicks]);
+
+    const pickedScreenshotAssetIdBySlotIndex = useMemo(() => {
+        const out: Record<number, string | null> = {};
+        if (!activeScreenshotSetId) return out;
+        for (let i = 1; i <= targetSlotCount; i += 1) {
+            out[i] = pickedScreenshotAssetIdBySetSlot[`${activeScreenshotSetId}:${i}`] ?? null;
+        }
+        return out;
+    }, [activeScreenshotSetId, pickedScreenshotAssetIdBySetSlot, targetSlotCount]);
+
+    const handlePickIcon = useCallback(
+        async (assetId: string) => {
+            if (!session || !selectedBrand || !selectedApp) return;
+            const { data, error } = await setIconPick({
+                userId: session.user.id,
+                brandId: selectedBrand.id,
+                appId: selectedApp.id,
+                generatedAssetId: assetId,
+            });
+            if (error) {
+                reportError(String((error as any)?.message || error));
+                return;
+            }
+            // Refresh picks in-memory
+            setAssetPicks((prev) => {
+                const next = prev.filter((p) => p.kind !== 'icon');
+                if (data) next.push(data as any);
+                return next;
+            });
+            await invalidateCompletion();
+        },
+        [session, selectedBrand, selectedApp, reportError, invalidateCompletion]
+    );
+
+    const handlePickScreenshot = useCallback(
+        async (payload: { screenshotSetId: string; slotIndex: number; assetId: string }) => {
+            if (!session || !selectedBrand || !selectedApp) return;
+            const { screenshotSetId, slotIndex, assetId } = payload;
+            const { data, error } = await setScreenshotPick({
+                userId: session.user.id,
+                brandId: selectedBrand.id,
+                appId: selectedApp.id,
+                screenshotSetId,
+                slotIndex,
+                generatedAssetId: assetId,
+            });
+            if (error) {
+                reportError(String((error as any)?.message || error));
+                return;
+            }
+            setAssetPicks((prev) => {
+                const next = prev.filter(
+                    (p) =>
+                        !(
+                            p.kind === 'screenshot' &&
+                            p.screenshot_set_id === screenshotSetId &&
+                            p.slot_index === slotIndex
+                        )
+                );
+                if (data) next.push(data as any);
+                return next;
+            });
+            await invalidateCompletion();
+        },
+        [session, selectedBrand, selectedApp, reportError, invalidateCompletion]
+    );
+
+    const getCompletionMissingReason = useCallback(() => {
+        if (!pickedIconAssetId) return text('need_picks_to_complete');
+        for (const set of screenshotSets) {
+            const slots = Math.min(6, Math.max(3, Number(set.slot_count) || 3));
+            for (let i = 1; i <= slots; i += 1) {
+                const id = pickedScreenshotAssetIdBySetSlot[`${set.id}:${i}`];
+                if (!id) return text('need_picks_to_complete');
+            }
+        }
+        return null;
+    }, [pickedIconAssetId, pickedScreenshotAssetIdBySetSlot, screenshotSets, text]);
+
+    const handleMarkAsCompleted = useCallback(
+        async (opts?: { pruneUnpicked?: boolean }) => {
+            if (!session || !selectedBrand || !selectedApp) return;
+            const missing = getCompletionMissingReason();
+            if (missing) {
+                reportError(missing);
+                return;
+            }
+
+            const keepIds = new Set<string>(assetPicks.map((p) => p.generated_asset_id));
+            const deletable = selectedGeneratedAssets.filter((a) => !keepIds.has(a.id));
+
+            if (opts?.pruneUnpicked) {
+                const paths: string[] = [];
+                for (const asset of deletable) {
+                    if (!asset.image_path) continue;
+                    paths.push(asset.image_path);
+                    if (/\.jpg$/i.test(asset.image_path)) {
+                        paths.push(asset.image_path.replace(/\.jpg$/i, '-preview.jpg'));
+                    }
+                }
+
+                if (paths.length) {
+                    const { error: storageError } = await removeGeneratedAssets(paths);
+                    if (storageError) {
+                        reportError(String((storageError as any)?.message || storageError));
+                        return;
+                    }
+                }
+
+                if (deletable.length) {
+                    const { error: deleteError } = await deleteGeneratedAssetsByIds({
+                        userId: session.user.id,
+                        ids: deletable.map((a) => a.id),
+                    });
+                    if (deleteError) {
+                        reportError(String((deleteError as any)?.message || deleteError));
+                        return;
+                    }
+                }
+            }
+
+            await setExportCompleted(true);
+            await refresh();
+            await loadSetsPicksStatus();
+        },
+        [
+            session,
+            selectedBrand,
+            selectedApp,
+            getCompletionMissingReason,
+            assetPicks,
+            selectedGeneratedAssets,
+            removeGeneratedAssets,
+            deleteGeneratedAssetsByIds,
+            reportError,
+            setExportCompleted,
+            refresh,
+            loadSetsPicksStatus,
+        ]
+    );
+
     return {
+        screenshotSets,
+        activeScreenshotSetId,
+        setActiveScreenshotSetId: setActiveScreenshotSet,
+        handleAddScreenshotSet,
+        handleDeleteScreenshotSet,
+        assetPicks,
+        exportStatus,
+        pickedIconAssetId,
+        pickedScreenshotAssetIdBySlotIndex,
+        handlePickIcon,
+        handlePickScreenshot,
+        handleMarkAsCompleted,
+        handleDownloadScreenshotSetZip,
         generatedAssets,
         generatedUrls,
         generatedPreviewUrls,
+        inflightScreenshotPreviewByKey,
         generationJobs,
         hasRunningJobs,
+        cancelGenerationJob,
         dismissJob,
         clearFinished,
         loading,
@@ -1439,9 +2629,9 @@ export const useGeneratedAssets = ({
         slotGenerating,
         enhanceSlotGenerating,
         generationCount,
-        setGenerationCount,
+        setGenerationCount: setGenerationCountForActiveSet,
         generationSize,
-        setGenerationSize,
+        setGenerationSize: setGenerationSizeForActiveSet,
         screenshotProviderId,
         setScreenshotProviderId,
         iconProviderId,
@@ -1473,6 +2663,9 @@ export const useGeneratedAssets = ({
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
         handleDeleteGeneratedAsset,
+        getSystemPromptForSlot,
+        setSystemPromptOverride,
+        resetSystemPromptOverride,
         targetSlotCount,
         existingSlotCount,
         slotsToCreate,

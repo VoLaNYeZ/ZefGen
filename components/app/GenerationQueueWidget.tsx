@@ -14,8 +14,9 @@ export const GenerationQueueWidget = (props: {
     jobs: GenerationJob[];
     onDismissJob: (id: string) => void;
     onClearFinished: () => void;
+    onCancelJob?: (id: string) => void;
 }) => {
-    const { jobs, onDismissJob, onClearFinished } = props;
+    const { jobs, onDismissJob, onClearFinished, onCancelJob } = props;
     const runningCount = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
     const [open, setOpen] = React.useState(false);
 
@@ -96,14 +97,31 @@ export const GenerationQueueWidget = (props: {
                                                     {job.message && <span className="truncate">{job.message}</span>}
                                                 </div>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => onDismissJob(job.id)}
-                                                className="shrink-0 inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white"
-                                                aria-label="Dismiss"
-                                            >
-                                                <X size={12} />
-                                            </button>
+                                            {job.status === 'running' || job.status === 'queued' ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onCancelJob?.(job.id)}
+                                                    disabled={!onCancelJob}
+                                                    className={`shrink-0 inline-flex items-center justify-center rounded-full border p-1.5 ${
+                                                        onCancelJob
+                                                            ? 'border-white/10 text-indigo-200/60 hover:border-rose-400/40 hover:text-white'
+                                                            : 'border-white/10 text-indigo-200/30'
+                                                    }`}
+                                                    aria-label="Cancel"
+                                                    title={onCancelJob ? 'Cancel' : undefined}
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onDismissJob(job.id)}
+                                                    className="shrink-0 inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white"
+                                                    aria-label="Dismiss"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            )}
                                         </div>
                                         {job.progress && (
                                             <div className="mt-2 h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
@@ -127,4 +145,3 @@ export const GenerationQueueWidget = (props: {
         </div>
     );
 };
-

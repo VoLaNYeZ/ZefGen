@@ -17,7 +17,11 @@ type BrandReferencesPanelProps = {
     isBrandRefDropActive: boolean;
     brandScreenshotsUploading: boolean;
     maxScreenshotRefs: number;
-    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    openLightbox: (
+        src: string,
+        alt: string,
+        options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => void;
     text: (key: TranslationKey) => string;
 };
 
@@ -177,7 +181,11 @@ function SortableBrandRefTile({
     refItem: BrandReference;
     url: string | undefined;
     onDelete: (ref: BrandReference) => void;
-    openLightbox: (src: string, alt: string, options?: { layers?: any[]; fullSrc?: string }) => void;
+    openLightbox: (
+        src: string,
+        alt: string,
+        options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => void;
     text: (key: TranslationKey) => string;
 }) {
     const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id);

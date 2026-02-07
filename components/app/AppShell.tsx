@@ -25,6 +25,8 @@ import { AppGenerationSection } from './AppGenerationSection';
 import { Lightbox } from './Lightbox';
 import { GenerationQueueWidget } from './GenerationQueueWidget';
 import { ConfirmIconButton } from './ConfirmIconButton';
+import { DeliverablesPanel } from './DeliverablesPanel';
+import { ExportCompletionRail } from './ExportCompletionRail';
 import type { TextLayer } from '../../types/zefgen';
 
 type AppShellProps = {
@@ -37,18 +39,33 @@ export function AppShell({ session }: AppShellProps) {
 
     const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
     const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+    const [assetsCollapsed, setAssetsCollapsed] = useState(false);
     const [dataError, setDataError] = useState<string | null>(null);
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
     const [logoVariantIndex, setLogoVariantIndex] = useState(() => Math.floor(Math.random() * 6));
     const logoWord = 'ZEFGEN';
     const logoContainerRef = useRef<HTMLDivElement>(null);
+    const mainScrollRef = useRef<HTMLDivElement>(null);
+    const deliverablesRailRef = useRef<HTMLDivElement>(null);
+    const [deliverablesRailStyle, setDeliverablesRailStyle] = useState<{ top: number; left: number; opacity: number }>({
+        top: 96,
+        left: 16,
+        opacity: 0,
+    });
     const [logoFontReady, setLogoFontReady] = useState(false);
     const [gooeyDebug, _setGooeyDebug] = useState(false);
     const [appSwitching, setAppSwitching] = useState(false);
     const [draggingAppId, setDraggingAppId] = useState<string | null>(null);
     const [dragOverAppId, setDragOverAppId] = useState<string | null>(null);
-    const [lightbox, setLightbox] = useState<{ src: string; alt: string; layers?: TextLayer[]; fullSrc?: string } | null>(null);
+    const [lightbox, setLightbox] = useState<{
+        src: string;
+        alt: string;
+        layers?: TextLayer[];
+        fullSrc?: string;
+        overlayBaseWidth?: number;
+        overlayBaseHeight?: number;
+    } | null>(null);
 
     const reportActionError = useCallback((message: string) => {
         setActionError(message);
@@ -207,10 +224,26 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     const {
+        screenshotSets,
+        activeScreenshotSetId,
+        setActiveScreenshotSetId,
+        handleAddScreenshotSet,
+        handleDeleteScreenshotSet,
+        assetPicks,
+        exportStatus,
+        pickedIconAssetId,
+        pickedScreenshotAssetIdBySlotIndex,
+        handlePickIcon,
+        handlePickScreenshot,
+        handleMarkAsCompleted,
+        handleDownloadScreenshotSetZip,
+        selectedGeneratedAssets,
         generatedPreviewUrls,
         generatedUrls,
+        inflightScreenshotPreviewByKey,
         generationJobs,
         hasRunningJobs,
+        cancelGenerationJob,
         dismissJob,
         clearFinished,
         loading: generatedAssetsLoading,
@@ -260,6 +293,9 @@ export function AppShell({ session }: AppShellProps) {
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
         handleDeleteGeneratedAsset,
+        getSystemPromptForSlot,
+        setSystemPromptOverride,
+        resetSystemPromptOverride,
         targetSlotCount,
         existingSlotCount,
         slotsToCreate,
@@ -308,6 +344,30 @@ export function AppShell({ session }: AppShellProps) {
         const timer = window.setTimeout(() => setAppSwitching(false), 320);
         return () => window.clearTimeout(timer);
     }, [selectedAppId]);
+
+    useEffect(() => {
+        if (!selectedAppId) {
+            setAssetsCollapsed(false);
+            return;
+        }
+        const key = `zefgen.assetsCollapsed.${selectedAppId}`;
+        const raw = window.localStorage.getItem(key);
+        setAssetsCollapsed(raw === '1');
+    }, [selectedAppId]);
+
+    const toggleAssetsCollapsed = useCallback(() => {
+        if (!selectedAppId) return;
+        if (!exportStatus?.is_completed) {
+            reportActionError(text('need_picks_to_complete'));
+            return;
+        }
+        setAssetsCollapsed((prev) => {
+            const next = !prev;
+            const key = `zefgen.assetsCollapsed.${selectedAppId}`;
+            window.localStorage.setItem(key, next ? '1' : '0');
+            return next;
+        });
+    }, [selectedAppId, exportStatus?.is_completed, reportActionError, text]);
     const activeAppIndex = useMemo(
         () => visibleApps.findIndex((app) => app.id === selectedAppId),
         [visibleApps, selectedAppId]
@@ -318,6 +378,31 @@ export function AppShell({ session }: AppShellProps) {
     const bodyCornerRadius = `${isFirstApp || isSingleApp ? 0 : 26}px 26px 26px 26px`;
     const appFolderTheme = isBannedView ? 'rgba(127, 29, 29, 0.55)' : 'rgba(30, 41, 59, 0.55)';
     const isAppReorderMode = appFormOpen;
+
+    const pickedIconAsset = useMemo(() => {
+        if (!pickedIconAssetId) return null;
+        return selectedGeneratedAssets.find((a) => a.id === pickedIconAssetId) ?? null;
+    }, [selectedGeneratedAssets, pickedIconAssetId]);
+
+    const unpickedCount = useMemo(() => {
+        const keep = new Set((assetPicks || []).map((p) => p.generated_asset_id));
+        return (selectedGeneratedAssets || []).filter((a) => !keep.has(a.id)).length;
+    }, [selectedGeneratedAssets, assetPicks]);
+
+    const setReadiness = useMemo(() => {
+        return (screenshotSets || []).map((set) => {
+            const requiredCount = Math.min(6, Math.max(3, Number(set.slot_count) || 3));
+            const pickedCount = (assetPicks || []).filter(
+                (p) =>
+                    p.kind === 'screenshot' &&
+                    p.screenshot_set_id === set.id &&
+                    typeof p.slot_index === 'number' &&
+                    p.slot_index >= 1 &&
+                    p.slot_index <= requiredCount
+            ).length;
+            return { set, pickedCount, requiredCount };
+        });
+    }, [screenshotSets, assetPicks]);
 
     const {
         appFolderLayout,
@@ -340,6 +425,69 @@ export function AppShell({ session }: AppShellProps) {
         isBannedView,
         showBannedToggle,
     });
+
+    useEffect(() => {
+        if (!selectedApp || assetsCollapsed) {
+            setDeliverablesRailStyle((prev) => ({ ...prev, opacity: 0 }));
+            return;
+        }
+
+        let raf = 0;
+        const topOffset = 96; // Keep below the sticky header.
+        const schedule = () => {
+            cancelAnimationFrame(raf);
+            raf = window.requestAnimationFrame(() => {
+                const gen = appGenerationRef.current;
+                const wrap = appFolderWrapRef.current;
+                const rail = deliverablesRailRef.current;
+                if (!gen || !wrap || !rail) return;
+
+                const genRect = gen.getBoundingClientRect();
+                const wrapRect = wrap.getBoundingClientRect();
+                const railRect = rail.getBoundingClientRect();
+
+                const railH = railRect.height || rail.offsetHeight || 0;
+                const railW = railRect.width || rail.offsetWidth || 0;
+                if (!railH || !railW) return;
+
+                const minTop = genRect.top;
+                const maxTop = genRect.bottom - railH;
+                let top = topOffset;
+                if (maxTop < minTop) {
+                    top = minTop;
+                } else {
+                    top = Math.min(Math.max(topOffset, minTop), maxTop);
+                }
+
+                const gutter = 14;
+                // Prefer placing the rail just outside the folder body (so it doesn't cover cards),
+                // but clamp into the viewport if there isn't enough room.
+                let left = wrapRect.right + gutter;
+                left = Math.min(left, window.innerWidth - railW - 16);
+                left = Math.max(16, left);
+
+                const inView = genRect.bottom > topOffset + 40 && genRect.top < window.innerHeight - 40;
+                setDeliverablesRailStyle({ top, left, opacity: inView ? 1 : 0 });
+            });
+        };
+
+        schedule();
+        const scrollEl = mainScrollRef.current;
+        scrollEl?.addEventListener('scroll', schedule, { passive: true });
+        window.addEventListener('resize', schedule);
+
+        const ro = new ResizeObserver(schedule);
+        if (appFolderWrapRef.current) ro.observe(appFolderWrapRef.current);
+        if (appGenerationRef.current) ro.observe(appGenerationRef.current);
+
+        return () => {
+            cancelAnimationFrame(raf);
+            scrollEl?.removeEventListener('scroll', schedule);
+            window.removeEventListener('resize', schedule);
+            ro.disconnect();
+        };
+    }, [selectedApp?.id, assetsCollapsed]);
+
     const { isPanning: isAppPillPanning, panRef: appPillPanRef, handlers: appPillPanHandlers } = useAppPillPan({
         isReorderMode: isAppReorderMode,
         scrollRef: appPillScrollRef,
@@ -376,8 +524,19 @@ export function AppShell({ session }: AppShellProps) {
         await signOut();
     };
 
-    const openLightbox = (src: string, alt: string, options?: { layers?: TextLayer[]; fullSrc?: string }) => {
-        setLightbox({ src, alt, layers: options?.layers, fullSrc: options?.fullSrc });
+    const openLightbox = (
+        src: string,
+        alt: string,
+        options?: { layers?: TextLayer[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => {
+        setLightbox({
+            src,
+            alt,
+            layers: options?.layers,
+            fullSrc: options?.fullSrc,
+            overlayBaseWidth: options?.overlayBaseWidth,
+            overlayBaseHeight: options?.overlayBaseHeight,
+        });
     };
 
     const closeLightbox = () => {
@@ -464,7 +623,7 @@ export function AppShell({ session }: AppShellProps) {
             />
 
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                <div className="flex-1 overflow-y-auto">
+                <div ref={mainScrollRef} className="flex-1 overflow-y-auto">
                     <div className="min-h-full px-6 py-8 lg:px-10">
                         <div className="mx-auto max-w-6xl space-y-8">
                             <div className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
@@ -627,22 +786,46 @@ export function AppShell({ session }: AppShellProps) {
                                         text={text}
                                     />
 
-                                    <AppFolder
-                                        appFolderLayout={appFolderLayout}
-                                        appFolderTheme={appFolderTheme}
-                                        bodyCornerRadius={bodyCornerRadius}
-                                        isTabMotionDisabled={isTabMotionDisabled}
-                                        appSwitching={appSwitching}
-                                        isFirstApp={isFirstApp}
-                                        gooeyDebug={gooeyDebug}
-                                        appFolderWrapRef={appFolderWrapRef}
-                                        appFolderContentRef={appFolderContentRef}
-                                        appFolderEndRef={appFolderEndRef}
-                                        appPickerRef={appPickerRef}
-                                        appSimulatorRef={appSimulatorRef}
-                                        appGenerationRef={appGenerationRef}
-                                        picker={
-                                            <>
+                                    <div className="space-y-6">
+                                        <AppFolder
+                                                appFolderLayout={appFolderLayout}
+                                                appFolderTheme={appFolderTheme}
+                                                bodyCornerRadius={bodyCornerRadius}
+                                                isTabMotionDisabled={isTabMotionDisabled}
+                                                appSwitching={appSwitching}
+                                                isFirstApp={isFirstApp}
+                                                gooeyDebug={gooeyDebug}
+                                                appFolderWrapRef={appFolderWrapRef}
+                                                appFolderContentRef={appFolderContentRef}
+                                                appFolderEndRef={appFolderEndRef}
+                                                appPickerRef={appPickerRef}
+                                                appSimulatorRef={appSimulatorRef}
+                                                appGenerationRef={appGenerationRef}
+                                                isAssetsCollapsed={assetsCollapsed}
+                                                collapsedAssets={
+                                                    <DeliverablesPanel
+                                                        isCompleted={Boolean(exportStatus?.is_completed)}
+                                                        pickedIconAsset={pickedIconAsset}
+                                                        screenshotSets={screenshotSets}
+                                                        onDownloadIcon={() => {
+                                                            if (!pickedIconAsset || !selectedApp) return;
+                                                            handleDownloadGeneratedAsset(
+                                                                pickedIconAsset,
+                                                                `icon-${selectedApp.alias || selectedApp.id}.jpg`
+                                                            );
+                                                        }}
+                                                        onDownloadSetZip={(setId) => {
+                                                            handleDownloadScreenshotSetZip({ setId, preferPicks: true });
+                                                        }}
+                                                        onShowWorkspace={() => {
+                                                            if (!assetsCollapsed) return;
+                                                            toggleAssetsCollapsed();
+                                                        }}
+                                                        text={text}
+                                                    />
+                                                }
+                                                picker={
+                                                    <>
                                                 <div className="flex items-center justify-end gap-2">
                                                     {selectedApp && (
                                                         <button
@@ -728,94 +911,109 @@ export function AppShell({ session }: AppShellProps) {
                                                 )}
                                             </>
                                         }
-                                        simulator={
-                                            <AppSimulatorSection
-                                                selectedApp={selectedApp}
-                                                selectedAppScreenshots={selectedAppScreenshots}
-                                                appScreenshotUrls={appScreenshotUrls}
-                                                handleReorderAppScreenshot={handleReorderAppScreenshot}
-                                                handleDeleteAppScreenshot={handleDeleteAppScreenshot}
-                                                handleScreenshotDragOver={handleScreenshotDragOver}
-                                                handleScreenshotDragLeave={handleScreenshotDragLeave}
-                                                handleScreenshotDrop={handleScreenshotDrop}
-                                                handleAppScreenshotsUpload={handleAppScreenshotsUpload}
-                                                isScreenshotDropActive={isScreenshotDropActive}
-                                                appScreenshotsUploading={appScreenshotsUploading}
-                                                canUploadAppScreenshots={canUploadAppScreenshots}
-                                                openLightbox={openLightbox}
-                                                text={text}
-                                            />
-                                        }
-                                        generation={
-                                            <AppGenerationSection
-                                                selectedApp={selectedApp}
-                                                brandIconReference={brandIconReference}
-                                                brandScreenshotReferences={brandScreenshotReferences}
-                                                selectedAppScreenshots={selectedAppScreenshots}
-                                                generatedIconSlots={generatedIconSlots}
-                                                enhancedIconSlots={enhancedIconSlots}
-                                                generatedScreenshotSlots={generatedScreenshotSlots}
-                                                enhancedScreenshotSlots={enhancedScreenshotSlots}
-                                                generatedPreviewUrls={generatedPreviewUrls}
-                                                generatedUrls={generatedUrls}
-                                                generationCount={generationCount}
-                                                setGenerationCount={setGenerationCount}
-                                                generationSize={generationSize}
-                                                setGenerationSize={setGenerationSize}
-                                                iconGenerating={iconGenerating}
-                                                iconSlotGenerating={iconSlotGenerating}
-                                                enhanceIconSlotGenerating={enhanceIconSlotGenerating}
-                                                screenshotsGenerating={screenshotsGenerating}
-                                                slotGenerating={slotGenerating}
-                                                enhanceSlotGenerating={enhanceSlotGenerating}
-                                                canGenerateIcon={canGenerateIcon}
-                                                canGenerateScreenshots={canGenerateScreenshots}
-                                                targetSlotCount={targetSlotCount}
-                                                getSlotMapping={getSlotMapping}
-                                                updateSlotMapping={updateSlotMapping}
-                                                promptsByRefId={promptsByRefId}
-                                                setPrompt={setPrompt}
-                                                iconProviderId={iconProviderId}
-                                                setIconProviderId={setIconProviderId}
-                                                iconVariationsCount={iconVariationsCount}
-                                                setIconVariationsCount={setIconVariationsCount}
-                                                screenshotProviderId={screenshotProviderId}
-                                                setScreenshotProviderId={setScreenshotProviderId}
-                                                slotHeadlineBySlotIndex={slotHeadlineBySlotIndex}
-                                                slotHeadlinePosBySlotIndex={slotHeadlinePosBySlotIndex}
-                                                setSlotHeadline={setSlotHeadline}
-                                                setSlotHeadlinePosition={setSlotHeadlinePosition}
-                                                beginSlotHeadlineDrag={beginSlotHeadlineDrag}
-                                                beginSlotHeadlineTextEdit={beginSlotHeadlineTextEdit}
-                                                undoSlotHeadline={undoSlotHeadline}
-                                                redoSlotHeadline={redoSlotHeadline}
-                                                editAssetId={editAssetId}
-                                                editDrafts={editDrafts}
-                                                editSaving={editSaving}
-                                                beginEditAsset={beginEditAsset}
-                                                resetEditDraft={resetEditDraft}
-                                                updateLayer={updateLayer}
-                                                addLayer={addLayer}
-                                                removeLayer={removeLayer}
-                                                handleSaveEdit={handleSaveEdit}
-                                                handleGenerateIcon={handleGenerateIcon}
-                                                handleEnhanceIconSlot={handleEnhanceIconSlot}
-                                                handleGenerateAllScreenshots={handleGenerateAllScreenshots}
-                                                handleGenerateSlot={handleGenerateSlot}
-                                                handleEnhanceSlot={handleEnhanceSlot}
-                                                handleDownloadGeneratedAsset={handleDownloadGeneratedAsset}
-                                                handleDownloadAllScreenshots={handleDownloadAllScreenshots}
-                                                handleDeleteGeneratedAsset={handleDeleteGeneratedAsset}
-                                                handleBrandPromptChange={handleBrandPromptChange}
-                                                handleBrandPromptSave={handleBrandPromptSave}
-                                                handleAutoGrowInput={handleAutoGrowInput}
-                                                openLightbox={openLightbox}
-                                                text={text}
-                                                fonts={EDIT_FONTS}
-                                            />
-                                        }
-                                        endSections={
-                                            <>
+                                                simulator={
+                                                    <AppSimulatorSection
+                                                        selectedApp={selectedApp}
+                                                        selectedAppScreenshots={selectedAppScreenshots}
+                                                        appScreenshotUrls={appScreenshotUrls}
+                                                        handleReorderAppScreenshot={handleReorderAppScreenshot}
+                                                        handleDeleteAppScreenshot={handleDeleteAppScreenshot}
+                                                        handleScreenshotDragOver={handleScreenshotDragOver}
+                                                        handleScreenshotDragLeave={handleScreenshotDragLeave}
+                                                        handleScreenshotDrop={handleScreenshotDrop}
+                                                        handleAppScreenshotsUpload={handleAppScreenshotsUpload}
+                                                        isScreenshotDropActive={isScreenshotDropActive}
+                                                        appScreenshotsUploading={appScreenshotsUploading}
+                                                        canUploadAppScreenshots={canUploadAppScreenshots}
+                                                        openLightbox={openLightbox}
+                                                        text={text}
+                                                    />
+                                                }
+                                                generation={
+                                                    <AppGenerationSection
+                                                        selectedApp={selectedApp}
+                                                        brandIconReference={brandIconReference}
+                                                        brandScreenshotReferences={brandScreenshotReferences}
+                                                        selectedAppScreenshots={selectedAppScreenshots}
+                                                        screenshotSets={screenshotSets}
+                                                        activeScreenshotSetId={activeScreenshotSetId}
+                                                        setActiveScreenshotSetId={setActiveScreenshotSetId}
+                                                        handleAddScreenshotSet={handleAddScreenshotSet}
+                                                        handleDeleteScreenshotSet={handleDeleteScreenshotSet}
+                                                        assetExportStatus={exportStatus}
+                                                        generatedIconSlots={generatedIconSlots}
+                                                        enhancedIconSlots={enhancedIconSlots}
+                                                        generatedScreenshotSlots={generatedScreenshotSlots}
+                                                        enhancedScreenshotSlots={enhancedScreenshotSlots}
+                                                        generatedPreviewUrls={generatedPreviewUrls}
+                                                        generatedUrls={generatedUrls}
+                                                        inflightScreenshotPreviewByKey={inflightScreenshotPreviewByKey}
+                                                        generationCount={generationCount}
+                                                        setGenerationCount={setGenerationCount}
+                                                        generationSize={generationSize}
+                                                        setGenerationSize={setGenerationSize}
+                                                        iconGenerating={iconGenerating}
+                                                        iconSlotGenerating={iconSlotGenerating}
+                                                        enhanceIconSlotGenerating={enhanceIconSlotGenerating}
+                                                        screenshotsGenerating={screenshotsGenerating}
+                                                        slotGenerating={slotGenerating}
+                                                        enhanceSlotGenerating={enhanceSlotGenerating}
+                                                        canGenerateIcon={canGenerateIcon}
+                                                        canGenerateScreenshots={canGenerateScreenshots}
+                                                        targetSlotCount={targetSlotCount}
+                                                        getSlotMapping={getSlotMapping}
+                                                        updateSlotMapping={updateSlotMapping}
+                                                        promptsByRefId={promptsByRefId}
+                                                        setPrompt={setPrompt}
+                                                        iconProviderId={iconProviderId}
+                                                        setIconProviderId={setIconProviderId}
+                                                        iconVariationsCount={iconVariationsCount}
+                                                        setIconVariationsCount={setIconVariationsCount}
+                                                        screenshotProviderId={screenshotProviderId}
+                                                        setScreenshotProviderId={setScreenshotProviderId}
+                                                        slotHeadlineBySlotIndex={slotHeadlineBySlotIndex}
+                                                        slotHeadlinePosBySlotIndex={slotHeadlinePosBySlotIndex}
+                                                        setSlotHeadline={setSlotHeadline}
+                                                        setSlotHeadlinePosition={setSlotHeadlinePosition}
+                                                        beginSlotHeadlineDrag={beginSlotHeadlineDrag}
+                                                        beginSlotHeadlineTextEdit={beginSlotHeadlineTextEdit}
+                                                        undoSlotHeadline={undoSlotHeadline}
+                                                        redoSlotHeadline={redoSlotHeadline}
+                                                        editAssetId={editAssetId}
+                                                        editDrafts={editDrafts}
+                                                        editSaving={editSaving}
+                                                        beginEditAsset={beginEditAsset}
+                                                        resetEditDraft={resetEditDraft}
+                                                        updateLayer={updateLayer}
+                                                        addLayer={addLayer}
+                                                        removeLayer={removeLayer}
+                                                        handleSaveEdit={handleSaveEdit}
+                                                        handleGenerateIcon={handleGenerateIcon}
+                                                        handleEnhanceIconSlot={handleEnhanceIconSlot}
+                                                        handleGenerateAllScreenshots={handleGenerateAllScreenshots}
+                                                        handleGenerateSlot={handleGenerateSlot}
+                                                        handleEnhanceSlot={handleEnhanceSlot}
+                                                        handleDownloadGeneratedAsset={handleDownloadGeneratedAsset}
+                                                        handleDownloadAllScreenshots={handleDownloadAllScreenshots}
+                                                        handleDeleteGeneratedAsset={handleDeleteGeneratedAsset}
+                                                        getSystemPromptForSlot={getSystemPromptForSlot}
+                                                        setSystemPromptOverride={setSystemPromptOverride}
+                                                        resetSystemPromptOverride={resetSystemPromptOverride}
+                                                        pickedIconAssetId={pickedIconAssetId}
+                                                        pickedScreenshotAssetIdBySlotIndex={pickedScreenshotAssetIdBySlotIndex}
+                                                        handlePickIcon={handlePickIcon}
+                                                        handlePickScreenshot={handlePickScreenshot}
+                                                        handleMarkAsCompleted={handleMarkAsCompleted}
+                                                        handleBrandPromptChange={handleBrandPromptChange}
+                                                        handleBrandPromptSave={handleBrandPromptSave}
+                                                        handleAutoGrowInput={handleAutoGrowInput}
+                                                        openLightbox={openLightbox}
+                                                        text={text}
+                                                        fonts={EDIT_FONTS}
+                                                    />
+                                                }
+                                                endSections={
+                                                    <>
                                                 <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
                                                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_data_placeholder')}</p>
                                                     <div className="mt-3 space-y-2 text-xs text-indigo-200/70">
@@ -843,9 +1041,10 @@ export function AppShell({ session }: AppShellProps) {
                                                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('dev_files_placeholder')}</p>
                                                     <p className="mt-3 text-sm text-indigo-200/60">{text('dev_files_subtitle')}</p>
                                                 </section>
-                                            </>
-                                        }
-                                    />
+                                                    </>
+                                                }
+                                        />
+                                    </div>
                                 </div>
                                 </>
                             )}
@@ -853,8 +1052,36 @@ export function AppShell({ session }: AppShellProps) {
                     </div>
                 </div>
             </main>
+            {selectedApp && !assetsCollapsed && (
+                <div
+                    ref={deliverablesRailRef}
+                    className="fixed z-40 transition-opacity duration-150"
+                    style={{
+                        top: `${deliverablesRailStyle.top}px`,
+                        left: `${deliverablesRailStyle.left}px`,
+                        opacity: deliverablesRailStyle.opacity,
+                        pointerEvents: deliverablesRailStyle.opacity ? 'auto' : 'none',
+                    }}
+                >
+                    <ExportCompletionRail
+                        isCompleted={Boolean(exportStatus?.is_completed)}
+                        pickedIcon={Boolean(pickedIconAssetId)}
+                        sets={setReadiness}
+                        unpickedCount={unpickedCount}
+                        isAssetsCollapsed={assetsCollapsed}
+                        onToggleAssetsCollapsed={toggleAssetsCollapsed}
+                        onMarkCompleted={() => handleMarkAsCompleted({ pruneUnpicked: true })}
+                        text={text}
+                    />
+                </div>
+            )}
             <Lightbox lightbox={lightbox} onClose={closeLightbox} closeLabel={text('close')} />
-            <GenerationQueueWidget jobs={generationJobs} onDismissJob={dismissJob} onClearFinished={clearFinished} />
+            <GenerationQueueWidget
+                jobs={generationJobs}
+                onDismissJob={dismissJob}
+                onClearFinished={clearFinished}
+                onCancelJob={cancelGenerationJob}
+            />
         </div>
     );
 }

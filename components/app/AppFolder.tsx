@@ -16,9 +16,11 @@ type AppFolderProps = {
     appPickerRef: React.RefObject<HTMLElement>;
     appSimulatorRef: React.RefObject<HTMLElement>;
     appGenerationRef: React.RefObject<HTMLElement>;
+    isAssetsCollapsed: boolean;
     picker: React.ReactNode;
     simulator: React.ReactNode;
     generation: React.ReactNode;
+    collapsedAssets: React.ReactNode;
     endSections: React.ReactNode;
 };
 
@@ -36,9 +38,11 @@ export const AppFolder = ({
     appPickerRef,
     appSimulatorRef,
     appGenerationRef,
+    isAssetsCollapsed,
     picker,
     simulator,
     generation,
+    collapsedAssets,
     endSections,
 }: AppFolderProps) => {
     return (
@@ -84,16 +88,24 @@ export const AppFolder = ({
                     className="app-folder-content space-y-5"
                     style={{ borderRadius: bodyCornerRadius, overflow: 'hidden' }}
                 >
-                    <section ref={appSimulatorRef} className="app-folder-section p-5">
-                        {simulator}
-                    </section>
+                    {isAssetsCollapsed ? (
+                        <section className="app-folder-section p-5">
+                            <div className="flex justify-center">{collapsedAssets}</div>
+                        </section>
+                    ) : (
+                        <>
+                            <section ref={appSimulatorRef} className="app-folder-section p-5">
+                                {simulator}
+                            </section>
 
-                    <section
-                        ref={appGenerationRef}
-                        className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
-                    >
-                        {generation}
-                    </section>
+                            <section
+                                ref={appGenerationRef}
+                                className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
+                            >
+                                {generation}
+                            </section>
+                        </>
+                    )}
                 </div>
 
                 <div className="space-y-6 mt-6" ref={appFolderEndRef}>

@@ -86,12 +86,46 @@ export type GeneratedAsset = {
     slot_index: number | null;
     version_index: number | null;
     image_path: string;
+    screenshot_set_id?: string | null;
     size_label: string | null;
     width: number | null;
     height: number | null;
     status: 'ready' | 'pending' | 'failed' | null;
     edit_state: EditState | null;
     created_at?: string;
+};
+
+export type AppScreenshotSet = {
+    id: string;
+    user_id?: string;
+    brand_id: string;
+    app_id: string;
+    name: string;
+    size_label: '6.5' | '6.9';
+    slot_count: number;
+    order_index: number;
+    created_at?: string;
+};
+
+export type AssetPick = {
+    id: string;
+    user_id?: string;
+    brand_id: string;
+    app_id: string;
+    kind: 'icon' | 'screenshot';
+    screenshot_set_id: string | null;
+    slot_index: number | null;
+    generated_asset_id: string;
+    created_at?: string;
+};
+
+export type AppExportStatus = {
+    app_id: string;
+    user_id?: string;
+    brand_id: string;
+    is_completed: boolean;
+    completed_at: string | null;
+    updated_at?: string;
 };
 
 export type BrandFormState = {

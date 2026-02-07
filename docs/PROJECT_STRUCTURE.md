@@ -2,6 +2,7 @@
 
 Concise overview of the current post-refactor layout. Excludes `node_modules/` and `dist/`.
 Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
+Screenshot sets + export picks/completion state are stored in Supabase (`app_screenshot_sets`, `app_asset_picks`, `app_export_status`).
 
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
@@ -73,6 +74,9 @@ Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 - `data/brand-references.ts` - Brand reference queries + storage ops.
 - `data/app-screenshots.ts` - App screenshot queries + storage ops.
 - `data/generated-assets.ts` - Generated asset queries + storage ops.
+- `data/screenshot-sets.ts` - Screenshot set queries and writes (`app_screenshot_sets`).
+- `data/asset-picks.ts` - Export pick queries and writes (`app_asset_picks`).
+- `data/export-status.ts` - Completion status queries and writes (`app_export_status`).
 - `data/app-screenshot-prompts.ts` - Screenshot prompt upserts/deletes.
 
 ## utils Breakdown
@@ -86,8 +90,19 @@ Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 
 ## Generation/Download Notes
 - Generated assets upload a small `-preview.jpg` variant for fast UI thumbnails/lightbox.
+- Older assets may not have previews; the UI falls back to full-size objects automatically.
 - “Download all screenshots” produces a ZIP of final-rendered images named in App Store order (`iOS 6.5 1.jpg`, ...).
 - While generation/ZIP is running, app/brand switching is blocked and the app warns on refresh/close to avoid wasting work.
+- Screenshot sets:
+  - Each app has a default set named `Original`, plus optional additional named sets (A/B tests).
+  - Screenshot generation/enhancement is scoped to the currently selected set.
+- Slot system prompts:
+  - Each screenshot slot shows a “System prompt” block (provider-facing instructions).
+  - Overrides are stored in `localStorage` per app + screenshot set + slot (generate/enhance modes) and used for subsequent generations.
+- Picks + completion:
+  - Users explicitly pick 1 icon and 1 screenshot per slot per set for export (`app_asset_picks`).
+  - “Mark as completed” validates picks and can prune unpicked generated assets to save storage (`app_export_status`).
+  - When the workspace is collapsed, the deliverables panel shows download-only ZIP buttons per set.
 
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).

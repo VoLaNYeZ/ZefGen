@@ -13,6 +13,9 @@ type GenerateScreenshotRequestBody = {
     brandRefImageUrl: string;
     width: number;
     height: number;
+    // Replicate providers can return a direct output URL to speed up UI (no base64 in JSON).
+    // OpenAI always returns base64.
+    responseMode?: 'b64' | 'url';
 };
 
 const json = (res: any, status: number, payload: any) => {
@@ -114,6 +117,7 @@ const runReplicateNanoBananaPro = async (payload: {
     prompt: string;
     simulatorImageUrl: string;
     brandRefImageUrl: string;
+    responseMode?: 'b64' | 'url';
 }) => {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) {
@@ -140,6 +144,10 @@ const runReplicateNanoBananaPro = async (payload: {
             throw new Error('Replicate response missing output URL.');
         }
 
+        if (payload.responseMode === 'url') {
+            return { outputUrl: url } as const;
+        }
+
         const imageResp = await fetch(url);
         if (!imageResp.ok) {
             throw new Error(`Failed to fetch Replicate output (${imageResp.status}).`);
@@ -148,7 +156,7 @@ const runReplicateNanoBananaPro = async (payload: {
         const arrayBuffer = await imageResp.arrayBuffer();
         const b64 = Buffer.from(arrayBuffer).toString('base64');
 
-        return { mimeType, b64 };
+        return { mimeType, b64 } as const;
     } catch (err: any) {
         const message = String(err?.message || 'Replicate request failed').slice(0, 500);
         const status =
@@ -168,6 +176,7 @@ const runReplicateSeedream4 = async (payload: {
     brandRefImageUrl: string;
     width: number;
     height: number;
+    responseMode?: 'b64' | 'url';
 }) => {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) {
@@ -188,14 +197,16 @@ const runReplicateSeedream4 = async (payload: {
                 image_input: [payload.simulatorImageUrl, payload.brandRefImageUrl],
                 sequential_image_generation: 'disabled',
                 max_images: 1,
-                // Keep prompt "as-is" so we don't accidentally introduce promo text or violate constraints.
-                enhance_prompt: false,
             },
         });
 
         const url = extractFirstUrl(output);
         if (!url) {
             throw new Error('Replicate response missing output URL.');
+        }
+
+        if (payload.responseMode === 'url') {
+            return { outputUrl: url } as const;
         }
 
         const imageResp = await fetch(url);
@@ -206,7 +217,7 @@ const runReplicateSeedream4 = async (payload: {
         const arrayBuffer = await imageResp.arrayBuffer();
         const b64 = Buffer.from(arrayBuffer).toString('base64');
 
-        return { mimeType, b64 };
+        return { mimeType, b64 } as const;
     } catch (err: any) {
         const message = String(err?.message || 'Replicate request failed').slice(0, 500);
         const status =
@@ -318,12 +329,14 @@ export default async function handler(req: any, res: any) {
 
         console.log(`[generate-screenshot] provider=${providerId}`);
 
-        let result: { mimeType: string; b64: string };
+        const responseMode = parsed.responseMode === 'url' ? 'url' : 'b64';
+        let result: { mimeType: string; b64: string } | { outputUrl: string };
         if (providerId === 'replicate:nano-banana-pro') {
             result = await runReplicateNanoBananaPro({
                 prompt: parsed.prompt,
                 simulatorImageUrl: parsed.simulatorImageUrl,
                 brandRefImageUrl: parsed.brandRefImageUrl,
+                responseMode,
             });
         } else if (providerId === 'replicate:seedream-4') {
             result = await runReplicateSeedream4({
@@ -332,6 +345,7 @@ export default async function handler(req: any, res: any) {
                 brandRefImageUrl: parsed.brandRefImageUrl,
                 width: parsed.width,
                 height: parsed.height,
+                responseMode,
             });
         } else {
             result = await runOpenAI({

@@ -1,8 +1,10 @@
 import React from 'react';
-import { Download, Trash2 } from 'lucide-react';
+import { Download, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import type {
     AppItem,
     AppScreenshot,
+    AppScreenshotSet,
+    AppExportStatus,
     BrandReference,
     EditState,
     GeneratedAsset,
@@ -24,12 +26,19 @@ type AppGenerationSectionProps = {
     brandIconReference: BrandReference | null;
     brandScreenshotReferences: BrandReference[];
     selectedAppScreenshots: AppScreenshot[];
+    screenshotSets: AppScreenshotSet[];
+    activeScreenshotSetId: string | null;
+    setActiveScreenshotSetId: (id: string | null) => void;
+    handleAddScreenshotSet: () => void;
+    handleDeleteScreenshotSet: (setId: string) => void;
+    assetExportStatus: AppExportStatus | null;
     generatedIconSlots: GeneratedSlot[];
     enhancedIconSlots: GeneratedSlot[];
     generatedScreenshotSlots: GeneratedSlot[];
     enhancedScreenshotSlots: GeneratedSlot[];
     generatedPreviewUrls: Record<string, string>;
     generatedUrls: Record<string, string>;
+    inflightScreenshotPreviewByKey: Record<string, string>;
     generationCount: number;
     setGenerationCount: (value: number) => void;
     generationSize: '6.5' | '6.9';
@@ -78,10 +87,25 @@ type AppGenerationSectionProps = {
     handleDownloadGeneratedAsset: (asset: GeneratedAsset, filename: string) => void;
     handleDownloadAllScreenshots: () => void;
     handleDeleteGeneratedAsset: (asset: GeneratedAsset) => void;
+    getSystemPromptForSlot: (
+        slotIndex: number,
+        mode: 'generate' | 'enhance'
+    ) => { defaultPrompt: string; effectivePrompt: string; isOverridden: boolean };
+    setSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance', value: string) => void;
+    resetSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance') => void;
+    pickedIconAssetId: string | null;
+    pickedScreenshotAssetIdBySlotIndex: Record<number, string | null>;
+    handlePickIcon: (assetId: string) => void;
+    handlePickScreenshot: (payload: { screenshotSetId: string; slotIndex: number; assetId: string }) => void;
+    handleMarkAsCompleted: (opts?: { pruneUnpicked?: boolean }) => void;
     handleBrandPromptChange: (refId: string, value: string) => void;
     handleBrandPromptSave: (refId: string, value: string) => void;
     handleAutoGrowInput: (event: React.FormEvent<HTMLTextAreaElement>) => void;
-    openLightbox: (src: string, alt: string, options?: { layers?: TextLayer[]; fullSrc?: string }) => void;
+    openLightbox: (
+        src: string,
+        alt: string,
+        options?: { layers?: TextLayer[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
+    ) => void;
     text: (key: TranslationKey) => string;
     fonts: string[];
 };
@@ -91,12 +115,19 @@ export const AppGenerationSection = ({
     brandIconReference,
     brandScreenshotReferences,
     selectedAppScreenshots,
+    screenshotSets,
+    activeScreenshotSetId,
+    setActiveScreenshotSetId,
+    handleAddScreenshotSet,
+    handleDeleteScreenshotSet,
+    assetExportStatus,
     generatedIconSlots,
     enhancedIconSlots,
     generatedScreenshotSlots,
     enhancedScreenshotSlots,
     generatedPreviewUrls,
     generatedUrls,
+    inflightScreenshotPreviewByKey,
     generationCount,
     setGenerationCount,
     generationSize,
@@ -145,6 +176,14 @@ export const AppGenerationSection = ({
     handleDownloadGeneratedAsset,
     handleDownloadAllScreenshots,
     handleDeleteGeneratedAsset,
+    getSystemPromptForSlot,
+    setSystemPromptOverride,
+    resetSystemPromptOverride,
+    pickedIconAssetId,
+    pickedScreenshotAssetIdBySlotIndex,
+    handlePickIcon,
+    handlePickScreenshot,
+    handleMarkAsCompleted,
     handleBrandPromptChange,
     handleBrandPromptSave,
     handleAutoGrowInput,
@@ -159,6 +198,9 @@ export const AppGenerationSection = ({
     const [iconPrimaryTabBySlotIndex, setIconPrimaryTabBySlotIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
     const [iconSelectedAssetIdByKey, setIconSelectedAssetIdByKey] = React.useState<Record<string, string>>({});
     const [iconEnhancePromptBySlotIndex, setIconEnhancePromptBySlotIndex] = React.useState<Record<number, string>>({});
+    const [systemPromptOpenBySlotIndex, setSystemPromptOpenBySlotIndex] = React.useState<Record<number, boolean>>({});
+    const [brokenPreviewByAssetId, setBrokenPreviewByAssetId] = React.useState<Record<string, boolean>>({});
+    const systemPromptTextareaRefBySlotIndex = React.useRef<Record<number, HTMLTextAreaElement | null>>({});
     const dragRef = React.useRef<{
         slotIndex: number;
         pointerId: number;
@@ -168,6 +210,27 @@ export const AppGenerationSection = ({
         startY: number;
         containerRect: DOMRect;
     } | null>(null);
+    const markPreviewBroken = React.useCallback((assetId: string) => {
+        setBrokenPreviewByAssetId((prev) => (prev[assetId] ? prev : { ...prev, [assetId]: true }));
+    }, []);
+
+    const syncUnlimitedTextarea = React.useCallback((el: HTMLTextAreaElement | null) => {
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.overflowY = 'hidden';
+        el.style.resize = 'none';
+        el.style.height = `${Math.max(0, el.scrollHeight)}px`;
+    }, []);
+
+    React.useEffect(() => {
+        // When the system prompt expands, resize to show full contents immediately.
+        for (const [slotKey, isOpen] of Object.entries(systemPromptOpenBySlotIndex)) {
+            if (!isOpen) continue;
+            const slotIndex = Number(slotKey);
+            const el = systemPromptTextareaRefBySlotIndex.current[slotIndex] ?? null;
+            if (el) syncUnlimitedTextarea(el);
+        }
+    }, [systemPromptOpenBySlotIndex, syncUnlimitedTextarea]);
 
     return (
         <>
@@ -176,7 +239,6 @@ export const AppGenerationSection = ({
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generation')}</p>
                     <p className="text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
                 </div>
-                <div className="text-[11px] text-indigo-200/60">{text('versions_limit_note')}</div>
             </div>
 
             <div className="mt-5 space-y-4">
@@ -293,6 +355,7 @@ export const AppGenerationSection = ({
                             const enhancePrompt = iconEnhancePromptBySlotIndex[slotIndex] ?? '';
                             const baseForEnhance = selectedEnhanced ?? selectedGenerated;
                             const canEnhance = Boolean(selectedApp && baseForEnhance);
+                            const isPicked = Boolean(selectedAsset && pickedIconAssetId === selectedAsset.id);
 
                             return (
                                 <div
@@ -384,15 +447,27 @@ export const AppGenerationSection = ({
                                     <div className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/30 aspect-square">
                                         {selectedAsset && (generatedPreviewUrls[selectedAsset.id] || generatedUrls[selectedAsset.id]) ? (
                                             <img
-                                                src={generatedPreviewUrls[selectedAsset.id] ?? generatedUrls[selectedAsset.id]}
+                                                src={
+                                                    generatedPreviewUrls[selectedAsset.id] && !brokenPreviewByAssetId[selectedAsset.id]
+                                                        ? generatedPreviewUrls[selectedAsset.id]
+                                                        : generatedUrls[selectedAsset.id]
+                                                }
                                                 alt={`Icon ${slotIndex}`}
                                                 className="h-full w-full object-contain cursor-zoom-in"
                                                 loading="lazy"
                                                 decoding="async"
                                                 fetchPriority="low"
+                                                onError={() =>
+                                                    selectedAsset &&
+                                                    generatedPreviewUrls[selectedAsset.id] &&
+                                                    markPreviewBroken(selectedAsset.id)
+                                                }
                                                 onClick={() => {
                                                     const fullSrc = generatedUrls[selectedAsset.id];
-                                                    const previewSrc = generatedPreviewUrls[selectedAsset.id] ?? fullSrc;
+                                                    const previewSrc =
+                                                        !brokenPreviewByAssetId[selectedAsset.id] && generatedPreviewUrls[selectedAsset.id]
+                                                            ? generatedPreviewUrls[selectedAsset.id]
+                                                            : fullSrc;
                                                     openLightbox(previewSrc, `Icon ${slotIndex}`, {
                                                         fullSrc: previewSrc && fullSrc && previewSrc !== fullSrc ? fullSrc : undefined,
                                                     });
@@ -438,6 +513,20 @@ export const AppGenerationSection = ({
                                     )}
 
                                     <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={!selectedAsset}
+                                            onClick={() => selectedAsset && handlePickIcon(selectedAsset.id)}
+                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                                !selectedAsset
+                                                    ? 'border-white/10 text-indigo-200/40'
+                                                    : isPicked
+                                                        ? 'bg-emerald-500/15 border-emerald-300/40 text-emerald-50'
+                                                        : 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
+                                            }`}
+                                        >
+                                            {isPicked ? text('picked') : text('pick_for_export')}
+                                        </button>
                                         <button
                                             type="button"
                                             disabled={!selectedAsset}
@@ -504,6 +593,67 @@ export const AppGenerationSection = ({
                             <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_hint')}</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">
+                                    {text('screenshot_set')}
+                                </span>
+                                <select
+                                    value={activeScreenshotSetId ?? ''}
+                                    onChange={(event) => setActiveScreenshotSetId(event.target.value || null)}
+                                    className="min-w-[240px] rounded-xl border border-indigo-500/20 bg-slate-950/60 px-4 py-2 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    disabled={!selectedApp}
+                                >
+                                    {(screenshotSets || []).map((set) => (
+                                        <option key={set.id} value={set.id}>
+                                            {set.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    onClick={handleAddScreenshotSet}
+                                    disabled={!selectedApp}
+                                    className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+                                        selectedApp
+                                            ? 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
+                                            : 'border-white/10 text-indigo-200/40'
+                                    }`}
+                                >
+                                    {text('add_set')}
+                                </button>
+
+                                {(() => {
+                                    const activeSet = (screenshotSets || []).find((s) => s.id === activeScreenshotSetId) ?? null;
+                                    const isOriginal =
+                                        !activeSet
+                                            ? true
+                                            : Number((activeSet as any).order_index) === 0 ||
+                                              String(activeSet.name || '').toLowerCase() === 'original';
+                                    const canDelete = Boolean(selectedApp && activeSet && !isOriginal);
+                                    if (!activeSet || isOriginal) return null;
+                                    return (
+                                        <ConfirmIconButton
+                                            label={text('delete')}
+                                            question={`${text('confirm_delete')} Delete set "${activeSet.name}" and all its screenshots?`}
+                                            confirmLabel={text('delete')}
+                                            cancelLabel={text('cancel')}
+                                            disabled={!canDelete}
+                                            onConfirm={() => canDelete && handleDeleteScreenshotSet(activeSet.id)}
+                                        >
+                                            <span
+                                                className={`inline-flex items-center justify-center rounded-full border p-2 text-indigo-200/70 ${
+                                                    canDelete
+                                                        ? 'border-white/10 hover:border-rose-400/40 hover:text-white'
+                                                        : 'border-white/10 text-indigo-200/30'
+                                                }`}
+                                                title={text('delete')}
+                                            >
+                                                <Trash2 size={14} />
+                                            </span>
+                                        </ConfirmIconButton>
+                                    );
+                                })()}
+                            </div>
                             <div className="flex items-center gap-2">
                                 <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('provider')}</span>
                                 <select
@@ -625,6 +775,73 @@ export const AppGenerationSection = ({
                                         className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                                     />
 
+                                    {(() => {
+                                        const sys = getSystemPromptForSlot(slotIndex, 'generate');
+                                        const isOpen = Boolean(systemPromptOpenBySlotIndex[slotIndex]);
+                                        return (
+                                            <div className="rounded-lg border border-indigo-500/15 bg-slate-950/40">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setSystemPromptOpenBySlotIndex((prev) => ({
+                                                            ...prev,
+                                                            [slotIndex]: !Boolean(prev[slotIndex]),
+                                                        }))
+                                                    }
+                                                    className="w-full px-2 py-1.5 flex items-center justify-between gap-2 text-left"
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[9px] font-semibold tracking-[0.12em] text-indigo-200/50">
+                                                            {text('system_prompt_label')}
+                                                        </span>
+                                                        {sys.isOverridden && (
+                                                            <span
+                                                                className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-300/80"
+                                                                title="Customized"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <span className="text-indigo-200/50">
+                                                        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                    </span>
+                                                </button>
+
+                                                {isOpen && (
+                                                    <div className="border-t border-indigo-500/10 p-2 space-y-1.5">
+                                                        <div className="flex items-center justify-end">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => resetSystemPromptOverride(slotIndex, 'generate')}
+                                                                disabled={!selectedApp || !activeScreenshotSetId || !sys.isOverridden}
+                                                                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                    selectedApp && activeScreenshotSetId && sys.isOverridden
+                                                                        ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
+                                                                        : 'border-white/10 text-indigo-200/30'
+                                                                }`}
+                                                            >
+                                                                {text('reset_to_default')}
+                                                            </button>
+                                                        </div>
+                                                        <textarea
+                                                            value={sys.effectivePrompt}
+                                                            onChange={(event) =>
+                                                                setSystemPromptOverride(slotIndex, 'generate', event.target.value)
+                                                            }
+                                                            onInput={(event) => syncUnlimitedTextarea(event.currentTarget)}
+                                                            rows={1}
+                                                            ref={(el) => {
+                                                                systemPromptTextareaRefBySlotIndex.current[slotIndex] = el;
+                                                                if (el) syncUnlimitedTextarea(el);
+                                                            }}
+                                                            disabled={!selectedApp || !activeScreenshotSetId}
+                                                            className="w-full rounded-md border border-indigo-500/15 bg-slate-950/60 px-2 py-1 text-[10px] leading-snug text-indigo-50/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+
                                     <button
                                         type="button"
                                         onClick={() => handleGenerateSlot(slotIndex)}
@@ -705,11 +922,12 @@ export const AppGenerationSection = ({
                             const baseForEnhance = selectedEnhanced ?? selectedGenerated;
                             const enhancedAtLimit = enhVersions.length >= 3;
                             const canEnhance = Boolean(selectedApp && baseForEnhance && !enhancedAtLimit);
+                            const isPicked = Boolean(selectedAsset && pickedScreenshotAssetIdBySlotIndex[slotIndex] === selectedAsset.id);
 
                             return (
                                 <div
                                     key={slotIndex}
-                                    className="snap-start shrink-0 w-[290px] sm:w-[320px] rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3 outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    className="snap-start shrink-0 w-[240px] sm:w-[260px] rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3 outline-none focus:ring-2 focus:ring-indigo-400/30"
                                     tabIndex={0}
                                     onKeyDown={(event) => {
                                         const isMac = navigator.platform.toLowerCase().includes('mac');
@@ -788,21 +1006,65 @@ export const AppGenerationSection = ({
                                         })}
                                     </div>
 
-                                    <div
-                                        className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/30 aspect-[9/19]"
-                                        data-screenshot-preview="true"
-                                    >
-                                        {selectedAsset && (generatedPreviewUrls[selectedAsset.id] || generatedUrls[selectedAsset.id]) ? (
-                                            <img
-                                                src={generatedPreviewUrls[selectedAsset.id] ?? generatedUrls[selectedAsset.id]}
-                                                alt={`${text('slot')} ${slotIndex}`}
-                                                className="h-full w-full object-cover cursor-zoom-in"
-                                                loading="lazy"
-                                                decoding="async"
-                                                fetchPriority="low"
-                                                onClick={() => {
-                                                    const fullSrc = generatedUrls[selectedAsset.id];
-                                                    const previewSrc = generatedPreviewUrls[selectedAsset.id] ?? fullSrc;
+                                    {(() => {
+                                        const fallbackSize = generationSize === '6.9' ? { w: 1320, h: 2868 } : { w: 1242, h: 2688 };
+                                        const aspectW = selectedAsset?.width ?? fallbackSize.w;
+                                        const aspectH = selectedAsset?.height ?? fallbackSize.h;
+                                        const inflightKey = `${activeScreenshotSetId ?? 'none'}:${slotIndex}:${primaryTab}`;
+                                        const inflightUrl = inflightScreenshotPreviewByKey[inflightKey] ?? '';
+                                        const showInflight = Boolean(
+                                            inflightUrl &&
+                                                ((slotGenerating === slotIndex && primaryTab === 'generated') ||
+                                                    (enhanceSlotGenerating === slotIndex && primaryTab === 'enhanced'))
+                                        );
+                                        const fullSrc = selectedAsset ? generatedUrls[selectedAsset.id] : '';
+                                        const previewSrc = selectedAsset ? generatedPreviewUrls[selectedAsset.id] : '';
+                                        const canUsePreview = Boolean(selectedAsset && previewSrc && !brokenPreviewByAssetId[selectedAsset.id]);
+                                        const src = canUsePreview ? previewSrc : fullSrc;
+
+                                        return (
+                                            <div
+                                                className="relative overflow-hidden rounded-xl border border-indigo-900/40 bg-slate-900/30"
+                                                style={{ aspectRatio: `${aspectW} / ${aspectH}` }}
+                                                data-screenshot-preview="true"
+                                            >
+                                                {showInflight ? (
+                                                    <>
+                                                        <img
+                                                            src={inflightUrl}
+                                                            alt={`${text('slot')} ${slotIndex}`}
+                                                            className="h-full w-full object-contain cursor-zoom-in"
+                                                            loading="eager"
+                                                            decoding="async"
+                                                            fetchPriority="high"
+                                                            onClick={() => openLightbox(inflightUrl, `${text('slot')} ${slotIndex}`)}
+                                                        />
+                                                        <div className="absolute top-2 left-2 rounded-full border border-white/10 bg-slate-950/70 px-2 py-0.5 text-[10px] font-semibold text-indigo-100/80">
+                                                            {text('saving')}
+                                                        </div>
+                                                    </>
+                                                ) : selectedAsset && (src || fullSrc) ? (
+                                                    <img
+                                                        src={src || fullSrc}
+                                                        alt={`${text('slot')} ${slotIndex}`}
+                                                        className="h-full w-full object-contain cursor-zoom-in"
+                                                        loading="lazy"
+                                                        decoding="async"
+                                                        fetchPriority="low"
+                                                        onError={() => selectedAsset && previewSrc && markPreviewBroken(selectedAsset.id)}
+                                                        onClick={(event) => {
+                                                    const resolvedFullSrc = generatedUrls[selectedAsset.id];
+                                                    const resolvedPreviewSrc =
+                                                        !brokenPreviewByAssetId[selectedAsset.id] && generatedPreviewUrls[selectedAsset.id]
+                                                            ? generatedPreviewUrls[selectedAsset.id]
+                                                            : resolvedFullSrc;
+                                                    const container = (event.currentTarget as HTMLElement).closest(
+                                                        '[data-screenshot-preview]'
+                                                    ) as HTMLElement | null;
+                                                    const thumb = event.currentTarget as HTMLImageElement;
+                                                    // Use the thumbnail's rendered size as the "base" so zoom previews scale text proportionally.
+                                                    const baseWidth = thumb?.clientWidth || container?.clientWidth || undefined;
+                                                    const baseHeight = thumb?.clientHeight || container?.clientHeight || undefined;
                                                     const rawLayers =
                                                         editDrafts[selectedAsset.id]?.layers ??
                                                         ((selectedAsset.edit_state as any)?.layers ?? []);
@@ -836,20 +1098,27 @@ export const AppGenerationSection = ({
                                                         : layers.slice(1);
 
                                                     openLightbox(
-                                                        previewSrc,
+                                                        resolvedPreviewSrc,
                                                         `${text('slot')} ${slotIndex}`,
                                                         {
                                                             layers: overlayLayers,
-                                                            fullSrc: previewSrc && fullSrc && previewSrc !== fullSrc ? fullSrc : undefined,
+                                                            fullSrc:
+                                                                resolvedPreviewSrc &&
+                                                                resolvedFullSrc &&
+                                                                resolvedPreviewSrc !== resolvedFullSrc
+                                                                    ? resolvedFullSrc
+                                                                    : undefined,
+                                                            overlayBaseWidth: baseWidth,
+                                                            overlayBaseHeight: baseHeight,
                                                         }
                                                     );
                                                 }}
-                                            />
-                                        ) : (
-                                            <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">
-                                                {activeVersions.length ? text('loading') : text('no_generated_screenshots')}
-                                            </span>
-                                        )}
+                                                    />
+                                                ) : (
+                                                    <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/60">
+                                                        {activeVersions.length ? text('loading') : text('no_generated_screenshots')}
+                                                    </span>
+                                                )}
 
                                         {/* Live layer preview (so size/rotation/etc show immediately). */}
                                         {selectedAsset && (
@@ -1025,7 +1294,9 @@ export const AppGenerationSection = ({
                                                 })()}
                                             </div>
                                         )}
-                                    </div>
+                                            </div>
+                                        );
+                                    })()}
 
                                     <div className="space-y-1">
                                         <div className="flex items-baseline justify-between gap-2">
@@ -1043,6 +1314,28 @@ export const AppGenerationSection = ({
                                     </div>
 
                                     <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={!selectedAsset || !activeScreenshotSetId}
+                                            onClick={() =>
+                                                selectedAsset &&
+                                                activeScreenshotSetId &&
+                                                handlePickScreenshot({
+                                                    screenshotSetId: activeScreenshotSetId,
+                                                    slotIndex,
+                                                    assetId: selectedAsset.id,
+                                                })
+                                            }
+                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                                !selectedAsset || !activeScreenshotSetId
+                                                    ? 'border-white/10 text-indigo-200/40'
+                                                    : isPicked
+                                                        ? 'bg-emerald-500/15 border-emerald-300/40 text-emerald-50'
+                                                        : 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
+                                            }`}
+                                        >
+                                            {isPicked ? text('picked') : text('pick_for_export')}
+                                        </button>
                                         <button
                                             type="button"
                                             disabled={!selectedAsset}
