@@ -146,19 +146,13 @@ export function BrandReleaseInfoPanel(props: {
                                     const name = countriesByCode.get(code) || code;
                                     const flag = codeToFlag(code);
                                     return (
-                                        <button
+                                        <span
                                             key={code}
-                                            type="button"
-                                            onClick={() =>
-                                                scheduleSaveTargetCountries(targetCountries.filter((c) => c !== code))
-                                            }
-                                            className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-50/95 hover:border-emerald-300/45 hover:bg-emerald-500/15"
-                                            title={text('delete')}
+                                            className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-50/95"
                                         >
                                             <span className="text-sm leading-none">{flag}</span>
                                             <span className="max-w-[240px] truncate">{name}</span>
-                                            <span className="text-emerald-100/70">×</span>
-                                        </button>
+                                        </span>
                                     );
                                 })}
                             </div>
