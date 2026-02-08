@@ -31,6 +31,11 @@ create table if not exists public.apps (
     name text not null,
     alias text not null,
     is_banned boolean not null default false,
+    -- App-level GitHub repo link for dev handoff. (2026-02-08)
+    github_repo_url text,
+    github_repo_full_name text,
+    github_repo_created_at timestamptz,
+    github_repo_updated_at timestamptz,
     order_index integer,
     created_at timestamptz not null default now()
 );

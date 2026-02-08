@@ -15,6 +15,10 @@ export type AppItem = {
     brand_id: string;
     name: string;
     alias: string;
+    github_repo_url?: string | null;
+    github_repo_full_name?: string | null;
+    github_repo_created_at?: string | null;
+    github_repo_updated_at?: string | null;
     order_index?: number | null;
     is_banned?: boolean | null;
     user_id?: string;

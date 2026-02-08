@@ -43,6 +43,7 @@ import {
     updateGeneratedAsset,
     uploadGeneratedAsset,
 } from '../data/generated-assets';
+import { updateApp } from '../data/apps';
 import { fetchScreenshotSets, createScreenshotSet, updateScreenshotSet, deleteScreenshotSet } from '../data/screenshot-sets';
 import { fetchAssetPicks, setIconPick, setScreenshotPick } from '../data/asset-picks';
 import { fetchExportStatus, upsertExportStatus } from '../data/export-status';
@@ -137,15 +138,44 @@ export const useGeneratedAssets = ({
     const [editDrafts, setEditDrafts] = useState<Record<string, EditState>>({});
     const [editSaving, setEditSaving] = useState<string | null>(null);
     const [githubRepoUrl, setGithubRepoUrl] = useState<string | null>(null);
+    const githubRepoDbBackfillDoneRef = useRef<Record<string, boolean>>({});
+    const githubRepoClearedByAppIdRef = useRef<Record<string, boolean>>({});
 
     useEffect(() => {
         if (!selectedApp?.id) {
             setGithubRepoUrl(null);
             return;
         }
-        const key = `zefgen.githubRepoUrl.${selectedApp.id}`;
-        setGithubRepoUrl(window.localStorage.getItem(key));
-    }, [selectedApp?.id]);
+        const appId = selectedApp.id;
+        if (githubRepoClearedByAppIdRef.current[appId]) {
+            setGithubRepoUrl(null);
+            return;
+        }
+
+        const fromDb = String((selectedApp as any)?.github_repo_url || '').trim();
+        if (fromDb) {
+            setGithubRepoUrl(fromDb);
+            return;
+        }
+
+        const key = `zefgen.githubRepoUrl.${appId}`;
+        const fromLocal = window.localStorage.getItem(key);
+        setGithubRepoUrl(fromLocal);
+
+        // One-time backfill: if we have a local URL but DB is empty, persist so it works across devices.
+        if (!session || !fromLocal || githubRepoDbBackfillDoneRef.current[appId]) return;
+        githubRepoDbBackfillDoneRef.current[appId] = true;
+        updateApp({
+            id: appId,
+            userId: session.user.id,
+            patch: {
+                github_repo_url: fromLocal,
+                github_repo_updated_at: new Date().toISOString(),
+            } as any,
+        }).catch(() => {
+            // ignore; DB might not have columns yet
+        });
+    }, [selectedApp?.id, (selectedApp as any)?.github_repo_url, session]);
 
     const [screenshotSets, setScreenshotSets] = useState<AppScreenshotSet[]>([]);
     const [activeScreenshotSetId, setActiveScreenshotSetId] = useState<string | null>(null);
@@ -2644,6 +2674,7 @@ export const useGeneratedAssets = ({
 
             const repoUrl = String(payload?.repoUrl || '');
             if (!repoUrl) throw new Error('GitHub response missing repo URL.');
+            const repoFullName = String(payload?.repoFullName || '').trim();
 
             setJobMessage(jobId, 'Saving link…');
             setJobProgress(jobId, { current: 2, total: 3 });
@@ -2651,6 +2682,28 @@ export const useGeneratedAssets = ({
             const key = `zefgen.githubRepoUrl.${selectedApp.id}`;
             window.localStorage.setItem(key, repoUrl);
             setGithubRepoUrl(repoUrl);
+            githubRepoClearedByAppIdRef.current[selectedApp.id] = false;
+
+            // Persist globally (cross-device). If schema isn't applied yet, keep localStorage fallback.
+            const nowIso = new Date().toISOString();
+            const { error: appUpdateError } = await updateApp({
+                id: selectedApp.id,
+                userId: session.user.id,
+                patch: {
+                    github_repo_url: repoUrl,
+                    github_repo_full_name: repoFullName || null,
+                    github_repo_created_at: nowIso,
+                    github_repo_updated_at: nowIso,
+                } as any,
+            });
+            if (appUpdateError) {
+                const msg = String((appUpdateError as any)?.message || appUpdateError);
+                if (msg.toLowerCase().includes('github_repo')) {
+                    reportError(
+                        `DB schema missing GitHub repo columns. Run supabase/migrations/2026-02-08_app_github_repo.sql in Supabase SQL editor to persist repo links across devices.`
+                    );
+                }
+            }
 
             setJobMessage(jobId, 'Done');
             setJobProgress(jobId, { current: 3, total: 3 });
@@ -2663,6 +2716,63 @@ export const useGeneratedAssets = ({
             delete abortByJobIdRef.current[jobId];
         }
     }, [session, selectedBrand, selectedApp, createJob, setJobProgress, setJobMessage, finishJob, reportError]);
+
+    const handleDeleteGithubRepo = useCallback(async () => {
+        if (!session || !selectedApp) return;
+        if (!githubRepoUrl && !(selectedApp as any)?.github_repo_url) {
+            reportError('No GitHub repo is stored for this app.');
+            return;
+        }
+
+        const jobId = createJob({
+            title: 'Delete GitHub repo',
+            kind: 'github_repo_delete',
+            progressTotal: 2,
+        });
+        setJobProgress(jobId, { current: 0, total: 2 });
+
+        const controller = new AbortController();
+        abortByJobIdRef.current[jobId] = controller;
+
+        try {
+            setJobMessage(jobId, 'Deleting repo…');
+            const resp = await fetch('/api/delete-github-repo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({ appId: selectedApp.id }),
+                signal: controller.signal,
+            });
+
+            setJobProgress(jobId, { current: 1, total: 2 });
+
+            const payload = await resp.json().catch(() => null);
+            if (!resp.ok) {
+                const message = String(payload?.message || 'Failed to delete GitHub repo.');
+                const err: any = new Error(message);
+                err.statusCode = resp.status;
+                throw err;
+            }
+
+            setJobMessage(jobId, 'Clearing link…');
+            githubRepoClearedByAppIdRef.current[selectedApp.id] = true;
+            const key = `zefgen.githubRepoUrl.${selectedApp.id}`;
+            window.localStorage.removeItem(key);
+            setGithubRepoUrl(null);
+
+            setJobMessage(jobId, 'Done');
+            setJobProgress(jobId, { current: 2, total: 2 });
+            finishJob(jobId, { status: 'success' });
+        } catch (error: any) {
+            const msg = String(error?.message || 'GitHub repo delete failed.');
+            reportError(msg);
+            finishJob(jobId, { status: error?.name === 'AbortError' ? 'canceled' : 'error', message: msg });
+        } finally {
+            delete abortByJobIdRef.current[jobId];
+        }
+    }, [session, selectedApp, githubRepoUrl, createJob, setJobProgress, setJobMessage, finishJob, reportError]);
 
     return {
         screenshotSets,
@@ -2689,6 +2799,7 @@ export const useGeneratedAssets = ({
         clearFinished,
         githubRepoUrl,
         handleCreateGithubRepo,
+        handleDeleteGithubRepo,
         loading,
         error,
         refresh,

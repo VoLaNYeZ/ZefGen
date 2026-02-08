@@ -8,7 +8,8 @@ export type GenerationJobKind =
     | 'screenshot_generate'
     | 'screenshot_enhance'
     | 'download_zip'
-    | 'github_repo_create';
+    | 'github_repo_create'
+    | 'github_repo_delete';
 
 export type GenerationJobStatus = 'queued' | 'running' | 'success' | 'error' | 'canceled';
 
