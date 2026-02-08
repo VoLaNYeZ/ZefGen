@@ -164,11 +164,12 @@ export function AppShell({ session }: AppShellProps) {
         () => apps.find((app) => app.id === selectedAppId) || null,
         [apps, selectedAppId]
     );
+    const [ideaMode, setIdeaMode] = useState<'autonmode'>('autonmode');
 
     const brandAppSummaryByBrandId = useMemo(() => {
         const byBrand: Record<
             string,
-            { total: number; green: number; yellow: number; red: number }
+            { total: number; active: number; green: number; yellow: number; red: number }
         > = {};
 
         for (const brand of brands) {
@@ -204,6 +205,7 @@ export function AppShell({ session }: AppShellProps) {
 
             byBrand[brand.id] = {
                 total: brandApps.length,
+                active: Math.max(0, brandApps.length - red),
                 green,
                 yellow,
                 red,
@@ -1156,6 +1158,21 @@ export function AppShell({ session }: AppShellProps) {
                                                 }
                                                 endSections={
                                                     <>
+                                                <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
+                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
+                                                        Idea picker (placeholder)
+                                                    </p>
+                                                    <div className="mt-3 flex items-center gap-3">
+                                                        <select
+                                                            value={ideaMode}
+                                                            onChange={(e) => setIdeaMode((e.target.value as any) || 'autonmode')}
+                                                            className="rounded-full border border-indigo-400/25 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 outline-none hover:border-indigo-400/40"
+                                                        >
+                                                            <option value="autonmode">autonmode</option>
+                                                        </select>
+                                                    </div>
+                                                </section>
+
                                                 <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
                                                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_data_placeholder')}</p>
                                                     <div className="mt-3 space-y-2 text-xs text-indigo-200/70">

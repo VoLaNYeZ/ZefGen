@@ -134,17 +134,19 @@ export function DevFilesPanel(props: {
                     </>
                 )}
 
-                <div className="mt-5 flex items-center justify-end">
-                    <button
-                        type="button"
-                        onClick={onCreateRepo}
-                        disabled={!selectedApp || isCreatingRepo || Boolean(githubRepoUrl)}
-                        className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
-                    >
-                        {isCreatingRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
-                        {text('create_github_repo')}
-                    </button>
-                </div>
+                {!githubRepoUrl && (
+                    <div className="mt-5 flex items-center justify-end">
+                        <button
+                            type="button"
+                            onClick={onCreateRepo}
+                            disabled={!selectedApp || isCreatingRepo}
+                            className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                        >
+                            {isCreatingRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
+                            {text('create_github_repo')}
+                        </button>
+                    </div>
+                )}
             </div>
         </section>
     );

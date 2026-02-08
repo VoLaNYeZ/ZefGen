@@ -5,6 +5,8 @@ import {
     ArrowUpRight,
     Loader2,
     X,
+    Users,
+    Lightbulb,
 } from 'lucide-react';
 import { TranslationKey } from '../../i18n';
 import {
@@ -33,6 +35,7 @@ type SidebarProps = {
         string,
         {
             total: number;
+            active: number;
             green: number;
             yellow: number;
             red: number;
@@ -266,7 +269,7 @@ export const Sidebar = ({
                 {brands.map((brand) => {
                     const isActive = brand.id === selectedBrandId;
                     const iconUrl = brandIconUrls[brand.id];
-                    const summary = brandAppSummaryByBrandId[brand.id] || { total: 0, green: 0, yellow: 0, red: 0 };
+                    const summary = brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
                     return (
                         <button
                             key={brand.id}
@@ -312,10 +315,10 @@ export const Sidebar = ({
                                 </div>
                                 <div
                                     className="flex items-center gap-2 shrink-0"
-                                    title={`Apps: ${summary.total}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
+                                    title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
                                 >
                                     <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
-                                        {clampCount(summary.total)}
+                                        {clampCount(summary.active)}
                                     </span>
                                     <div className="flex flex-col items-end justify-center gap-0.5">
                                         <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
@@ -337,6 +340,31 @@ export const Sidebar = ({
                         </button>
                     );
                 })}
+            </div>
+
+            <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-3">
+                <div className="flex items-center justify-between gap-2">
+                    <button
+                        type="button"
+                        onClick={() => {}}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30"
+                        aria-label="Accounts"
+                        title="Accounts"
+                    >
+                        <Users size={13} className="text-indigo-200/70" />
+                        <span>Accounts</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {}}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30"
+                        aria-label="Ideas"
+                        title="Ideas"
+                    >
+                        <Lightbulb size={13} className="text-indigo-200/70" />
+                        <span>Ideas</span>
+                    </button>
+                </div>
             </div>
 
             <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-4 text-xs text-indigo-200/60 flex items-center justify-between gap-3">
