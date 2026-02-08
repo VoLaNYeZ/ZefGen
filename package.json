@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:restart": "node scripts/dev-restart.mjs",
+    "dev:vercel": "vercel dev",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -18,14 +19,14 @@
     "@supabase/supabase-js": "^2.86.0",
     "@types/dompurify": "^3.2.0",
     "dompurify": "^3.3.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.554.0",
     "motion": "^12.31.0",
-    "replicate": "^1.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-error-boundary": "^6.0.0",
     "recharts": "^3.5.0",
-    "jszip": "^3.10.1",
+    "replicate": "^1.4.0",
     "webgl-fluid": "^0.3.9"
   },
   "devDependencies": {
@@ -38,6 +39,7 @@
     "tailwindcss": "^4.1.17",
     "terser": "^5.44.1",
     "typescript": "~5.8.2",
+    "vercel": "^50.13.2",
     "vite": "^6.2.0"
   }
 }

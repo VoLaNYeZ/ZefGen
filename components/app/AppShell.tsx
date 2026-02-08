@@ -28,6 +28,7 @@ import { GenerationQueueWidget } from './GenerationQueueWidget';
 import { ConfirmIconButton } from './ConfirmIconButton';
 import { DeliverablesPanel } from './DeliverablesPanel';
 import { ExportCompletionRail } from './ExportCompletionRail';
+import { DevFilesPanel } from './DevFilesPanel';
 import type { TextLayer } from '../../types/zefgen';
 
 type AppShellProps = {
@@ -248,6 +249,8 @@ export function AppShell({ session }: AppShellProps) {
         cancelGenerationJob,
         dismissJob,
         clearFinished,
+        githubRepoUrl,
+        handleCreateGithubRepo,
         loading: generatedAssetsLoading,
         refresh: refreshGeneratedAssets,
         generatedIconSlots,
@@ -390,6 +393,11 @@ export function AppShell({ session }: AppShellProps) {
         const keep = new Set((assetPicks || []).map((p) => p.generated_asset_id));
         return (selectedGeneratedAssets || []).filter((a) => !keep.has(a.id)).length;
     }, [selectedGeneratedAssets, assetPicks]);
+
+    const isCreatingGithubRepo = useMemo(
+        () => generationJobs.some((j) => j.kind === 'github_repo_create' && (j.status === 'running' || j.status === 'queued')),
+        [generationJobs]
+    );
 
     const setReadiness = useMemo(() => {
         return (screenshotSets || []).map((set) => {
@@ -1046,10 +1054,13 @@ export function AppShell({ session }: AppShellProps) {
                                                     </div>
                                                 </section>
 
-                                                <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
-                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('dev_files_placeholder')}</p>
-                                                    <p className="mt-3 text-sm text-indigo-200/60">{text('dev_files_subtitle')}</p>
-                                                </section>
+                                                <DevFilesPanel
+                                                    selectedApp={selectedApp}
+                                                    githubRepoUrl={githubRepoUrl}
+                                                    isCreatingRepo={isCreatingGithubRepo}
+                                                    onCreateRepo={handleCreateGithubRepo}
+                                                    text={text}
+                                                />
                                                     </>
                                                 }
                                         />

@@ -7,7 +7,8 @@ export type GenerationJobKind =
     | 'icon_enhance'
     | 'screenshot_generate'
     | 'screenshot_enhance'
-    | 'download_zip';
+    | 'download_zip'
+    | 'github_repo_create';
 
 export type GenerationJobStatus = 'queued' | 'running' | 'success' | 'error' | 'canceled';
 
@@ -106,4 +107,3 @@ export const useGenerationJobs = () => {
         clearFinished,
     };
 };
-

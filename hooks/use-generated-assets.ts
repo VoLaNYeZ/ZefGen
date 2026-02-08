@@ -136,6 +136,16 @@ export const useGeneratedAssets = ({
     const [editAssetId, setEditAssetId] = useState<string | null>(null);
     const [editDrafts, setEditDrafts] = useState<Record<string, EditState>>({});
     const [editSaving, setEditSaving] = useState<string | null>(null);
+    const [githubRepoUrl, setGithubRepoUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!selectedApp?.id) {
+            setGithubRepoUrl(null);
+            return;
+        }
+        const key = `zefgen.githubRepoUrl.${selectedApp.id}`;
+        setGithubRepoUrl(window.localStorage.getItem(key));
+    }, [selectedApp?.id]);
 
     const [screenshotSets, setScreenshotSets] = useState<AppScreenshotSet[]>([]);
     const [activeScreenshotSetId, setActiveScreenshotSetId] = useState<string | null>(null);
@@ -2591,6 +2601,69 @@ export const useGeneratedAssets = ({
         ]
     );
 
+    const handleCreateGithubRepo = useCallback(async () => {
+        if (!session || !selectedBrand || !selectedApp) return;
+
+        const jobId = createJob({
+            title: 'Create GitHub repo',
+            kind: 'github_repo_create',
+            progressTotal: 3,
+        });
+        setJobProgress(jobId, { current: 0, total: 3 });
+
+        const controller = new AbortController();
+        abortByJobIdRef.current[jobId] = controller;
+
+        try {
+            setJobMessage(jobId, 'Creating repo…');
+            const resp = await fetch('/api/create-github-repo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                    appId: selectedApp.id,
+                    appAlias: selectedApp.alias,
+                    appName: selectedApp.name,
+                    brandName: selectedBrand.name,
+                    brandSlug: selectedBrand.slug,
+                }),
+                signal: controller.signal,
+            });
+
+            setJobProgress(jobId, { current: 1, total: 3 });
+
+            const payload = await resp.json().catch(() => null);
+            if (!resp.ok) {
+                const message = String(payload?.message || 'Failed to create GitHub repo.');
+                const err: any = new Error(message);
+                err.statusCode = resp.status;
+                throw err;
+            }
+
+            const repoUrl = String(payload?.repoUrl || '');
+            if (!repoUrl) throw new Error('GitHub response missing repo URL.');
+
+            setJobMessage(jobId, 'Saving link…');
+            setJobProgress(jobId, { current: 2, total: 3 });
+
+            const key = `zefgen.githubRepoUrl.${selectedApp.id}`;
+            window.localStorage.setItem(key, repoUrl);
+            setGithubRepoUrl(repoUrl);
+
+            setJobMessage(jobId, 'Done');
+            setJobProgress(jobId, { current: 3, total: 3 });
+            finishJob(jobId, { status: 'success' });
+        } catch (error: any) {
+            const msg = String(error?.message || 'GitHub repo creation failed.');
+            reportError(msg);
+            finishJob(jobId, { status: error?.name === 'AbortError' ? 'canceled' : 'error', message: msg });
+        } finally {
+            delete abortByJobIdRef.current[jobId];
+        }
+    }, [session, selectedBrand, selectedApp, createJob, setJobProgress, setJobMessage, finishJob, reportError]);
+
     return {
         screenshotSets,
         activeScreenshotSetId,
@@ -2614,6 +2687,8 @@ export const useGeneratedAssets = ({
         cancelGenerationJob,
         dismissJob,
         clearFinished,
+        githubRepoUrl,
+        handleCreateGithubRepo,
         loading,
         error,
         refresh,
