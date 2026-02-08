@@ -1,11 +1,12 @@
 import React from 'react';
-import { GripVertical, ImagePlus, Trash2 } from 'lucide-react';
+import { ChevronDown, GripVertical, ImagePlus, Trash2 } from 'lucide-react';
 import type { BrandReference } from '../../types/zefgen';
 import { TranslationKey } from '../../i18n';
 import { SortableGrid, useSortableTile } from './dnd/sortable-grid';
 import { ConfirmIconButton } from './ConfirmIconButton';
 
 type BrandReferencesPanelProps = {
+    brandId: string;
     brandScreenshotReferences: BrandReference[];
     brandRefUrls: Record<string, string>;
     handleReorderBrandReference: (fromIndex: number, toIndex: number) => void;
@@ -26,6 +27,7 @@ type BrandReferencesPanelProps = {
 };
 
 export const BrandReferencesPanel = ({
+    brandId,
     brandScreenshotReferences,
     brandRefUrls,
     handleReorderBrandReference,
@@ -40,6 +42,24 @@ export const BrandReferencesPanel = ({
     openLightbox,
     text,
 }: BrandReferencesPanelProps) => {
+    const refsStorageKey = React.useMemo(() => `zefgen.brandScreenshotRefsCollapsed.${brandId}`, [brandId]);
+    const [refsCollapsed, setRefsCollapsed] = React.useState(false);
+
+    React.useEffect(() => {
+        const raw = window.localStorage.getItem(refsStorageKey);
+        if (raw === '1' || raw === '0') {
+            setRefsCollapsed(raw === '1');
+        } else {
+            setRefsCollapsed(brandScreenshotReferences.length > 0);
+        }
+    }, [refsStorageKey, brandScreenshotReferences.length]);
+
+    const toggleRefsCollapsed = () => {
+        const next = !refsCollapsed;
+        setRefsCollapsed(next);
+        window.localStorage.setItem(refsStorageKey, next ? '1' : '0');
+    };
+
     const refById = React.useMemo(() => {
         const map = new Map<string, BrandReference>();
         brandScreenshotReferences.forEach((ref) => map.set(ref.id, ref));
@@ -66,101 +86,128 @@ export const BrandReferencesPanel = ({
             <div className="mt-4">
                 <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
                     <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_references')}</p>
-                        <span className="text-[10px] text-indigo-200/60">
-                            {brandScreenshotReferences.length}/{maxScreenshotRefs}
-                        </span>
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-                        <div>
-                            {brandScreenshotReferences.length === 0 ? (
-                                <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-xs text-indigo-200/60">
-                                    {text('no_screenshot_refs')}
-                                </div>
-                            ) : (
-                                <SortableGrid
-                                    ids={orderedIds}
-                                    onCommitMove={({ fromIndex, toIndex }) => handleReorderBrandReference(fromIndex, toIndex)}
-                                    renderOverlay={(activeId) => {
-                                        const ref = refById.get(activeId);
-                                        if (!ref) return null;
-                                        const url = brandRefUrls[ref.id];
-                                        return (
-                                            <div className="w-[110px] rounded-2xl bg-slate-900/65 ring-2 ring-indigo-400/40 p-1.5 space-y-1.5 shadow-[0_20px_60px_-30px_rgba(99,102,241,0.55)] pointer-events-none">
-                                                <div className="relative overflow-hidden rounded-xl border border-indigo-400/30 bg-slate-900/40 aspect-[9/19]">
-                                                    {url ? (
-                                                        <img
-                                                            src={url}
-                                                            alt={text('screenshot_references')}
-                                                            className="h-full w-full object-cover"
-                                                            draggable={false}
-                                                        />
-                                                    ) : (
-                                                        <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/70">
-                                                            {text('loading')}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    }}
-                                >
-                                    {(previewIds) => (
-                                        <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
-                                            {previewIds.map((id, index) => {
-                                                const ref = refById.get(id);
-                                                if (!ref) return null;
-                                                return (
-                                                    <SortableBrandRefTile
-                                                        key={ref.id}
-                                                        id={ref.id}
-                                                        index={index}
-                                                        refItem={ref}
-                                                        url={brandRefUrls[ref.id]}
-                                                        onDelete={handleDeleteBrandReference}
-                                                        openLightbox={openLightbox}
-                                                        text={text}
-                                                    />
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </SortableGrid>
-                            )}
+                        <div className="flex items-center gap-3">
+                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_references')}</p>
+                            <span className="text-[10px] text-indigo-200/60">
+                                {brandScreenshotReferences.length}/{maxScreenshotRefs}
+                            </span>
                         </div>
-                        <div>
-                            <div
-                                onDragOver={handleBrandReferenceDragOver}
-                                onDragLeave={handleBrandReferenceDragLeave}
-                                onDrop={handleBrandReferenceDrop}
-                                className={`flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-4 text-center transition ${
-                                    isBrandRefDropActive
-                                        ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
-                                        : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
-                                } ${brandScreenshotReferences.length >= maxScreenshotRefs ? 'opacity-60 pointer-events-none' : ''}`}
-                            >
-                                <ImagePlus size={22} />
-                                <div className="text-xs font-semibold">{text('drop_references_title')}</div>
-                                <div className="text-[10px] text-indigo-200/60">{text('reference_limit_short')}</div>
+                        <div className="flex items-center gap-2">
+                            {refsCollapsed && (
                                 <label
                                     htmlFor="brand-screenshot-upload"
-                                    className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                    className={`inline-flex items-center gap-2 rounded-full bg-indigo-500/15 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/35 hover:bg-indigo-500/25 cursor-pointer ${
+                                        brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading
+                                            ? 'opacity-60 pointer-events-none'
+                                            : ''
+                                    }`}
                                 >
                                     {brandScreenshotsUploading ? text('uploading') : text('upload_references')}
                                 </label>
-                                <input
-                                    id="brand-screenshot-upload"
-                                    type="file"
-                                    accept="image/png,image/jpeg"
-                                    multiple
-                                    className="hidden"
-                                    onChange={handleBrandScreenshotUpload}
-                                    disabled={brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading}
-                                />
-                            </div>
+                            )}
+                            <button
+                                type="button"
+                                onClick={toggleRefsCollapsed}
+                                className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                aria-label={refsCollapsed ? text('show_references') : text('hide_references')}
+                                title={refsCollapsed ? text('show_references') : text('hide_references')}
+                            >
+                                <ChevronDown size={14} className={`transition ${refsCollapsed ? '-rotate-90' : ''}`} />
+                            </button>
                         </div>
                     </div>
+
+                    {!refsCollapsed && (
+                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                            <div>
+                                {brandScreenshotReferences.length === 0 ? (
+                                    <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-xs text-indigo-200/60">
+                                        {text('no_screenshot_refs')}
+                                    </div>
+                                ) : (
+                                    <SortableGrid
+                                        ids={orderedIds}
+                                        onCommitMove={({ fromIndex, toIndex }) => handleReorderBrandReference(fromIndex, toIndex)}
+                                        renderOverlay={(activeId) => {
+                                            const ref = refById.get(activeId);
+                                            if (!ref) return null;
+                                            const url = brandRefUrls[ref.id];
+                                            return (
+                                                <div className="w-[110px] rounded-2xl bg-slate-900/65 ring-2 ring-indigo-400/40 p-1.5 space-y-1.5 shadow-[0_20px_60px_-30px_rgba(99,102,241,0.55)] pointer-events-none">
+                                                    <div className="relative overflow-hidden rounded-xl border border-indigo-400/30 bg-slate-900/40 aspect-[9/19]">
+                                                        {url ? (
+                                                            <img
+                                                                src={url}
+                                                                alt={text('screenshot_references')}
+                                                                className="h-full w-full object-cover"
+                                                                draggable={false}
+                                                            />
+                                                        ) : (
+                                                            <span className="flex h-full w-full items-center justify-center text-xs text-indigo-200/70">
+                                                                {text('loading')}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }}
+                                    >
+                                        {(previewIds) => (
+                                            <div className="grid gap-2 sm:grid-cols-4 xl:grid-cols-6">
+                                                {previewIds.map((id, index) => {
+                                                    const ref = refById.get(id);
+                                                    if (!ref) return null;
+                                                    return (
+                                                        <SortableBrandRefTile
+                                                            key={ref.id}
+                                                            id={ref.id}
+                                                            index={index}
+                                                            refItem={ref}
+                                                            url={brandRefUrls[ref.id]}
+                                                            onDelete={handleDeleteBrandReference}
+                                                            openLightbox={openLightbox}
+                                                            text={text}
+                                                        />
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </SortableGrid>
+                                )}
+                            </div>
+                            <div>
+                                <div
+                                    onDragOver={handleBrandReferenceDragOver}
+                                    onDragLeave={handleBrandReferenceDragLeave}
+                                    onDrop={handleBrandReferenceDrop}
+                                    className={`flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-4 text-center transition ${
+                                        isBrandRefDropActive
+                                            ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
+                                            : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
+                                    } ${brandScreenshotReferences.length >= maxScreenshotRefs ? 'opacity-60 pointer-events-none' : ''}`}
+                                >
+                                    <ImagePlus size={22} />
+                                    <div className="text-xs font-semibold">{text('drop_references_title')}</div>
+                                    <div className="text-[10px] text-indigo-200/60">{text('reference_limit_short')}</div>
+                                    <label
+                                        htmlFor="brand-screenshot-upload"
+                                        className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                    >
+                                        {brandScreenshotsUploading ? text('uploading') : text('upload_references')}
+                                    </label>
+                                    <input
+                                        id="brand-screenshot-upload"
+                                        type="file"
+                                        accept="image/png,image/jpeg"
+                                        multiple
+                                        className="hidden"
+                                        onChange={handleBrandScreenshotUpload}
+                                        disabled={brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </section>

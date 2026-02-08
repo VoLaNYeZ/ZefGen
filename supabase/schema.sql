@@ -13,6 +13,11 @@ create table if not exists public.brands (
     user_id uuid not null references auth.users(id) on delete cascade,
     name text not null,
     slug text not null,
+    -- Brand release planning metadata (target countries, keywords, notes). (2026-02-08)
+    target_countries text[] not null default '{}',
+    keywords text not null default '' check (char_length(keywords) <= 100),
+    release_strategy_notes text not null default '',
+    release_strategy_updated_at timestamptz,
     created_at timestamptz not null default now()
 );
 
