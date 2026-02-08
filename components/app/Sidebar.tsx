@@ -29,6 +29,15 @@ type SidebarProps = {
     setLang: (value: 'en' | 'ru') => void;
     sessionEmail: string;
     brands: Brand[];
+    brandAppSummaryByBrandId: Record<
+        string,
+        {
+            total: number;
+            green: number;
+            yellow: number;
+            red: number;
+        }
+    >;
     selectedBrandId: string | null;
     brandIconUrls: Record<string, string>;
     brandFormOpen: boolean;
@@ -66,6 +75,7 @@ export const Sidebar = ({
     setLang,
     sessionEmail,
     brands,
+    brandAppSummaryByBrandId,
     selectedBrandId,
     brandIconUrls,
     brandFormOpen,
@@ -86,6 +96,28 @@ export const Sidebar = ({
     handleLogout,
     text,
 }: SidebarProps) => {
+    const clampCount = (n: number) => {
+        const v = Math.max(0, Math.floor(Number(n) || 0));
+        if (v > 99) return '99+';
+        return String(v);
+    };
+
+    const dotClass = (kind: 'green' | 'yellow' | 'red', value: number) => {
+        const isZero = !(Number(value) > 0);
+        const dim = isZero ? 'opacity-35' : 'opacity-95';
+        if (kind === 'green') return `h-1.5 w-1.5 rounded-full ${dim} bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.40)]`;
+        if (kind === 'yellow') return `h-1.5 w-1.5 rounded-full ${dim} bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.35)]`;
+        return `h-1.5 w-1.5 rounded-full ${dim} bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.35)]`;
+    };
+
+    const countTextClass = (kind: 'green' | 'yellow' | 'red', value: number) => {
+        const isZero = !(Number(value) > 0);
+        const dim = isZero ? 'opacity-35' : 'opacity-95';
+        if (kind === 'green') return `${dim} text-emerald-100/90`;
+        if (kind === 'yellow') return `${dim} text-amber-50/90`;
+        return `${dim} text-rose-50/90`;
+    };
+
     return (
         <aside
             className={`
@@ -234,6 +266,7 @@ export const Sidebar = ({
                 {brands.map((brand) => {
                     const isActive = brand.id === selectedBrandId;
                     const iconUrl = brandIconUrls[brand.id];
+                    const summary = brandAppSummaryByBrandId[brand.id] || { total: 0, green: 0, yellow: 0, red: 0 };
                     return (
                         <button
                             key={brand.id}
@@ -277,7 +310,29 @@ export const Sidebar = ({
                                         <p className="text-xs text-indigo-200/60">/{brand.slug}</p>
                                     </div>
                                 </div>
-                                {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
+                                <div
+                                    className="flex items-center gap-2 shrink-0"
+                                    title={`Apps: ${summary.total}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
+                                >
+                                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
+                                        {clampCount(summary.total)}
+                                    </span>
+                                    <div className="flex flex-col items-end justify-center gap-0.5">
+                                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                                            <span className={dotClass('green', summary.green)} />
+                                            <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                                            <span className={dotClass('yellow', summary.yellow)} />
+                                            <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                                            <span className={dotClass('red', summary.red)} />
+                                            <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
+                                        </div>
+                                    </div>
+                                    {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
+                                </div>
                             </div>
                         </button>
                     );
