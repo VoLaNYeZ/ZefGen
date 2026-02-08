@@ -15,6 +15,7 @@ import { useAppScreenshots } from '../../hooks/use-app-screenshots';
 import { useGeneratedAssets } from '../../hooks/use-generated-assets';
 import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
 import { signOut } from '../../data/auth';
+import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../../data/app-indicators';
 import { Sidebar } from './Sidebar';
 import { BrandReleaseInfoPanel } from './BrandReleaseInfoPanel';
 import { BrandReferencesPanel } from './BrandReferencesPanel';
@@ -75,6 +76,8 @@ export function AppShell({ session }: AppShellProps) {
         overlayBaseWidth?: number;
         overlayBaseHeight?: number;
     } | null>(null);
+    const [appScreenshotSetCountByAppId, setAppScreenshotSetCountByAppId] = useState<Record<string, number>>({});
+    const [appCompletedByAppId, setAppCompletedByAppId] = useState<Record<string, boolean>>({});
 
     const reportActionError = useCallback((message: string) => {
         setActionError(message);
@@ -161,6 +164,104 @@ export function AppShell({ session }: AppShellProps) {
         () => apps.find((app) => app.id === selectedAppId) || null,
         [apps, selectedAppId]
     );
+
+    const brandAppSummaryByBrandId = useMemo(() => {
+        const byBrand: Record<
+            string,
+            { total: number; green: number; yellow: number; red: number }
+        > = {};
+
+        for (const brand of brands) {
+            const brandApps = (apps || [])
+                .filter((a) => a.brand_id === brand.id)
+                .sort((a, b) => {
+                    const ai = a.order_index ?? Number.MAX_SAFE_INTEGER;
+                    const bi = b.order_index ?? Number.MAX_SAFE_INTEGER;
+                    if (ai !== bi) return ai - bi;
+                    const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+                    const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+                    return at - bt;
+                });
+
+            let green = 0;
+            let yellow = 0;
+            let red = 0;
+            for (const app of brandApps) {
+                if (app.is_banned) {
+                    red += 1;
+                    continue;
+                }
+                const setCount = appScreenshotSetCountByAppId[app.id] || 0;
+                if (setCount > 1) {
+                    green += 1;
+                    continue;
+                }
+                const done = Boolean(appCompletedByAppId[app.id]);
+                if (done) {
+                    yellow += 1;
+                }
+            }
+
+            byBrand[brand.id] = {
+                total: brandApps.length,
+                green,
+                yellow,
+                red,
+            };
+        }
+        return byBrand;
+    }, [brands, apps, appScreenshotSetCountByAppId, appCompletedByAppId]);
+
+    // Sidebar indicators (best-effort):
+    // - AB tests: app has more than 1 screenshot set (Original + any A/B sets)
+    // - Ready: export status completed
+    // These will later be replaced by the edgefunction-backed DB the product will use.
+    useEffect(() => {
+        if (!session) {
+            setAppScreenshotSetCountByAppId({});
+            setAppCompletedByAppId({});
+            return;
+        }
+        if (!apps.length) {
+            setAppScreenshotSetCountByAppId({});
+            setAppCompletedByAppId({});
+            return;
+        }
+
+        let active = true;
+        (async () => {
+            const [setsResp, statusResp] = await Promise.all([
+                fetchAllScreenshotSetCounts(session.user.id),
+                fetchAllExportStatuses(session.user.id),
+            ]);
+
+            if (!active) return;
+
+            if (!setsResp.error) {
+                const counts: Record<string, number> = {};
+                for (const row of setsResp.data || []) {
+                    const appId = String((row as any).app_id || '');
+                    if (!appId) continue;
+                    counts[appId] = (counts[appId] || 0) + 1;
+                }
+                setAppScreenshotSetCountByAppId(counts);
+            }
+
+            if (!statusResp.error) {
+                const completed: Record<string, boolean> = {};
+                for (const row of statusResp.data || []) {
+                    const appId = String((row as any).app_id || '');
+                    if (!appId) continue;
+                    completed[appId] = Boolean((row as any).is_completed);
+                }
+                setAppCompletedByAppId(completed);
+            }
+        })();
+
+        return () => {
+            active = false;
+        };
+    }, [session, apps.length]);
 
     const {
         loading: brandReferencesLoading,
@@ -337,6 +438,9 @@ export function AppShell({ session }: AppShellProps) {
         reportError: reportActionError,
         onDataError: setDataError,
     });
+
+    // Note: we intentionally do NOT "live sync" these per-selected app anymore because it caused
+    // visible count jitter in the sidebar. We'll replace this whole indicator pipeline later.
 
     const dataLoading =
         brandsLoading ||
@@ -619,7 +723,7 @@ export function AppShell({ session }: AppShellProps) {
                 />
             )}
 
-            <Sidebar
+                <Sidebar
                 isSidebarOpen={isSidebarOpen}
                 setIsSidebarOpen={setIsSidebarOpen}
                 logoContainerRef={logoContainerRef}
@@ -630,12 +734,13 @@ export function AppShell({ session }: AppShellProps) {
                 lang={lang}
                 setLang={setLang}
                 sessionEmail={session.user.email ?? ''}
-                brands={brands}
-                selectedBrandId={selectedBrandId}
-                brandIconUrls={brandIconUrls}
-                brandFormOpen={brandFormOpen}
-                brandForm={brandForm}
-                brandFormError={brandFormError}
+                    brands={brands}
+                    brandAppSummaryByBrandId={brandAppSummaryByBrandId}
+                    selectedBrandId={selectedBrandId}
+                    brandIconUrls={brandIconUrls}
+                    brandFormOpen={brandFormOpen}
+                    brandForm={brandForm}
+                    brandFormError={brandFormError}
                 brandFormLoading={brandFormLoading}
                 editingBrandId={editingBrandId}
                 brandSlugPreview={brandSlugPreview}
