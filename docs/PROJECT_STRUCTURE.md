@@ -111,7 +111,9 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 
 ## GitHub Repo Creation
 - Serverless endpoint: `api/create-github-repo.ts` (Vercel Function) creates a private repo, adds default collaborators, and seeds template files.
+- Serverless endpoint: `api/delete-github-repo.ts` deletes the created repo and clears the stored app link.
 - Templates live in `templates/github/*.tpl` and are committed into the created repo with simple `{{VAR_NAME}}` substitution.
+- Repo links are persisted on `public.apps` so they work across devices: `github_repo_url`, `github_repo_full_name`.
 
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).
@@ -126,4 +128,5 @@ Data flow: UI component → hook → data layer → Supabase.
 
 ## Local Dev Notes
 - `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
-- To run Vercel Functions locally (for `/api/*`), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.
+- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `create-github-repo`, `delete-github-repo`) so you can iterate without `vercel dev`.
+- To run the full Vercel routing layer locally (for `/api/*` + rewrites), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.

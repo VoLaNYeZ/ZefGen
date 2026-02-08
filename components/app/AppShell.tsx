@@ -36,7 +36,14 @@ type AppShellProps = {
 };
 export function AppShell({ session }: AppShellProps) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    const [lang, setLang] = useState<'en' | 'ru'>('en');
+    const [lang, setLang] = useState<'en' | 'ru'>(() => {
+        try {
+            const raw = window.localStorage.getItem('zefgen.lang');
+            return raw === 'ru' ? 'ru' : 'en';
+        } catch {
+            return 'en';
+        }
+    });
     const text = useCallback((key: TranslationKey) => t(lang, key), [lang]);
 
     const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
@@ -75,6 +82,14 @@ export function AppShell({ session }: AppShellProps) {
             setActionError((prev) => (prev === message ? null : prev));
         }, 6000);
     }, []);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem('zefgen.lang', lang);
+        } catch {
+            // ignore
+        }
+    }, [lang]);
 
     const {
         brands,
@@ -251,6 +266,7 @@ export function AppShell({ session }: AppShellProps) {
         clearFinished,
         githubRepoUrl,
         handleCreateGithubRepo,
+        handleDeleteGithubRepo,
         loading: generatedAssetsLoading,
         refresh: refreshGeneratedAssets,
         generatedIconSlots,
@@ -396,6 +412,10 @@ export function AppShell({ session }: AppShellProps) {
 
     const isCreatingGithubRepo = useMemo(
         () => generationJobs.some((j) => j.kind === 'github_repo_create' && (j.status === 'running' || j.status === 'queued')),
+        [generationJobs]
+    );
+    const isDeletingGithubRepo = useMemo(
+        () => generationJobs.some((j) => j.kind === 'github_repo_delete' && (j.status === 'running' || j.status === 'queued')),
         [generationJobs]
     );
 
@@ -1058,7 +1078,9 @@ export function AppShell({ session }: AppShellProps) {
                                                     selectedApp={selectedApp}
                                                     githubRepoUrl={githubRepoUrl}
                                                     isCreatingRepo={isCreatingGithubRepo}
+                                                    isDeletingRepo={isDeletingGithubRepo}
                                                     onCreateRepo={handleCreateGithubRepo}
+                                                    onDeleteRepo={handleDeleteGithubRepo}
                                                     text={text}
                                                 />
                                                     </>

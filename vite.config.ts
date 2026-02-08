@@ -28,35 +28,41 @@ export default defineConfig(({ mode }) => {
     name: 'zefgen:local-api',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/api/generate-screenshot', async (req, res) => {
-        try {
-          let rawBody = '';
-          await new Promise<void>((resolve) => {
-            req.on('data', (chunk) => {
-              rawBody += String(chunk);
+      const wire = (route: string, modulePath: string) => {
+        server.middlewares.use(route, async (req, res) => {
+          try {
+            let rawBody = '';
+            await new Promise<void>((resolve) => {
+              req.on('data', (chunk) => {
+                rawBody += String(chunk);
+              });
+              req.on('end', () => resolve());
             });
-            req.on('end', () => resolve());
-          });
 
-          if (rawBody) {
-            try {
-              (req as any).body = JSON.parse(rawBody);
-            } catch {
-              (req as any).body = rawBody;
+            if (rawBody) {
+              try {
+                (req as any).body = JSON.parse(rawBody);
+              } catch {
+                (req as any).body = rawBody;
+              }
+            } else {
+              (req as any).body = {};
             }
-          } else {
-            (req as any).body = {};
-          }
 
-          const mod = await import('./api/generate-screenshot');
-          const handler = (mod as any).default;
-          return handler(req, res);
-        } catch (err: any) {
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: String(err?.message || 'Local API error') }));
-        }
-      });
+            const mod = await import(modulePath);
+            const handler = (mod as any).default;
+            return handler(req, res);
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: String(err?.message || 'Local API error') }));
+          }
+        });
+      };
+
+      wire('/api/generate-screenshot', './api/generate-screenshot');
+      wire('/api/create-github-repo', './api/create-github-repo');
+      wire('/api/delete-github-repo', './api/delete-github-repo');
     },
   });
 
