@@ -2,6 +2,10 @@ export type Brand = {
     id: string;
     name: string;
     slug: string;
+    target_countries?: string[] | null;
+    keywords?: string | null;
+    release_strategy_notes?: string | null;
+    release_strategy_updated_at?: string | null;
     user_id?: string;
     created_at?: string;
 };

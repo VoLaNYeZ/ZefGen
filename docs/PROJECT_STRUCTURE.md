@@ -3,6 +3,7 @@
 Concise overview of the current post-refactor layout. Excludes `node_modules/` and `dist/`.
 Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 Screenshot sets + export picks/completion state are stored in Supabase (`app_screenshot_sets`, `app_asset_picks`, `app_export_status`).
+Brand release planning metadata is stored in Supabase on `brands` (`target_countries`, `keywords`, `release_strategy_notes`, `release_strategy_updated_at`).
 
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
@@ -29,6 +30,7 @@ Screenshot sets + export picks/completion state are stored in Supabase (`app_scr
 - `utils/` - Pure helpers (routes, images, DOM, ids, downloads).
 - `types/` - Domain types used across app features.
 - `constants/` - Shared constants and configuration.
+- `constants/countries.ts` - Static ISO country list + priority ordering for the Target countries dropdown.
 - `lib/` - External service clients (Supabase).
 - `public/` - Static assets.
 - `docs/` - Product and design documentation.
@@ -38,7 +40,9 @@ Screenshot sets + export picks/completion state are stored in Supabase (`app_scr
 ## components/app Breakdown
 - `components/app/AppShell.tsx` - Main authenticated UI state + orchestration.
 - `components/app/Sidebar.tsx` - Brand list, brand form, and global controls.
-- `components/app/BrandReferencesPanel.tsx` - Brand icon + screenshot references UI.
+- `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes).
+- `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand.
+- `components/app/CountryMultiSelect.tsx` - Multi-select dropdown used for Target countries.
 - `components/app/AppFolder.tsx` - App-folder wrapper and gooey layout container.
 - `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.

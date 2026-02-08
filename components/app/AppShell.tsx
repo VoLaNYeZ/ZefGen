@@ -16,6 +16,7 @@ import { useGeneratedAssets } from '../../hooks/use-generated-assets';
 import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
 import { signOut } from '../../data/auth';
 import { Sidebar } from './Sidebar';
+import { BrandReleaseInfoPanel } from './BrandReleaseInfoPanel';
 import { BrandReferencesPanel } from './BrandReferencesPanel';
 import { AppFolder } from './AppFolder';
 import { AppPills } from './AppPills';
@@ -88,6 +89,7 @@ export function AppShell({ session }: AppShellProps) {
         submitBrandForm,
         setBrandForm,
         setBrandFormOpen,
+        patchBrand,
     } = useBrands({
         session,
         text,
@@ -770,7 +772,14 @@ export function AppShell({ session }: AppShellProps) {
                             {selectedBrand && (
                                 <>
                                 <div className="space-y-6">
+                                    <BrandReleaseInfoPanel
+                                        selectedBrand={selectedBrand}
+                                        patchBrand={patchBrand}
+                                        reportError={reportActionError}
+                                        text={text}
+                                    />
                                     <BrandReferencesPanel
+                                        brandId={selectedBrand.id}
                                         brandScreenshotReferences={brandScreenshotReferences}
                                         brandRefUrls={brandRefUrls}
                                         handleReorderBrandReference={handleReorderBrandReference}

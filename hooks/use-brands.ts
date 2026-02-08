@@ -126,6 +126,22 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         setBrandFormOpen(false);
     };
 
+    const patchBrand = useCallback(
+        async (brandId: string, patch: Partial<Brand>) => {
+            if (!session) return;
+            const { data, error } = await updateBrand({
+                id: brandId,
+                userId: session.user.id,
+                patch,
+            });
+            if (error) throw error;
+            if (data) {
+                setBrands((prev) => prev.map((b) => (b.id === data.id ? data : b)));
+            }
+        },
+        [session]
+    );
+
     return {
         brands,
         loading,
@@ -141,5 +157,6 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         submitBrandForm,
         setBrandForm,
         setBrandFormOpen,
+        patchBrand,
     };
 };
