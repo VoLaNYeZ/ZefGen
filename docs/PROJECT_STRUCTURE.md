@@ -48,6 +48,7 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
 - `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder.
 - `components/app/AppGenerationSection.tsx` - Generation controls, slot mapping, outputs.
+- `components/app/DevFilesPanel.tsx` - Dev/ops area (includes GitHub repo creation entrypoint).
 - `components/app/EditPanel.tsx` - Text-layer editor for generated assets.
 - `components/app/Lightbox.tsx` - Image lightbox overlay.
 - `components/app/GenerationQueueWidget.tsx` - Bottom-right job/status widget for generation + ZIP downloads.
@@ -107,6 +108,10 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
   - Users explicitly pick 1 icon and 1 screenshot per slot per set for export (`app_asset_picks`).
   - “Mark as completed” validates picks and can prune unpicked generated assets to save storage (`app_export_status`).
   - When the workspace is collapsed, the deliverables panel shows download-only ZIP buttons per set.
+
+## GitHub Repo Creation
+- Serverless endpoint: `api/create-github-repo.ts` (Vercel Function) creates a private repo, adds default collaborators, and seeds template files.
+- Templates live in `templates/github/*.tpl` and are committed into the created repo with simple `{{VAR_NAME}}` substitution.
 
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).
