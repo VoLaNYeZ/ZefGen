@@ -1,0 +1,93 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { createConnectorJobAnswer, fetchConnectorJobMessages } from '../data/connector-messages';
+
+export const useConnectorJobMessages = (payload: {
+    session: Session | null;
+    jobId: string | null;
+    pollMs?: number;
+}) => {
+    const { session, jobId } = payload;
+    const pollMs = Math.max(1200, Math.floor(payload.pollMs ?? 2500));
+
+    const [messages, setMessages] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const timerRef = useRef<number | null>(null);
+
+    const refresh = useCallback(async () => {
+        if (!session || !jobId) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const { data, error: e } = await fetchConnectorJobMessages({
+                userId: session.user.id,
+                jobId,
+            });
+            if (e) throw e;
+            setMessages(data || []);
+        } catch (e: any) {
+            setError(String(e?.message || e));
+        } finally {
+            setLoading(false);
+        }
+    }, [session, jobId]);
+
+    useEffect(() => {
+        if (timerRef.current) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+
+        if (!session || !jobId) {
+            setMessages([]);
+            return;
+        }
+
+        refresh();
+        timerRef.current = window.setInterval(refresh, pollMs);
+        return () => {
+            if (timerRef.current) window.clearInterval(timerRef.current);
+            timerRef.current = null;
+        };
+    }, [session?.user?.id, jobId, pollMs, refresh]);
+
+    const questions = useMemo(
+        () => messages.filter((m) => m.kind === 'question'),
+        [messages]
+    );
+
+    const answers = useMemo(
+        () => messages.filter((m) => m.kind === 'answer'),
+        [messages]
+    );
+
+    const unansweredQuestions = useMemo(() => {
+        const answered = new Set(answers.map((a) => a.in_reply_to).filter(Boolean));
+        return questions.filter((q) => !answered.has(q.id));
+    }, [questions, answers]);
+
+    const answerQuestion = useCallback(
+        async (questionId: string, content: string) => {
+            if (!session || !jobId) throw new Error('No session/job.');
+            const { data, error: e } = await createConnectorJobAnswer({
+                userId: session.user.id,
+                jobId,
+                inReplyTo: questionId,
+                content: String(content || '').slice(0, 20000),
+            });
+            if (e) throw e;
+            await refresh();
+            return data;
+        },
+        [session, jobId, refresh]
+    );
+
+    return {
+        messages,
+        unansweredQuestions,
+        loading,
+        error,
+        refresh,
+        answerQuestion,
+    };
+};
+
