@@ -418,3 +418,8 @@ $$;
 
 revoke all on function public.connector_claim_next_job(text) from public;
 grant execute on function public.connector_claim_next_job(text) to service_role;
+
+grant select, insert, update, delete on public.connector_app_configs to authenticated;
+grant insert, update, delete on public.connector_app_secrets to authenticated;
+grant select, insert, update, delete on public.connector_jobs to authenticated;
+grant select, insert, update, delete on public.connector_job_messages to authenticated;
