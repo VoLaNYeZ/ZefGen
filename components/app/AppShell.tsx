@@ -30,6 +30,8 @@ import { ConfirmIconButton } from './ConfirmIconButton';
 import { DeliverablesPanel } from './DeliverablesPanel';
 import { ExportCompletionRail } from './ExportCompletionRail';
 import { DevFilesPanel } from './DevFilesPanel';
+import { ConnectorConfigPanel } from './ConnectorConfigPanel';
+import { ConnectorRunnerPanel } from './ConnectorRunnerPanel';
 import type { TextLayer } from '../../types/zefgen';
 
 type AppShellProps = {
@@ -1173,28 +1175,20 @@ export function AppShell({ session }: AppShellProps) {
                                                     </div>
                                                 </section>
 
-                                                <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
-                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_data_placeholder')}</p>
-                                                    <div className="mt-3 space-y-2 text-xs text-indigo-200/70">
-                                                        {[
-                                                            'AppId',
-                                                            'BundleID',
-                                                            'Company Name',
-                                                            'id_purchases',
-                                                            'Apphud API URL',
-                                                            'Privacy Policy',
-                                                            'Term of Use',
-                                                            'Support Form',
-                                                            'Domain',
-                                                            'Appstore Description',
-                                                        ].map((item) => (
-                                                            <div key={item} className="flex items-center justify-between border-b border-indigo-900/30 pb-2">
-                                                                <span>{item}</span>
-                                                                <span className="text-indigo-200/40">{text('placeholder')}</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </section>
+                                                <ConnectorConfigPanel
+                                                    session={session}
+                                                    selectedApp={selectedApp}
+                                                    text={text}
+                                                    reportError={reportActionError}
+                                                />
+
+                                                <ConnectorRunnerPanel
+                                                    session={session}
+                                                    selectedApp={selectedApp}
+                                                    githubRepoUrl={githubRepoUrl}
+                                                    text={text}
+                                                    reportError={reportActionError}
+                                                />
 
                                                 <DevFilesPanel
                                                     selectedApp={selectedApp}
