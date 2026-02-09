@@ -72,9 +72,9 @@ const readTemplates = (vars: Record<string, string>) => {
             if (!entry.name.endsWith('.tpl')) continue;
 
             const rel = path.relative(root, full).replace(/\\/g, '/');
-            const repoPath = rel.replace(/\\.tpl$/i, '');
+            const repoPath = rel.replace(/\.tpl$/i, '');
             const raw = fs.readFileSync(full, 'utf8');
-            const content = raw.replace(/\\{\\{\\s*([A-Z0-9_]+)\\s*\\}\\}/g, (_m, key) => vars[String(key)] ?? '');
+            const content = raw.replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (_m, key) => vars[String(key)] ?? '');
             out.push({ repoPath, content });
         }
     };
