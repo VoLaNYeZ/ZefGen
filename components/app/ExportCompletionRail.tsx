@@ -91,9 +91,7 @@ export const ExportCompletionRail = ({
                     onConfirm={onMarkCompleted}
                     className="w-full"
                 >
-                    <button
-                        type="button"
-                        disabled={isCompleted}
+                    <span
                         className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                             isCompleted
                                 ? 'border-white/10 text-indigo-200/40'
@@ -101,7 +99,7 @@ export const ExportCompletionRail = ({
                         }`}
                     >
                         {text('mark_completed')}
-                    </button>
+                    </span>
                 </ConfirmIconButton>
             </div>
         </div>

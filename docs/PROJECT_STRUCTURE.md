@@ -21,6 +21,7 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - `components.json` - Shadcn UI config.
 
 ## Key Directories
+- `api/` - Vercel Serverless Functions (served under `/api/*` in production).
 - `components/` - Reusable UI and feature components.
 - `components/app/` - Main app UI split into focused sections (see breakdown below).
 - `components/fancy/` - Custom visual effects, logo, and text treatments.
@@ -46,14 +47,30 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - `components/app/AppFolder.tsx` - App-folder wrapper and gooey layout container.
 - `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
-- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder.
-- `components/app/AppGenerationSection.tsx` - Generation controls, slot mapping, outputs.
-- `components/app/DevFilesPanel.tsx` - Dev/ops area (includes GitHub repo creation entrypoint).
+- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 6 in the AppFolder).
+- `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots).
+- `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
+- `components/app/ConnectorClientSpecPanel.tsx` - Idea picker placeholder + client spec editor (Step 2).
+- `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 4).
+- `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5).
 - `components/app/EditPanel.tsx` - Text-layer editor for generated assets.
 - `components/app/Lightbox.tsx` - Image lightbox overlay.
 - `components/app/GenerationQueueWidget.tsx` - Bottom-right job/status widget for generation + ZIP downloads.
 - `components/app/TextLayersCanvasOverlay.tsx` - Canvas-rendered text overlay for accurate shadow/outline preview.
 - `components/app/ConfirmIconButton.tsx` - Reusable inline delete confirmation popover for image deletes.
+
+## AppFolder Steps (Module Order)
+The App-level workflow inside the gooey folder is ordered as:
+1. Icon generation (`components/app/AppGenerationSection.tsx` via `IconGenerationModule`)
+2. Idea picker + Client spec (`components/app/ConnectorClientSpecPanel.tsx`) (project kind is fixed to iOS)
+3. GitHub repository (`components/app/DevFilesPanel.tsx`)
+4. Connector config: Variables + Secrets (`components/app/ConnectorVariablesSecretsPanel.tsx`)
+5. Runner (`components/app/ConnectorRunnerPanel.tsx`)
+6. Simulator screenshots (`components/app/AppSimulatorSection.tsx`)
+7. Screenshot prompts (`components/app/AppGenerationSection.tsx` via `ScreenshotPromptsModule`)
+8. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
+
+The sticky Deliverables rail is anchored to Steps 6–8 only.
 
 ## hooks Breakdown
 - `hooks/use-auth-session.ts` - Supabase auth session + loading state.
@@ -64,6 +81,9 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - `hooks/use-generated-assets.ts` - Generation actions, downloads, and edit state.
 - `hooks/use-generation-jobs.ts` - In-memory job tracking for long-running operations (generation, ZIP).
 - `hooks/use-app-screenshot-prompts.ts` - Screenshot prompt persistence in Supabase.
+- `hooks/use-connector-config-form.ts` - Loads/saves Connector app config + secret metadata (used by the Step 2/4 panels).
+- `hooks/use-connector-jobs.ts` - Connector runner job list + create/cancel actions.
+- `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
 - `hooks/use-slot-mappings.ts` - Slot mapping persistence.
@@ -83,6 +103,10 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - `data/asset-picks.ts` - Export pick queries and writes (`app_asset_picks`).
 - `data/export-status.ts` - Completion status queries and writes (`app_export_status`).
 - `data/app-screenshot-prompts.ts` - Screenshot prompt upserts/deletes.
+- `data/connector-app-config.ts` - Connector non-secret app config (`connector_app_configs`).
+- `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
+- `data/connector-jobs.ts` - Runner job queue (`connector_jobs`).
+- `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
 
 ## utils Breakdown
 - `utils/slug.ts` - Slug creation helpers.
@@ -113,7 +137,22 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - Serverless endpoint: `api/create-github-repo.ts` (Vercel Function) creates a private repo, adds default collaborators, and seeds template files.
 - Serverless endpoint: `api/delete-github-repo.ts` deletes the created repo and clears the stored app link.
 - Templates live in `templates/github/*.tpl` and are committed into the created repo with simple `{{VAR_NAME}}` substitution.
+- Important: keep runner-local instruction packs out of the remote repo. `ZefGen_Connector` blocks jobs if files like `INSTRUCTIONS.md`, `.agent/`, `docs/spec/`, etc become tracked in git.
 - Repo links are persisted on `public.apps` so they work across devices: `github_repo_url`, `github_repo_full_name`.
+- Invariant: repo creation requires a picked icon first, and seeds `assets/app_icon.jpg`.
+
+## Connector (Hosted Runner)
+- Migration: `supabase/migrations/2026-02-09_connector_runner_jobs.sql`
+  - Tables: `connector_app_configs`, `connector_app_secrets`, `connector_jobs`, `connector_job_messages`
+  - RPC: `connector_claim_next_job(p_runner_id text)` (service-role only)
+
+## Generation Providers (Prod)
+- `api/generate-screenshot.ts` runs server-side on Vercel so provider keys are never exposed to the client.
+- Replicate:
+  - Requires `REPLICATE_API_TOKEN` in the prod environment.
+  - If the token/account has insufficient credit, Replicate responds with 402 and the UI surfaces a billing/token ownership hint.
+- OpenAI:
+  - Requires `OPENAI_API_KEY` in the prod environment.
 
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).
@@ -129,4 +168,5 @@ Data flow: UI component → hook → data layer → Supabase.
 ## Local Dev Notes
 - `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
 - `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `create-github-repo`, `delete-github-repo`) so you can iterate without `vercel dev`.
+- The local middleware also exposes `GET /api/provider-status` for quick env diagnostics.
 - To run the full Vercel routing layer locally (for `/api/*` + rewrites), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.

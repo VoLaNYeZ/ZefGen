@@ -88,29 +88,27 @@ export const AppFolder = ({
                     className="app-folder-content space-y-5"
                     style={{ borderRadius: bodyCornerRadius, overflow: 'hidden' }}
                 >
-                    {isAssetsCollapsed ? (
-                        <section className="app-folder-section p-5">
+                    <section ref={appSimulatorRef} className="app-folder-section p-5">
+                        {simulator}
+                    </section>
+
+                    <section
+                        ref={appGenerationRef}
+                        className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
+                    >
+                        {isAssetsCollapsed ? (
                             <div className="flex justify-center">{collapsedAssets}</div>
-                        </section>
-                    ) : (
-                        <>
-                            <section ref={appSimulatorRef} className="app-folder-section p-5">
-                                {simulator}
-                            </section>
-
-                            <section
-                                ref={appGenerationRef}
-                                className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
-                            >
-                                {generation}
-                            </section>
-                        </>
-                    )}
+                        ) : (
+                            generation
+                        )}
+                    </section>
                 </div>
 
-                <div className="space-y-6 mt-6" ref={appFolderEndRef}>
-                    {endSections}
-                </div>
+                {endSections ? (
+                    <div className="space-y-6 mt-6" ref={appFolderEndRef}>
+                        {endSections}
+                    </div>
+                ) : null}
             </div>
         </div>
     );
