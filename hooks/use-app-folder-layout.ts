@@ -63,7 +63,7 @@ export const useAppFolderLayout = ({
             const activeIndex = visibleApps.findIndex((app) => app.id === selectedAppId);
             const bodyInset = 6;
             const bodyGap = 0;
-            const bodyTail = 30;
+            const bodyTail = 60;
             const verticalLift = 20;
             const minBodyTop = rowRect.bottom - wrapRect.top + bodyGap;
             let bodyTop = rowRect.top - wrapRect.top + bodyInset;
@@ -105,14 +105,24 @@ export const useAppFolderLayout = ({
             if (showBannedToggle) {
                 const rightClip = Math.max(0, tabWidth + 12);
                 const splitY = tabTop + tabHeight - 2;
-                clipPath = `polygon(0 -400px, calc(100% - ${rightClip}px) -400px, calc(100% - ${rightClip}px) ${splitY}px, 100% ${splitY}px, 100% 4000px, 0 4000px)`;
+                // Avoid hard-coded clip bottoms; long pages (many generated screenshots) can exceed 4000px.
+                // Keep an extra buffer so the gooey background can extend beyond the content without clipping.
+                const bottomClip = Math.ceil(wrapRect.height + 2000);
+                clipPath = `polygon(0 -400px, calc(100% - ${rightClip}px) -400px, calc(100% - ${rightClip}px) ${splitY}px, 100% ${splitY}px, 100% ${bottomClip}px, 0 ${bottomClip}px)`;
             }
 
             if (appFolderContentRef.current) {
-                const contentRect = appFolderContentRef.current.getBoundingClientRect();
-                const contentBottom = contentRect.bottom - wrapRect.top;
+                const contentEl = appFolderContentRef.current;
+                const contentRect = contentEl.getBoundingClientRect();
+                const contentHeight = Math.max(contentRect.height, contentEl.scrollHeight || 0);
+                const contentBottom = contentRect.top - wrapRect.top + contentHeight;
                 bodyHeight = Math.max(bodyHeight, Math.max(0, contentBottom - bodyTop) + bodyTail);
             }
+
+            // Final guard: ensure the folder body always covers the full content height.
+            // This prevents the "background cuts through the last module" issue when new sections are added.
+            const wrapHeight = Math.max(wrapRect.height, wrap.scrollHeight || 0);
+            bodyHeight = Math.max(bodyHeight, Math.max(0, wrapHeight - bodyTop) + bodyTail);
 
             setAppFolderLayout({
                 bodyTop,

@@ -31,7 +31,6 @@ export function ConnectorConfigPanel(props: {
 
     const [projectKind, setProjectKind] = React.useState<'ios' | 'web' | 'other'>('ios');
     const [projectBrief, setProjectBrief] = React.useState('');
-    const [verifyCommand, setVerifyCommand] = React.useState('');
     const [variables, setVariables] = React.useState<Record<string, any>>({});
 
     const [secretMetas, setSecretMetas] = React.useState<any[]>([]);
@@ -51,7 +50,6 @@ export function ConnectorConfigPanel(props: {
             if (cfg.data) {
                 setProjectKind((cfg.data as any).project_kind || 'ios');
                 setProjectBrief((cfg.data as any).project_brief || '');
-                setVerifyCommand(String((cfg.data as any).verify_command || ''));
                 setVariables((cfg.data as any).variables || {});
             } else {
                 // First use: create a default row (keeps UI consistent).
@@ -68,7 +66,6 @@ export function ConnectorConfigPanel(props: {
                 if (created.error) throw created.error;
                 setProjectKind((created.data as any)?.project_kind || 'ios');
                 setProjectBrief((created.data as any)?.project_brief || '');
-                setVerifyCommand(String((created.data as any)?.verify_command || ''));
                 setVariables((created.data as any)?.variables || {});
             }
 
@@ -100,7 +97,6 @@ export function ConnectorConfigPanel(props: {
                     project_kind: projectKind,
                     project_brief: projectBrief,
                     variables,
-                    verify_command: verifyCommand.trim() ? verifyCommand.trim() : null,
                 } as any,
             });
             if (resp.error) throw resp.error;
@@ -215,20 +211,11 @@ export function ConnectorConfigPanel(props: {
                         <textarea
                             value={projectBrief}
                             onChange={(e) => setProjectBrief(e.target.value)}
-                            rows={3}
+                            rows={10}
                             className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
                             placeholder={text('connector_project_brief_placeholder')}
                         />
-                    </div>
-                    <div className="mt-4">
-                        <div className="text-xs font-semibold text-indigo-100">{text('connector_verify_command')}</div>
-                        <input
-                            value={verifyCommand}
-                            onChange={(e) => setVerifyCommand(e.target.value)}
-                            className="mt-2 w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
-                            placeholder="./scripts/verify"
-                        />
-                        <div className="mt-1 text-[11px] text-indigo-200/45">{text('connector_verify_command_hint')}</div>
+                        <div className="mt-1 text-[11px] text-indigo-200/45">{text('connector_project_brief_hint')}</div>
                     </div>
                 </div>
 

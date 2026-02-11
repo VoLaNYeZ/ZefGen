@@ -72,7 +72,7 @@ export function DevFilesPanel(props: {
     };
 
     return (
-        <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
+        <section className="rounded-[28px] bg-slate-900 ring-1 ring-white/5 p-6">
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('dev_files_placeholder')}</p>

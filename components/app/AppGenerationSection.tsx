@@ -21,6 +21,18 @@ type GeneratedSlot = {
     versions: GeneratedAsset[];
 };
 
+export const IconGenerationModule = (props: Omit<AppGenerationSectionProps, 'mode'>) => (
+    <AppGenerationSection {...props} mode="icon" />
+);
+
+export const ScreenshotPromptsModule = (props: Omit<AppGenerationSectionProps, 'mode'>) => (
+    <AppGenerationSection {...props} mode="prompts" />
+);
+
+export const GeneratedScreenshotsModule = (props: Omit<AppGenerationSectionProps, 'mode'>) => (
+    <AppGenerationSection {...props} mode="generated" />
+);
+
 type AppGenerationSectionProps = {
     selectedApp: AppItem | null;
     brandIconReference: BrandReference | null;
@@ -108,9 +120,11 @@ type AppGenerationSectionProps = {
     ) => void;
     text: (key: TranslationKey) => string;
     fonts: string[];
+    mode?: 'all' | 'icon' | 'prompts' | 'generated';
 };
 
 export const AppGenerationSection = ({
+    mode = 'all',
     selectedApp,
     brandIconReference,
     brandScreenshotReferences,
@@ -232,17 +246,27 @@ export const AppGenerationSection = ({
         }
     }, [systemPromptOpenBySlotIndex, syncUnlimitedTextarea]);
 
+    const showHeader = mode === 'all';
+    const showIcon = mode === 'all' || mode === 'icon';
+    const showPrompts = mode === 'all' || mode === 'prompts';
+    const showGenerated = mode === 'all' || mode === 'generated';
+
     return (
         <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generation')}</p>
-                    <p className="text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
+            {showHeader && (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
+                            {text('generation')}
+                        </p>
+                        <p className="text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
+                    </div>
                 </div>
-            </div>
+            )}
 
-            <div className="mt-5 space-y-4">
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
+            <div className={`${showHeader ? 'mt-5 ' : ''}space-y-4`}>
+                {showIcon && (
+                <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-white">{text('generate_icon')}</p>
@@ -571,8 +595,8 @@ export const AppGenerationSection = ({
                                         </button>
                                     )}
                                 </div>
-                            );
-                        };
+    );
+};
 
                         return iconSlotIndices.length ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -583,15 +607,17 @@ export const AppGenerationSection = ({
                                 {text('no_generated_icons')}
                             </div>
                         );
-                    })()}
-                </div>
+	                    })()}
+	                </div>
+                )}
 
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <p className="text-sm font-semibold text-white">{text('screenshot_prompt_label')}</p>
-                            <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_hint')}</p>
-                        </div>
+                {showPrompts && (
+	                <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
+	                    <div className="flex flex-wrap items-start justify-between gap-3">
+	                        <div>
+	                            <p className="text-sm font-semibold text-white">{text('screenshot_prompt_label')}</p>
+	                            <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_hint')}</p>
+	                        </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="flex items-center gap-2">
                                 <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">
@@ -857,15 +883,17 @@ export const AppGenerationSection = ({
                                 </div>
                             );
                         })}
-                    </div>
-                </div>
+	                    </div>
+	                </div>
+                )}
 
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
-                    <div className="flex items-center justify-between gap-3">
-                        <div>
-                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
-                            <p className="text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
-                        </div>
+                {showGenerated && (
+	                <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
+	                    <div className="flex items-center justify-between gap-3">
+	                        <div>
+	                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
+	                            <p className="text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
+	                        </div>
                         <button
                             type="button"
                             onClick={handleDownloadAllScreenshots}
@@ -1437,9 +1465,10 @@ export const AppGenerationSection = ({
                                 </div>
                             );
                         })}
-                    </div>
-                </div>
-            </div>
-        </>
-    );
+	                    </div>
+	                </div>
+                )}
+	            </div>
+	        </>
+	    );
 };

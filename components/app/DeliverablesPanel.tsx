@@ -6,6 +6,7 @@ import type { TranslationKey } from '../../i18n';
 type Props = {
     isCompleted: boolean;
     pickedIconAsset: GeneratedAsset | null;
+    pickedIconPreviewUrl?: string | null;
     screenshotSets: AppScreenshotSet[];
     onDownloadIcon: () => void;
     onDownloadSetZip: (setId: string) => void;
@@ -16,6 +17,7 @@ type Props = {
 export const DeliverablesPanel = ({
     isCompleted,
     pickedIconAsset,
+    pickedIconPreviewUrl,
     screenshotSets,
     onDownloadIcon,
     onDownloadSetZip,
@@ -47,13 +49,25 @@ export const DeliverablesPanel = ({
                     type="button"
                     disabled={!isCompleted || !pickedIconAsset}
                     onClick={onDownloadIcon}
-                    className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                    className={`relative w-full rounded-full border px-3 py-2 text-[11px] font-semibold flex items-center justify-center ${
                         isCompleted && pickedIconAsset
                             ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
                             : 'border-white/10 text-indigo-200/40'
                     }`}
                 >
-                    {text('download')} icon
+                    {pickedIconPreviewUrl ? (
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 h-8 w-8 overflow-hidden rounded-xl border border-white/10 bg-slate-900/40">
+                            <img
+                                src={pickedIconPreviewUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                                draggable={false}
+                            />
+                        </span>
+                    ) : null}
+                    <span className="text-center">{text('download')} icon</span>
                 </button>
 
                 {(screenshotSets || []).map((set) => (

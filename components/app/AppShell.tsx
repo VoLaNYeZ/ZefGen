@@ -23,16 +23,18 @@ import { AppFolder } from './AppFolder';
 import { AppPills } from './AppPills';
 import { AppFormCard } from './AppFormCard';
 import { AppSimulatorSection } from './AppSimulatorSection';
-import { AppGenerationSection } from './AppGenerationSection';
+import { GeneratedScreenshotsModule, IconGenerationModule, ScreenshotPromptsModule } from './AppGenerationSection';
 import { Lightbox } from './Lightbox';
 import { GenerationQueueWidget } from './GenerationQueueWidget';
 import { ConfirmIconButton } from './ConfirmIconButton';
 import { DeliverablesPanel } from './DeliverablesPanel';
 import { ExportCompletionRail } from './ExportCompletionRail';
 import { DevFilesPanel } from './DevFilesPanel';
-import { ConnectorConfigPanel } from './ConnectorConfigPanel';
 import { ConnectorRunnerPanel } from './ConnectorRunnerPanel';
+import { ConnectorClientSpecPanel } from './ConnectorClientSpecPanel';
+import { ConnectorVariablesSecretsPanel } from './ConnectorVariablesSecretsPanel';
 import type { TextLayer } from '../../types/zefgen';
+import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 
 type AppShellProps = {
     session: Session;
@@ -443,6 +445,12 @@ export function AppShell({ session }: AppShellProps) {
         onDataError: setDataError,
     });
 
+    const connectorForm = useConnectorConfigForm({
+        session,
+        selectedApp,
+        reportError: reportActionError,
+    });
+
     // Note: we intentionally do NOT "live sync" these per-selected app anymore because it caused
     // visible count jitter in the sidebar. We'll replace this whole indicator pipeline later.
 
@@ -505,7 +513,8 @@ export function AppShell({ session }: AppShellProps) {
     const isSingleApp = hasApps && visibleApps.length === 1;
     const isFirstApp = hasApps && activeAppIndex === 0;
     const bodyCornerRadius = `${isFirstApp || isSingleApp ? 0 : 26}px 26px 26px 26px`;
-    const appFolderTheme = isBannedView ? 'rgba(127, 29, 29, 0.55)' : 'rgba(30, 41, 59, 0.55)';
+    // Opaque folder background so modules don't "blend" with the page and the background never looks cut off.
+    const appFolderTheme = isBannedView ? 'rgb(127, 29, 29)' : 'rgb(30, 41, 59)';
     const isAppReorderMode = appFormOpen;
 
     const pickedIconAsset = useMemo(() => {
@@ -696,6 +705,89 @@ export function AppShell({ session }: AppShellProps) {
         enhanceIconSlotGenerating !== null;
     const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
     const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
+    const connectorEnabled = Boolean(selectedApp);
+
+    const generationModuleProps = {
+        selectedApp,
+        brandIconReference,
+        brandScreenshotReferences,
+        selectedAppScreenshots,
+        screenshotSets,
+        activeScreenshotSetId,
+        setActiveScreenshotSetId,
+        handleAddScreenshotSet,
+        handleDeleteScreenshotSet,
+        assetExportStatus: exportStatus,
+        generatedIconSlots,
+        enhancedIconSlots,
+        generatedScreenshotSlots,
+        enhancedScreenshotSlots,
+        generatedPreviewUrls,
+        generatedUrls,
+        inflightScreenshotPreviewByKey,
+        generationCount,
+        setGenerationCount,
+        generationSize,
+        setGenerationSize,
+        iconGenerating,
+        iconSlotGenerating,
+        enhanceIconSlotGenerating,
+        screenshotsGenerating,
+        slotGenerating,
+        enhanceSlotGenerating,
+        canGenerateIcon,
+        canGenerateScreenshots,
+        targetSlotCount,
+        getSlotMapping,
+        updateSlotMapping,
+        promptsByRefId,
+        setPrompt,
+        iconProviderId,
+        setIconProviderId,
+        iconVariationsCount,
+        setIconVariationsCount,
+        screenshotProviderId,
+        setScreenshotProviderId,
+        slotHeadlineBySlotIndex,
+        slotHeadlinePosBySlotIndex,
+        setSlotHeadline,
+        setSlotHeadlinePosition,
+        beginSlotHeadlineDrag,
+        beginSlotHeadlineTextEdit,
+        undoSlotHeadline,
+        redoSlotHeadline,
+        editAssetId,
+        editDrafts,
+        editSaving,
+        beginEditAsset,
+        resetEditDraft,
+        updateLayer,
+        addLayer,
+        removeLayer,
+        handleSaveEdit,
+        handleGenerateIcon,
+        handleEnhanceIconSlot,
+        handleGenerateAllScreenshots,
+        handleGenerateSlot,
+        handleEnhanceSlot,
+        handleDownloadGeneratedAsset,
+        handleDownloadAllScreenshots,
+        handleDeleteGeneratedAsset,
+        getSystemPromptForSlot,
+        setSystemPromptOverride,
+        resetSystemPromptOverride,
+        pickedIconAssetId,
+        pickedScreenshotAssetIdBySlotIndex,
+        handlePickIcon,
+        handlePickScreenshot,
+        handleMarkAsCompleted,
+        handleBrandPromptChange,
+        handleBrandPromptSave,
+        handleAutoGrowInput,
+        openLightbox,
+        text,
+        fonts: EDIT_FONTS,
+    };
 
     useEffect(() => {
         if (!isBusy) return;
@@ -952,6 +1044,13 @@ export function AppShell({ session }: AppShellProps) {
                                                     <DeliverablesPanel
                                                         isCompleted={Boolean(exportStatus?.is_completed)}
                                                         pickedIconAsset={pickedIconAsset}
+                                                        pickedIconPreviewUrl={
+                                                            pickedIconAsset
+                                                                ? generatedPreviewUrls[pickedIconAsset.id] ||
+                                                                  generatedUrls[pickedIconAsset.id] ||
+                                                                  null
+                                                                : null
+                                                        }
                                                         screenshotSets={screenshotSets}
                                                         onDownloadIcon={() => {
                                                             if (!pickedIconAsset || !selectedApp) return;
@@ -1058,149 +1157,67 @@ export function AppShell({ session }: AppShellProps) {
                                             </>
                                         }
                                                 simulator={
-                                                    <AppSimulatorSection
-                                                        selectedApp={selectedApp}
-                                                        selectedAppScreenshots={selectedAppScreenshots}
-                                                        appScreenshotUrls={appScreenshotUrls}
-                                                        handleReorderAppScreenshot={handleReorderAppScreenshot}
-                                                        handleDeleteAppScreenshot={handleDeleteAppScreenshot}
-                                                        handleScreenshotDragOver={handleScreenshotDragOver}
-                                                        handleScreenshotDragLeave={handleScreenshotDragLeave}
-                                                        handleScreenshotDrop={handleScreenshotDrop}
-                                                        handleAppScreenshotsUpload={handleAppScreenshotsUpload}
-                                                        isScreenshotDropActive={isScreenshotDropActive}
-                                                        appScreenshotsUploading={appScreenshotsUploading}
-                                                        canUploadAppScreenshots={canUploadAppScreenshots}
-                                                        openLightbox={openLightbox}
-                                                        text={text}
-                                                    />
+                                                    <div className="space-y-6">
+                                                        {!assetsCollapsed && <IconGenerationModule {...generationModuleProps} />}
+
+                                                        <ConnectorClientSpecPanel
+                                                            connectorForm={connectorForm}
+                                                            isEnabled={connectorEnabled}
+                                                            ideaMode={ideaMode}
+                                                            setIdeaMode={setIdeaMode}
+                                                            text={text}
+                                                        />
+
+                                                        <DevFilesPanel
+                                                            selectedApp={selectedApp}
+                                                            githubRepoUrl={githubRepoUrl}
+                                                            isCreatingRepo={isCreatingGithubRepo}
+                                                            isDeletingRepo={isDeletingGithubRepo}
+                                                            onCreateRepo={handleCreateGithubRepo}
+                                                            onDeleteRepo={handleDeleteGithubRepo}
+                                                            text={text}
+                                                        />
+
+                                                        <ConnectorVariablesSecretsPanel
+                                                            connectorForm={connectorForm}
+                                                            isEnabled={connectorEnabled}
+                                                            text={text}
+                                                        />
+
+                                                        <ConnectorRunnerPanel
+                                                            session={session}
+                                                            selectedApp={selectedApp}
+                                                            githubRepoUrl={githubRepoUrl}
+                                                            text={text}
+                                                            reportError={reportActionError}
+                                                        />
+                                                    </div>
                                                 }
                                                 generation={
-                                                    <AppGenerationSection
-                                                        selectedApp={selectedApp}
-                                                        brandIconReference={brandIconReference}
-                                                        brandScreenshotReferences={brandScreenshotReferences}
-                                                        selectedAppScreenshots={selectedAppScreenshots}
-                                                        screenshotSets={screenshotSets}
-                                                        activeScreenshotSetId={activeScreenshotSetId}
-                                                        setActiveScreenshotSetId={setActiveScreenshotSetId}
-                                                        handleAddScreenshotSet={handleAddScreenshotSet}
-                                                        handleDeleteScreenshotSet={handleDeleteScreenshotSet}
-                                                        assetExportStatus={exportStatus}
-                                                        generatedIconSlots={generatedIconSlots}
-                                                        enhancedIconSlots={enhancedIconSlots}
-                                                        generatedScreenshotSlots={generatedScreenshotSlots}
-                                                        enhancedScreenshotSlots={enhancedScreenshotSlots}
-                                                        generatedPreviewUrls={generatedPreviewUrls}
-                                                        generatedUrls={generatedUrls}
-                                                        inflightScreenshotPreviewByKey={inflightScreenshotPreviewByKey}
-                                                        generationCount={generationCount}
-                                                        setGenerationCount={setGenerationCount}
-                                                        generationSize={generationSize}
-                                                        setGenerationSize={setGenerationSize}
-                                                        iconGenerating={iconGenerating}
-                                                        iconSlotGenerating={iconSlotGenerating}
-                                                        enhanceIconSlotGenerating={enhanceIconSlotGenerating}
-                                                        screenshotsGenerating={screenshotsGenerating}
-                                                        slotGenerating={slotGenerating}
-                                                        enhanceSlotGenerating={enhanceSlotGenerating}
-                                                        canGenerateIcon={canGenerateIcon}
-                                                        canGenerateScreenshots={canGenerateScreenshots}
-                                                        targetSlotCount={targetSlotCount}
-                                                        getSlotMapping={getSlotMapping}
-                                                        updateSlotMapping={updateSlotMapping}
-                                                        promptsByRefId={promptsByRefId}
-                                                        setPrompt={setPrompt}
-                                                        iconProviderId={iconProviderId}
-                                                        setIconProviderId={setIconProviderId}
-                                                        iconVariationsCount={iconVariationsCount}
-                                                        setIconVariationsCount={setIconVariationsCount}
-                                                        screenshotProviderId={screenshotProviderId}
-                                                        setScreenshotProviderId={setScreenshotProviderId}
-                                                        slotHeadlineBySlotIndex={slotHeadlineBySlotIndex}
-                                                        slotHeadlinePosBySlotIndex={slotHeadlinePosBySlotIndex}
-                                                        setSlotHeadline={setSlotHeadline}
-                                                        setSlotHeadlinePosition={setSlotHeadlinePosition}
-                                                        beginSlotHeadlineDrag={beginSlotHeadlineDrag}
-                                                        beginSlotHeadlineTextEdit={beginSlotHeadlineTextEdit}
-                                                        undoSlotHeadline={undoSlotHeadline}
-                                                        redoSlotHeadline={redoSlotHeadline}
-                                                        editAssetId={editAssetId}
-                                                        editDrafts={editDrafts}
-                                                        editSaving={editSaving}
-                                                        beginEditAsset={beginEditAsset}
-                                                        resetEditDraft={resetEditDraft}
-                                                        updateLayer={updateLayer}
-                                                        addLayer={addLayer}
-                                                        removeLayer={removeLayer}
-                                                        handleSaveEdit={handleSaveEdit}
-                                                        handleGenerateIcon={handleGenerateIcon}
-                                                        handleEnhanceIconSlot={handleEnhanceIconSlot}
-                                                        handleGenerateAllScreenshots={handleGenerateAllScreenshots}
-                                                        handleGenerateSlot={handleGenerateSlot}
-                                                        handleEnhanceSlot={handleEnhanceSlot}
-                                                        handleDownloadGeneratedAsset={handleDownloadGeneratedAsset}
-                                                        handleDownloadAllScreenshots={handleDownloadAllScreenshots}
-                                                        handleDeleteGeneratedAsset={handleDeleteGeneratedAsset}
-                                                        getSystemPromptForSlot={getSystemPromptForSlot}
-                                                        setSystemPromptOverride={setSystemPromptOverride}
-                                                        resetSystemPromptOverride={resetSystemPromptOverride}
-                                                        pickedIconAssetId={pickedIconAssetId}
-                                                        pickedScreenshotAssetIdBySlotIndex={pickedScreenshotAssetIdBySlotIndex}
-                                                        handlePickIcon={handlePickIcon}
-                                                        handlePickScreenshot={handlePickScreenshot}
-                                                        handleMarkAsCompleted={handleMarkAsCompleted}
-                                                        handleBrandPromptChange={handleBrandPromptChange}
-                                                        handleBrandPromptSave={handleBrandPromptSave}
-                                                        handleAutoGrowInput={handleAutoGrowInput}
-                                                        openLightbox={openLightbox}
-                                                        text={text}
-                                                        fonts={EDIT_FONTS}
-                                                    />
-                                                }
-                                                endSections={
-                                                    <>
-                                                <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 p-6 mx-6">
-                                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
-                                                        Idea picker (placeholder)
-                                                    </p>
-                                                    <div className="mt-3 flex items-center gap-3">
-                                                        <select
-                                                            value={ideaMode}
-                                                            onChange={(e) => setIdeaMode((e.target.value as any) || 'autonmode')}
-                                                            className="rounded-full border border-indigo-400/25 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 outline-none hover:border-indigo-400/40"
-                                                        >
-                                                            <option value="autonmode">autonmode</option>
-                                                        </select>
+                                                    <div className="space-y-6">
+                                                        <AppSimulatorSection
+                                                            selectedApp={selectedApp}
+                                                            selectedAppScreenshots={selectedAppScreenshots}
+                                                            appScreenshotUrls={appScreenshotUrls}
+                                                            handleReorderAppScreenshot={handleReorderAppScreenshot}
+                                                            handleDeleteAppScreenshot={handleDeleteAppScreenshot}
+                                                            handleScreenshotDragOver={handleScreenshotDragOver}
+                                                            handleScreenshotDragLeave={handleScreenshotDragLeave}
+                                                            handleScreenshotDrop={handleScreenshotDrop}
+                                                            handleAppScreenshotsUpload={handleAppScreenshotsUpload}
+                                                            isScreenshotDropActive={isScreenshotDropActive}
+                                                            appScreenshotsUploading={appScreenshotsUploading}
+                                                            canUploadAppScreenshots={canUploadAppScreenshots}
+                                                            openLightbox={openLightbox}
+                                                            text={text}
+                                                        />
+
+                                                        <ScreenshotPromptsModule {...generationModuleProps} />
+
+                                                        <GeneratedScreenshotsModule {...generationModuleProps} />
                                                     </div>
-                                                </section>
-
-                                                <ConnectorConfigPanel
-                                                    session={session}
-                                                    selectedApp={selectedApp}
-                                                    text={text}
-                                                    reportError={reportActionError}
-                                                />
-
-                                                <ConnectorRunnerPanel
-                                                    session={session}
-                                                    selectedApp={selectedApp}
-                                                    githubRepoUrl={githubRepoUrl}
-                                                    text={text}
-                                                    reportError={reportActionError}
-                                                />
-
-                                                <DevFilesPanel
-                                                    selectedApp={selectedApp}
-                                                    githubRepoUrl={githubRepoUrl}
-                                                    isCreatingRepo={isCreatingGithubRepo}
-                                                    isDeletingRepo={isDeletingGithubRepo}
-                                                    onCreateRepo={handleCreateGithubRepo}
-                                                    onDeleteRepo={handleDeleteGithubRepo}
-                                                    text={text}
-                                                />
-                                                    </>
                                                 }
+                                                endSections={null}
                                         />
                                     </div>
                                 </div>

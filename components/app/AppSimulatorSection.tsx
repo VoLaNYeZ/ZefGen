@@ -51,7 +51,7 @@ export const AppSimulatorSection = ({
     const orderedIds = React.useMemo(() => selectedAppScreenshots.map((shot) => shot.id), [selectedAppScreenshots]);
 
     return (
-        <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4">
+        <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -7,9 +8,22 @@ import type { Plugin } from 'vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const findRepoRoot = (startDir: string) => {
+  // Vite may copy this config into `node_modules/.vite-temp/`, so `__dirname` is not stable.
+  // Walk upwards until we find the nearest `package.json` (the project root).
+  let dir = startDir;
+  for (let i = 0; i < 20; i++) {
+    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return startDir;
+};
+
 export default defineConfig(({ mode }) => {
   // Ensure Vite always reads `.env*` from this repo (not from whatever cwd `vite` was launched from).
-  const envDir = __dirname;
+  const envDir = findRepoRoot(__dirname);
 
   // Load env vars into process.env so local dev server middleware (and other server-side code)
   // can read secrets like OPENAI_API_KEY / REPLICATE_API_TOKEN safely.
@@ -28,6 +42,15 @@ export default defineConfig(({ mode }) => {
     name: 'zefgen:local-api',
     apply: 'serve',
     configureServer(server) {
+      const resolveLocalModule = (modulePath: string) => {
+        const rel = modulePath.replace(/^\.\//, '');
+        const base = path.resolve(envDir, rel);
+        const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.mjs`];
+        const found = candidates.find((p) => fs.existsSync(p));
+        if (!found) throw new Error(`Local API module not found: ${modulePath}`);
+        return found;
+      };
+
       const wire = (route: string, modulePath: string) => {
         server.middlewares.use(route, async (req, res) => {
           try {
@@ -49,9 +72,16 @@ export default defineConfig(({ mode }) => {
               (req as any).body = {};
             }
 
-            const mod = await import(modulePath);
+            const absPath = resolveLocalModule(modulePath);
+            // Use Vite's SSR loader so TS files work and paths don't break when Vite copies config into `.vite-temp/`.
+            const mod = await server.ssrLoadModule(absPath);
             const handler = (mod as any).default;
-            return handler(req, res);
+            if (typeof handler !== 'function') {
+              throw new Error(`Local API module missing default export: ${absPath}`);
+            }
+            // Important: await so async handler errors are caught and returned as JSON (instead of a vague 500).
+            await handler(req, res);
+            return;
           } catch (err: any) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -63,6 +93,7 @@ export default defineConfig(({ mode }) => {
       wire('/api/generate-screenshot', './api/generate-screenshot');
       wire('/api/create-github-repo', './api/create-github-repo');
       wire('/api/delete-github-repo', './api/delete-github-repo');
+      wire('/api/provider-status', './api/provider-status');
     },
   });
 
@@ -77,7 +108,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), localApiPlugin()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': envDir,
       }
     },
     build: {
