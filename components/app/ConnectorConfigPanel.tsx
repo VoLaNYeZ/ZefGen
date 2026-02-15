@@ -255,7 +255,7 @@ export function ConnectorConfigPanel(props: {
                             value={secretKey}
                             onChange={(e) => setSecretKey(e.target.value)}
                             className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
-                            placeholder="APPHUD_API_KEY"
+                            placeholder="OPENAI_API_KEY"
                         />
                         <input
                             value={secretValue}

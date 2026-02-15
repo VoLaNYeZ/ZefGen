@@ -30,7 +30,7 @@ export function ConnectorClientSpecPanel(props: {
                         value={ideaMode}
                         onChange={(e) => setIdeaMode((e.target.value as any) || 'autonmode')}
                         disabled={!isEnabled}
-                        className="rounded-full border border-indigo-400/25 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 outline-none hover:border-indigo-400/40 disabled:opacity-60"
+                        className="ui-btn-fit rounded-full border border-indigo-400/25 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 outline-none hover:border-indigo-400/40 disabled:opacity-60"
                     >
                         <option value="autonmode">autonmode</option>
                     </select>
@@ -53,7 +53,7 @@ export function ConnectorClientSpecPanel(props: {
                             type="button"
                             onClick={connectorForm.refresh}
                             disabled={!isEnabled || connectorForm.loading}
-                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 hover:border-indigo-400/40 disabled:opacity-60"
+                            className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 hover:border-indigo-400/40 disabled:opacity-60"
                         >
                             {connectorForm.loading ? text('loading') : text('refresh')}
                         </button>
@@ -61,7 +61,7 @@ export function ConnectorClientSpecPanel(props: {
                             type="button"
                             onClick={() => connectorForm.savePatch({ project_brief: connectorForm.projectBrief })}
                             disabled={!isEnabled || connectorForm.saving}
-                            className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                            className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                         >
                             {connectorForm.saving ? text('saving') : text('save')}
                         </button>
@@ -88,4 +88,3 @@ export function ConnectorClientSpecPanel(props: {
         </div>
     );
 }
-

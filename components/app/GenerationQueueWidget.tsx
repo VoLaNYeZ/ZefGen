@@ -2,12 +2,43 @@ import React from 'react';
 import { CheckCircle2, XCircle, Loader2, X, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import type { GenerationJob } from '../../hooks/use-generation-jobs';
 
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
 const formatMs = (ms: number) => {
     const s = Math.max(0, Math.floor(ms / 1000));
     const m = Math.floor(s / 60);
     const r = s % 60;
     if (m <= 0) return `${r}s`;
     return `${m}m ${r}s`;
+};
+
+const parseEtaMsFromMessage = (message: string | undefined) => {
+    const msg = String(message || '');
+    const m = msg.match(/~\s*(\d+)\s*([sm])(?:\b|\/)/i);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const unit = String(m[2] || '').toLowerCase();
+    if (unit === 'm') return Math.round(n * 60_000);
+    return Math.round(n * 1000);
+};
+
+const fallbackEtaMsForJob = (job: GenerationJob) => {
+    if (job.providerId === 'replicate:seedream-4') return 40_000;
+    if (job.providerId === 'replicate:nano-banana-pro') return 120_000;
+    if (job.providerId && String(job.providerId).startsWith('openai:')) return 120_000;
+    return null;
+};
+
+const hashU32 = (s: string) => {
+    // Small deterministic hash for stable per-job wobble. Not crypto; just UI feel.
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i += 1) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
 };
 
 export const GenerationQueueWidget = (props: {
@@ -19,6 +50,104 @@ export const GenerationQueueWidget = (props: {
     const { jobs, onDismissJob, onClearFinished, onCancelJob } = props;
     const runningCount = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
     const [open, setOpen] = React.useState(false);
+    const [now, setNow] = React.useState(() => Date.now());
+
+    const lastProgressByJobIdRef = React.useRef<Record<string, number>>({});
+    const unitStartedAtByJobIdRef = React.useRef<Record<string, number>>({});
+    const maxVisualByJobIdRef = React.useRef<Record<string, number>>({});
+
+    React.useEffect(() => {
+        if (runningCount <= 0) return;
+        setNow(Date.now());
+        const t = window.setInterval(() => setNow(Date.now()), 250);
+        return () => window.clearInterval(t);
+    }, [runningCount]);
+
+    React.useEffect(() => {
+        const seen = new Set(jobs.map((j) => j.id));
+        const cleanup = (ref: React.MutableRefObject<Record<string, number>>) => {
+            Object.keys(ref.current).forEach((id) => {
+                if (!seen.has(id)) delete ref.current[id];
+            });
+        };
+        cleanup(lastProgressByJobIdRef);
+        cleanup(unitStartedAtByJobIdRef);
+        cleanup(maxVisualByJobIdRef);
+
+        const ts = Date.now();
+        for (const job of jobs) {
+            if (!job.progress) continue;
+            const isRunning = job.status === 'running' || job.status === 'queued';
+            if (!isRunning) {
+                delete lastProgressByJobIdRef.current[job.id];
+                delete unitStartedAtByJobIdRef.current[job.id];
+                delete maxVisualByJobIdRef.current[job.id];
+                continue;
+            }
+
+            const cur = Number(job.progress.current || 0);
+            const total = Math.max(1, Number(job.progress.total || 1));
+            const last = lastProgressByJobIdRef.current[job.id];
+            if (typeof last !== 'number') {
+                lastProgressByJobIdRef.current[job.id] = cur;
+                unitStartedAtByJobIdRef.current[job.id] = job.startedAt;
+                maxVisualByJobIdRef.current[job.id] = clamp01(cur / total);
+            } else if (cur !== last) {
+                lastProgressByJobIdRef.current[job.id] = cur;
+                unitStartedAtByJobIdRef.current[job.id] = ts;
+                maxVisualByJobIdRef.current[job.id] = Math.max(maxVisualByJobIdRef.current[job.id] ?? 0, clamp01(cur / total));
+            }
+        }
+    }, [jobs]);
+
+    const getVisualProgress = React.useCallback(
+        (job: GenerationJob) => {
+            if (!job.progress) return null;
+
+            const total = Math.max(1, Number(job.progress.total || 1));
+            const current = clamp(Number(job.progress.current || 0), 0, total);
+            const real = current / total;
+
+            if (job.status === 'success') return 1;
+            const isRunning = job.status === 'running' || job.status === 'queued';
+            if (!isRunning) return clamp01(real);
+
+            const etaMs =
+                parseEtaMsFromMessage(job.message) ??
+                fallbackEtaMsForJob(job);
+            if (!etaMs) return clamp01(real);
+
+            const unitStartedAt = unitStartedAtByJobIdRef.current[job.id] ?? job.startedAt;
+            const elapsedUnit = Math.max(0, now - unitStartedAt);
+            const t = clamp01(elapsedUnit / etaMs);
+
+            // Ease-out so it moves quickly at first but slows near the end of a unit.
+            const eased = 1 - Math.pow(1 - t, 2.2);
+
+            // Small deterministic wobble to avoid a perfectly linear feel.
+            const h = hashU32(job.id);
+            const phase = ((h % 1000) / 1000) * Math.PI * 2;
+            const freq = 0.75 + (((h >>> 10) % 1000) / 1000) * 0.45;
+            const amp = 0.028 + (((h >>> 20) % 1000) / 1000) * 0.02;
+            const wobble = (Math.sin((now / 1000) * freq + phase) + 1) * 0.5 * amp;
+
+            const withinUnit = clamp(eased + wobble, 0, 0.92);
+            const pseudo = (current + withinUnit) / total;
+
+            let visual = clamp(Math.max(real, pseudo), 0, 0.97);
+
+            // Prevent jitter/backtracking (wobble should feel organic, not "shaky").
+            const prevMax = maxVisualByJobIdRef.current[job.id] ?? 0;
+            if (visual < prevMax) {
+                visual = prevMax;
+            } else {
+                maxVisualByJobIdRef.current[job.id] = visual;
+            }
+
+            return visual;
+        },
+        [now]
+    );
 
     React.useEffect(() => {
         if (runningCount > 0) setOpen(true);
@@ -65,7 +194,6 @@ export const GenerationQueueWidget = (props: {
 
                         <div className="max-h-[260px] overflow-y-auto pr-1 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40">
                             {jobs.map((job) => {
-                                const now = Date.now();
                                 const end = job.endedAt ?? now;
                                 const elapsed = end - job.startedAt;
                                 const progressText = job.progress
@@ -125,11 +253,16 @@ export const GenerationQueueWidget = (props: {
                                         </div>
                                         {job.progress && (
                                             <div className="mt-2 h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
+                                                {/*
+                                                    Visual progress is ETA-based (organic) so it keeps moving
+                                                    even when real progress is 0 until the unit completes.
+                                                */}
                                                 <div
                                                     className="h-full bg-indigo-400/60"
                                                     style={{
                                                         width: `${Math.round(
-                                                            (job.progress.current / Math.max(1, job.progress.total)) * 100
+                                                            (getVisualProgress(job) ?? job.progress.current / Math.max(1, job.progress.total)) *
+                                                                100
                                                         )}%`,
                                                     }}
                                                 />

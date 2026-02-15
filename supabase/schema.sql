@@ -13,6 +13,8 @@ create table if not exists public.brands (
     user_id uuid not null references auth.users(id) on delete cascade,
     name text not null,
     slug text not null,
+    -- Brand ordering via order_index. (2026-02-14)
+    order_index integer not null default 0,
     -- Brand release planning metadata (target countries, keywords, notes). (2026-02-08)
     target_countries text[] not null default '{}',
     keywords text not null default '' check (char_length(keywords) <= 100),
@@ -23,6 +25,7 @@ create table if not exists public.brands (
 
 create unique index if not exists brands_user_slug_key on public.brands (user_id, slug);
 create index if not exists brands_user_id_idx on public.brands (user_id);
+create index if not exists brands_user_order_idx on public.brands (user_id, order_index);
 
 create table if not exists public.apps (
     id uuid primary key default gen_random_uuid(),

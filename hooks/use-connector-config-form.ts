@@ -39,7 +39,11 @@ export const useConnectorConfigForm = (payload: {
                     patch: {
                         project_kind: 'ios',
                         project_brief: '',
-                        variables: {},
+                        variables: {
+                            privacy_policy_url: 'https://google.com',
+                            terms_of_use_url: 'https://google.com',
+                            support_form_url: 'https://google.com',
+                        },
                         verify_command: null,
                     },
                 });
@@ -172,4 +176,3 @@ export const useConnectorConfigForm = (payload: {
         removeSecret,
     };
 };
-

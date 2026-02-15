@@ -45,6 +45,14 @@ export const fetchConnectorJobs = async (payload: { userId: string; appId: strin
         .order('created_at', { ascending: false })
         .limit(payload.limit ?? 15);
 
+export const fetchConnectorJobsForUser = async (payload: { userId: string; limit?: number }) =>
+    supabase
+        .from('connector_jobs')
+        .select('*')
+        .eq('user_id', payload.userId)
+        .order('updated_at', { ascending: false })
+        .limit(payload.limit ?? 25);
+
 export const createConnectorJob = async (payload: {
     userId: string;
     appId: string;
@@ -79,4 +87,3 @@ export const requestCancelConnectorJob = async (payload: { userId: string; jobId
         .select('*')
         .single();
 };
-

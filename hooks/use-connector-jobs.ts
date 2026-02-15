@@ -92,6 +92,30 @@ export const useConnectorJobs = (payload: {
         return data;
     }, [session, selectedApp, refresh, getRepoFullName]);
 
+    const createContinueJob = useCallback(
+        async (fromJobId: string) => {
+            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            const repoFullName = getRepoFullName();
+            if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
+
+            const srcId = String(fromJobId || '').trim();
+            if (!srcId) throw new Error('Missing fromJobId for continue.');
+
+            const { data, error: e } = await createConnectorJob({
+                userId: session.user.id,
+                appId: selectedApp.id,
+                kind: 'generate',
+                repoFullName,
+                baseBranch: 'main',
+                input: { resume: { from_job_id: srcId } },
+            });
+            if (e) throw e;
+            await refresh();
+            return data;
+        },
+        [session, selectedApp, refresh, getRepoFullName]
+    );
+
     const createFixJob = useCallback(
         async (bugReport: string) => {
             if (!session || !selectedApp) throw new Error('No session/app selected.');
@@ -131,6 +155,7 @@ export const useConnectorJobs = (payload: {
         error,
         refresh,
         createGenerateJob,
+        createContinueJob,
         createFixJob,
         requestCancel,
     };

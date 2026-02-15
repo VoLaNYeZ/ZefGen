@@ -7,8 +7,11 @@ import {
     X,
     Users,
     Lightbulb,
+    GripVertical,
 } from 'lucide-react';
 import { TranslationKey } from '../../i18n';
+import { SortableList } from './dnd/sortable-list';
+import { useSortableTile } from './dnd/sortable-grid';
 import {
     BreathingText,
     LetterSwapForward,
@@ -52,10 +55,11 @@ type SidebarProps = {
     dataLoading: boolean;
     isBusy: boolean;
     onBlockedAction: () => void;
+    reorderBrands: (sourceId: string, targetId: string) => void;
     openBrandForm: (brand?: Brand) => void;
     submitBrandForm: (event: React.FormEvent) => void;
     setBrandForm: React.Dispatch<React.SetStateAction<BrandFormState>>;
-    setBrandFormOpen: (value: boolean) => void;
+    closeBrandForm: () => void;
     setSelectedBrandId: (value: string | null) => void;
     openLightbox: (
         src: string,
@@ -90,10 +94,11 @@ export const Sidebar = ({
     dataLoading,
     isBusy,
     onBlockedAction,
+    reorderBrands,
     openBrandForm,
     submitBrandForm,
     setBrandForm,
-    setBrandFormOpen,
+    closeBrandForm,
     setSelectedBrandId,
     openLightbox,
     handleLogout,
@@ -121,6 +126,69 @@ export const Sidebar = ({
         return `${dim} text-rose-50/90`;
     };
 
+    const brandListRef = React.useRef<HTMLDivElement | null>(null);
+    const brandRowRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+    const [activeBrandRect, setActiveBrandRect] = React.useState<{ top: number; height: number } | null>(null);
+    const [brandListDragActiveId, setBrandListDragActiveId] = React.useState<string | null>(null);
+    const brandListLastDragAtRef = React.useRef<number>(0);
+    const isBrandReorderMode = brandFormOpen && Boolean(editingBrandId);
+
+    const updateActiveBrandHighlight = React.useCallback(() => {
+        const container = brandListRef.current;
+        const activeBrandId = selectedBrandId;
+        if (!container || !activeBrandId) {
+            setActiveBrandRect(null);
+            return;
+        }
+
+        const activeRow = brandRowRefs.current[activeBrandId];
+        if (!activeRow) {
+            setActiveBrandRect(null);
+            return;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        const rowRect = activeRow.getBoundingClientRect();
+        setActiveBrandRect({
+            top: rowRect.top - containerRect.top + container.scrollTop,
+            height: rowRect.height,
+        });
+    }, [selectedBrandId]);
+
+    React.useEffect(() => {
+        updateActiveBrandHighlight();
+        const container = brandListRef.current;
+        if (!container) return;
+
+        const handleRecalc = () => {
+            requestAnimationFrame(updateActiveBrandHighlight);
+        };
+
+        container.addEventListener('scroll', handleRecalc, { passive: true });
+        window.addEventListener('resize', handleRecalc);
+
+        const resizeObserver = new ResizeObserver(() => {
+            handleRecalc();
+        });
+        resizeObserver.observe(container);
+
+        Object.values(brandRowRefs.current).forEach((row) => {
+            if (row) resizeObserver.observe(row);
+        });
+
+        return () => {
+            container.removeEventListener('scroll', handleRecalc);
+            window.removeEventListener('resize', handleRecalc);
+            resizeObserver.disconnect();
+        };
+    }, [brands, selectedBrandId, updateActiveBrandHighlight]);
+
+    const brandById = React.useMemo(() => {
+        const map = new Map<string, Brand>();
+        brands.forEach((b) => map.set(b.id, b));
+        return map;
+    }, [brands]);
+
     return (
         <aside
             className={`
@@ -134,11 +202,9 @@ export const Sidebar = ({
                         type="button"
                         onClick={() =>
                             setLogoVariantIndex((prev) => {
-                                let next = prev;
-                                while (next === prev) {
-                                    next = Math.floor(Math.random() * 6);
-                                }
-                                return next;
+                                const baseBag = [0, 1, 2, 3, 4, 4, 4, 5]; // Slight bias towards BreathingText (index 4).
+                                const bag = baseBag.filter((v) => v !== prev);
+                                return bag[Math.floor(Math.random() * bag.length)] ?? ((prev + 1) % 6);
                             })
                         }
                         className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-xl bg-slate-900/30 flex items-center justify-center overflow-hidden"
@@ -213,8 +279,8 @@ export const Sidebar = ({
                 </button>
             </div>
 
-            <div className="px-4 pb-4">
-                {brandFormOpen && (
+            {brandFormOpen ? (
+                <div className="px-4 pb-4">
                     <form
                         onSubmit={submitBrandForm}
                         className="animate-shelf rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3"
@@ -244,17 +310,30 @@ export const Sidebar = ({
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setBrandFormOpen(false)}
+                                onClick={() => closeBrandForm()}
                                 className="rounded-xl border border-indigo-900/60 px-3 py-2 text-xs text-indigo-200/70 hover:text-white"
                             >
                                 {text('cancel')}
                             </button>
                         </div>
                     </form>
-                )}
-            </div>
+                </div>
+            ) : null}
 
-            <div className="flex-1 overflow-y-auto px-3 pt-2 pb-6 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40">
+            <div
+                ref={brandListRef}
+                className="relative flex-1 overflow-y-auto px-3 pt-1 pb-6 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40"
+            >
+                {activeBrandRect && !brandListDragActiveId ? (
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-3 right-3 top-0 rounded-2xl border border-indigo-400/30 bg-indigo-500/15 transition-[transform,height] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+                        style={{
+                            transform: `translateY(${activeBrandRect.top}px)`,
+                            height: `${activeBrandRect.height}px`,
+                        }}
+                    />
+                ) : null}
                 {dataLoading && (
                     <div className="flex items-center gap-2 text-xs text-indigo-200/60 px-3">
                         <Loader2 className="animate-spin" size={14} />
@@ -266,80 +345,87 @@ export const Sidebar = ({
                         {text('no_brands_yet')}
                     </div>
                 )}
-                {brands.map((brand) => {
-                    const isActive = brand.id === selectedBrandId;
-                    const iconUrl = brandIconUrls[brand.id];
-                    const summary = brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
-                    return (
-                        <button
-                            key={brand.id}
-                            onClick={() => {
-                                if (isBusy) {
-                                    onBlockedAction();
-                                    return;
-                                }
-                                setSelectedBrandId(brand.id);
-                                if (window.innerWidth < 768) setIsSidebarOpen(false);
-                            }}
-                            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 ${
-                                isActive
-                                    ? 'ring-indigo-400/40 bg-slate-900/80 shadow-[0_14px_30px_-25px_rgba(99,102,241,0.6)]'
-                                    : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70'
-                            }`}
-                        >
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 ${
-                                            iconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
-                                        }`}
-                                    >
-                                        {iconUrl ? (
-                                            <img
-                                                src={iconUrl}
-                                                alt={text('icon_reference')}
-                                                className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    openLightbox(iconUrl, text('icon_reference'));
-                                                }}
-                                            />
-                                        ) : (
-                                            <span>{brand.name.slice(0, 1).toUpperCase()}</span>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <p className="font-semibold text-white">{brand.name}</p>
-                                        <p className="text-xs text-indigo-200/60">/{brand.slug}</p>
-                                    </div>
-                                </div>
-                                <div
-                                    className="flex items-center gap-2 shrink-0"
-                                    title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
-                                >
-                                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
-                                        {clampCount(summary.active)}
-                                    </span>
-                                    <div className="flex flex-col items-end justify-center gap-0.5">
-                                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                                            <span className={dotClass('green', summary.green)} />
-                                            <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                                            <span className={dotClass('yellow', summary.yellow)} />
-                                            <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                                            <span className={dotClass('red', summary.red)} />
-                                            <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
-                                        </div>
-                                    </div>
-                                    {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
-                                </div>
-                            </div>
-                        </button>
-                    );
-                })}
+                {isBrandReorderMode ? (
+                    <SortableList
+                        ids={brands.map((b) => b.id)}
+                        disabled={isBusy}
+                        onActiveIdChange={setBrandListDragActiveId}
+                        onCommitMove={({ activeId, toIndex }) => {
+                            const targetId = brands[toIndex]?.id;
+                            if (!targetId) return;
+                            brandListLastDragAtRef.current = Date.now();
+                            reorderBrands(activeId, targetId);
+                        }}
+                    >
+                        {(orderedIds, activeId) => (
+                            <>
+                                {orderedIds.map((brandId) => {
+                                    const brand = brandById.get(brandId);
+                                    if (!brand) return null;
+                                    const iconUrl = brandIconUrls[brand.id];
+                                    const summary =
+                                        brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
+                                    return (
+                                        <SortableBrandRow
+                                            key={brand.id}
+                                            brand={brand}
+                                            iconUrl={iconUrl}
+                                            summary={summary}
+                                            isActive={brand.id === selectedBrandId}
+                                            isBusy={isBusy}
+                                            isDragging={Boolean(activeId)}
+                                            showDragIndicator={isBrandReorderMode}
+                                            onBlockedAction={onBlockedAction}
+                                            onSelect={() => {
+                                                if (Date.now() - brandListLastDragAtRef.current < 250) return;
+                                                setSelectedBrandId(brand.id);
+                                                if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                            }}
+                                            onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                            clampCount={clampCount}
+                                            dotClass={dotClass}
+                                            countTextClass={countTextClass}
+                                            setRowRef={(el) => {
+                                                brandRowRefs.current[brand.id] = el;
+                                            }}
+                                            text={text}
+                                        />
+                                    );
+                                })}
+                            </>
+                        )}
+                    </SortableList>
+                ) : (
+                    brands.map((brand) => {
+                        const isActive = brand.id === selectedBrandId;
+                        const iconUrl = brandIconUrls[brand.id];
+                        const summary =
+                            brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
+                        return (
+                            <PlainBrandRow
+                                key={brand.id}
+                                brand={brand}
+                                iconUrl={iconUrl}
+                                summary={summary}
+                                isActive={isActive}
+                                isBusy={isBusy}
+                                onBlockedAction={onBlockedAction}
+                                onSelect={() => {
+                                    setSelectedBrandId(brand.id);
+                                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                }}
+                                onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                clampCount={clampCount}
+                                dotClass={dotClass}
+                                countTextClass={countTextClass}
+                                setRowRef={(el) => {
+                                    brandRowRefs.current[brand.id] = el;
+                                }}
+                                text={text}
+                            />
+                        );
+                    })
+                )}
             </div>
 
             <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-3">
@@ -410,3 +496,233 @@ export const Sidebar = ({
         </aside>
     );
 };
+
+function PlainBrandRow({
+    brand,
+    iconUrl,
+    summary,
+    isActive,
+    isBusy,
+    onBlockedAction,
+    onSelect,
+    onOpenLightbox,
+    clampCount,
+    dotClass,
+    countTextClass,
+    setRowRef,
+    text,
+}: {
+    brand: Brand;
+    iconUrl: string | undefined;
+    summary: { total: number; active: number; green: number; yellow: number; red: number };
+    isActive: boolean;
+    isBusy: boolean;
+    onBlockedAction: () => void;
+    onSelect: () => void;
+    onOpenLightbox: () => void;
+    clampCount: (n: number) => string;
+    dotClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
+    countTextClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
+    setRowRef: (el: HTMLButtonElement | null) => void;
+    text: (key: TranslationKey) => string;
+}) {
+    return (
+        <button
+            ref={setRowRef}
+            onClick={() => {
+                if (isBusy) {
+                    onBlockedAction();
+                    return;
+                }
+                onSelect();
+            }}
+            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 ${
+                isActive
+                    ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
+                    : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70'
+            }`}
+        >
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                    <div
+                        className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 shrink-0 ${
+                            iconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
+                        }`}
+                    >
+                        {iconUrl ? (
+                            <img
+                                src={iconUrl}
+                                alt={text('icon_reference')}
+                                className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    onOpenLightbox();
+                                }}
+                            />
+                        ) : (
+                            <span>{brand.name.slice(0, 1).toUpperCase()}</span>
+                        )}
+                    </div>
+                    <div className="min-w-0">
+                        <p
+                            className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
+                            title={brand.name}
+                        >
+                            {brand.name}
+                        </p>
+                        <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
+                            /{brand.slug}
+                        </p>
+                    </div>
+                </div>
+                <div
+                    className="flex items-center gap-2 shrink-0"
+                    title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
+                >
+                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
+                        {clampCount(summary.active)}
+                    </span>
+                    <div className="flex flex-col items-end justify-center gap-0.5">
+                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                            <span className={dotClass('green', summary.green)} />
+                            <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                            <span className={dotClass('yellow', summary.yellow)} />
+                            <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                            <span className={dotClass('red', summary.red)} />
+                            <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
+                        </div>
+                    </div>
+                    {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
+                </div>
+            </div>
+        </button>
+    );
+}
+
+function SortableBrandRow({
+    brand,
+    iconUrl,
+    summary,
+    isActive,
+    isBusy,
+    isDragging,
+    showDragIndicator,
+    onBlockedAction,
+    onSelect,
+    onOpenLightbox,
+    clampCount,
+    dotClass,
+    countTextClass,
+    setRowRef,
+    text,
+}: {
+    brand: Brand;
+    iconUrl: string | undefined;
+    summary: { total: number; active: number; green: number; yellow: number; red: number };
+    isActive: boolean;
+    isBusy: boolean;
+    isDragging: boolean;
+    showDragIndicator: boolean;
+    onBlockedAction: () => void;
+    onSelect: () => void;
+    onOpenLightbox: () => void;
+    clampCount: (n: number) => string;
+    dotClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
+    countTextClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
+    setRowRef: (el: HTMLButtonElement | null) => void;
+    text: (key: TranslationKey) => string;
+}) {
+    const { attributes, listeners, setNodeRef, style } = useSortableTile(brand.id, isBusy);
+    return (
+        <button
+            ref={(el) => {
+                setNodeRef(el);
+                setRowRef(el);
+            }}
+            style={style}
+            {...attributes}
+            {...listeners}
+            onClick={() => {
+                if (isBusy) {
+                    onBlockedAction();
+                    return;
+                }
+                if (isDragging) return;
+                onSelect();
+            }}
+            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 cursor-grab active:cursor-grabbing ${
+                isActive
+                    ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
+                    : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70'
+            }`}
+        >
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                    {showDragIndicator ? (
+                        <span aria-hidden="true" className="shrink-0 text-indigo-200/35">
+                            <GripVertical size={14} />
+                        </span>
+                    ) : null}
+                    <div
+                        className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 shrink-0 ${
+                            iconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
+                        }`}
+                    >
+                        {iconUrl ? (
+                            <img
+                                src={iconUrl}
+                                alt={text('icon_reference')}
+                                className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (isDragging) return;
+                                    onOpenLightbox();
+                                }}
+                            />
+                        ) : (
+                            <span>{brand.name.slice(0, 1).toUpperCase()}</span>
+                        )}
+                    </div>
+                    <div className="min-w-0">
+                        <p
+                            className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
+                            title={brand.name}
+                        >
+                            {brand.name}
+                        </p>
+                        <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
+                            /{brand.slug}
+                        </p>
+                    </div>
+                </div>
+                <div
+                    className="flex items-center gap-2 shrink-0"
+                    title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
+                >
+                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
+                        {clampCount(summary.active)}
+                    </span>
+                    <div className="flex flex-col items-end justify-center gap-0.5">
+                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                            <span className={dotClass('green', summary.green)} />
+                            <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                            <span className={dotClass('yellow', summary.yellow)} />
+                            <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                            <span className={dotClass('red', summary.red)} />
+                            <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
+                        </div>
+                    </div>
+                    {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
+                </div>
+            </div>
+        </button>
+    );
+}
