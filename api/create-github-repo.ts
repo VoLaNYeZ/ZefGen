@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createClient } from '@supabase/supabase-js';
 
 type CreateGithubRepoRequestBody = {
     appId: string;
@@ -48,6 +49,22 @@ const verifySupabaseToken = async (token: string) => {
     return resp.ok;
 };
 
+const createUserSupabaseClient = (token: string) => {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.');
+    }
+    return createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        },
+    });
+};
+
 const toRepoName = (appDisplayName: string) => {
     // Keep behavior close to: replace non-alnum with '-', collapse repeats, trim trailing dashes.
     // Intentionally does NOT trim leading dashes, matching the example "-143-HW-...".
@@ -72,9 +89,9 @@ const readTemplates = (vars: Record<string, string>) => {
             if (!entry.name.endsWith('.tpl')) continue;
 
             const rel = path.relative(root, full).replace(/\\/g, '/');
-            const repoPath = rel.replace(/\\.tpl$/i, '');
+            const repoPath = rel.replace(/\.tpl$/i, '');
             const raw = fs.readFileSync(full, 'utf8');
-            const content = raw.replace(/\\{\\{\\s*([A-Z0-9_]+)\\s*\\}\\}/g, (_m, key) => vars[String(key)] ?? '');
+            const content = raw.replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (_m, key) => vars[String(key)] ?? '');
             out.push({ repoPath, content });
         }
     };
@@ -109,6 +126,8 @@ const encodeRepoPath = (repoPath: string) =>
         .split('/')
         .map((seg) => encodeURIComponent(seg))
         .join('/');
+
+const mustEndWithJpg = (p: string) => /\.jpg$/i.test(String(p || '').trim());
 
 export default async function handler(req: any, res: any) {
     try {
@@ -152,6 +171,59 @@ export default async function handler(req: any, res: any) {
             return;
         }
 
+        // Enforce: must have a picked icon BEFORE repo creation.
+        // We also enforce the icon is a JPG so downstream iOS app tooling is predictable.
+        let iconB64: string | null = null;
+        {
+            const supabase = createUserSupabaseClient(token);
+            const { data: pick, error: pickErr } = await supabase
+                .from('app_asset_picks')
+                .select('generated_asset_id')
+                .eq('app_id', body.appId)
+                .eq('kind', 'icon')
+                .maybeSingle();
+            if (pickErr) throw pickErr;
+            const assetId = String((pick as any)?.generated_asset_id || '').trim();
+            if (!assetId) {
+                json(res, 400, { message: 'Pick an icon first (Generate icon -> Pick). Then create repo.' });
+                return;
+            }
+
+            const { data: asset, error: assetErr } = await supabase
+                .from('app_generated_assets')
+                .select('image_path')
+                .eq('id', assetId)
+                .maybeSingle();
+            if (assetErr) throw assetErr;
+            const imagePath = String((asset as any)?.image_path || '').trim();
+            if (!imagePath) {
+                json(res, 400, { message: 'Picked icon is missing its stored image_path. Re-generate and pick again.' });
+                return;
+            }
+            if (!mustEndWithJpg(imagePath)) {
+                json(res, 400, { message: 'Picked icon must be a .jpg. Re-generate the icon (JPG) and pick again.' });
+                return;
+            }
+
+            const { data: signed, error: signErr } = await supabase.storage
+                .from('generated-assets')
+                .createSignedUrl(imagePath, 3600);
+            if (signErr) throw signErr;
+            const signedUrl = String((signed as any)?.signedUrl || '').trim();
+            if (!signedUrl) {
+                json(res, 400, { message: 'Could not create signed URL for picked icon. Try again.' });
+                return;
+            }
+
+            const imgResp = await fetch(signedUrl);
+            if (!imgResp.ok) {
+                json(res, 400, { message: 'Could not download the picked icon. Try again.' });
+                return;
+            }
+            const buf = Buffer.from(await imgResp.arrayBuffer());
+            iconB64 = buf.toString('base64');
+        }
+
         // Identify owner for follow-up collaborator calls.
         const me = await gh(ghToken, 'https://api.github.com/user', { method: 'GET' });
         if (!me.ok) {
@@ -171,7 +243,7 @@ export default async function handler(req: any, res: any) {
                 name: repoName,
                 private: true,
                 auto_init: true,
-                description: `ZefGen workspace for ${appDisplayName}`,
+                description: `Workspace for ${appDisplayName}`,
             }),
         });
 
@@ -242,6 +314,45 @@ export default async function handler(req: any, res: any) {
             });
 
             seeded.push({ path: repoPath, ok: putResp.ok, status: putResp.status });
+        }
+
+        // Required: seed assets/app_icon.jpg (always JPG).
+        const iconRepoPath = 'assets/app_icon.jpg';
+        try {
+            let sha: string | null = null;
+            const existing = await gh(
+                ghToken,
+                `https://api.github.com/repos/${repoFullName}/contents/${encodeRepoPath(iconRepoPath)}`,
+                { method: 'GET' }
+            );
+            if (existing.ok && typeof existing.payload?.sha === 'string') sha = existing.payload.sha;
+
+            const putIcon = await gh(ghToken, `https://api.github.com/repos/${repoFullName}/contents/${encodeRepoPath(iconRepoPath)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: `Seed ${iconRepoPath}`,
+                    content: iconB64,
+                    ...(sha ? { sha } : {}),
+                }),
+            });
+
+            seeded.push({ path: iconRepoPath, ok: putIcon.ok, status: putIcon.status });
+            if (!putIcon.ok) {
+                // Rollback: delete repo so the invariant "repos always have a JPG icon" holds.
+                await gh(ghToken, `https://api.github.com/repos/${repoFullName}`, { method: 'DELETE' });
+                json(res, 502, { message: 'Failed to seed app_icon.jpg; repo creation rolled back. Try again.' });
+                return;
+            }
+        } catch {
+            // Rollback: best-effort repo delete.
+            try {
+                await gh(ghToken, `https://api.github.com/repos/${repoFullName}`, { method: 'DELETE' });
+            } catch {
+                // ignore
+            }
+            json(res, 502, { message: 'Failed to seed app_icon.jpg; repo creation rolled back. Try again.' });
+            return;
         }
 
         json(res, 200, {

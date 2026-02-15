@@ -51,7 +51,7 @@ export const AppSimulatorSection = ({
     const orderedIds = React.useMemo(() => selectedAppScreenshots.map((shot) => shot.id), [selectedAppScreenshots]);
 
     return (
-        <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4">
+        <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
@@ -135,7 +135,7 @@ export const AppSimulatorSection = ({
                             <div className="text-sm font-semibold">{text('drop_screenshots_title')}</div>
                             <label
                                 htmlFor="app-screenshots-upload"
-                                className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
+                                className="ui-btn-fit inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30 cursor-pointer"
                             >
                                 {appScreenshotsUploading ? text('uploading') : text('upload_screenshots')}
                             </label>

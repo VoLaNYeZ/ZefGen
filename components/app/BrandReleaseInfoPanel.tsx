@@ -160,8 +160,8 @@ export function BrandReleaseInfoPanel(props: {
                     </div>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                    <div>
+                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                    <div className="min-w-0">
                         <div className="flex items-center justify-between">
                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('keywords')}</p>
                             <span className="text-[10px] text-indigo-200/55">
@@ -183,12 +183,12 @@ export function BrandReleaseInfoPanel(props: {
                                     }}
                                     maxLength={100}
                                     rows={2}
-                                    className="w-full rounded-2xl border border-indigo-400/20 bg-slate-900/25 px-4 py-3 text-sm text-indigo-50 placeholder:text-indigo-200/40 outline-none focus:border-indigo-400/40"
+                                    className="w-full whitespace-pre-wrap break-words rounded-2xl border border-indigo-400/20 bg-slate-900/25 px-4 py-3 text-sm text-indigo-50 placeholder:text-indigo-200/40 outline-none focus:border-indigo-400/40"
                                     placeholder={text('keywords_hint')}
                                 />
                             </div>
                         ) : (
-                            <div className="mt-2 rounded-2xl border border-white/10 bg-slate-900/20 px-4 py-3 text-sm text-indigo-50/90">
+                            <div className="mt-2 max-w-full whitespace-pre-wrap break-words overflow-hidden rounded-2xl border border-white/10 bg-slate-900/20 px-4 py-3 text-sm text-indigo-50/90">
                                 {(selectedBrand.keywords || '').trim() ? (
                                     selectedBrand.keywords
                                 ) : (

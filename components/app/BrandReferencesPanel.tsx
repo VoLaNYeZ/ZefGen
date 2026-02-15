@@ -42,22 +42,56 @@ export const BrandReferencesPanel = ({
     openLightbox,
     text,
 }: BrandReferencesPanelProps) => {
-    const refsStorageKey = React.useMemo(() => `zefgen.brandScreenshotRefsCollapsed.${brandId}`, [brandId]);
-    const [refsCollapsed, setRefsCollapsed] = React.useState(false);
-
-    React.useEffect(() => {
-        const raw = window.localStorage.getItem(refsStorageKey);
-        if (raw === '1' || raw === '0') {
-            setRefsCollapsed(raw === '1');
-        } else {
-            setRefsCollapsed(brandScreenshotReferences.length > 0);
+    const libraryStorageKey = React.useMemo(() => `zefgen.brandReferenceLibraryCollapsed.${brandId}`, [brandId]);
+    const [libraryCollapsedPref, setLibraryCollapsedPref] = React.useState<'0' | '1' | null>(() => {
+        try {
+            const raw = window.localStorage.getItem(libraryStorageKey);
+            return raw === '1' || raw === '0' ? raw : null;
+        } catch {
+            return null;
         }
-    }, [refsStorageKey, brandScreenshotReferences.length]);
+    });
 
-    const toggleRefsCollapsed = () => {
-        const next = !refsCollapsed;
-        setRefsCollapsed(next);
-        window.localStorage.setItem(refsStorageKey, next ? '1' : '0');
+    // Default behavior:
+    // - if user has an explicit pref: use it
+    // - else: auto-collapse when refs exist
+    const libraryCollapsed =
+        libraryCollapsedPref === '1'
+            ? true
+            : libraryCollapsedPref === '0'
+              ? false
+              : brandScreenshotReferences.length > 0;
+    const isAutoCollapsed = libraryCollapsed && libraryCollapsedPref === null;
+
+    const [renderLibraryBody, setRenderLibraryBody] = React.useState(() => !libraryCollapsed);
+
+    // Keep body mounted for a smooth close only when the user explicitly collapsed it.
+    React.useEffect(() => {
+        if (!libraryCollapsed) {
+            setRenderLibraryBody(true);
+            return;
+        }
+
+        // If we're auto-collapsing (no pref), unmount immediately to avoid eager <img> loads.
+        if (libraryCollapsedPref === null) {
+            setRenderLibraryBody(false);
+            return;
+        }
+
+        const timer = window.setTimeout(() => setRenderLibraryBody(false), 220);
+        return () => window.clearTimeout(timer);
+    }, [libraryCollapsed, libraryCollapsedPref]);
+
+    const toggleLibraryCollapsed = () => {
+        const nextCollapsed = !libraryCollapsed;
+        // Ensure body is present before expanding so the open animation reveals real content.
+        if (!nextCollapsed) setRenderLibraryBody(true);
+        setLibraryCollapsedPref(nextCollapsed ? '1' : '0');
+        try {
+            window.localStorage.setItem(libraryStorageKey, nextCollapsed ? '1' : '0');
+        } catch {
+            // ignore
+        }
     };
 
     const refById = React.useMemo(() => {
@@ -75,50 +109,59 @@ export const BrandReferencesPanel = ({
         <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_26px_70px_-60px_rgba(15,23,42,0.9)] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_references')}</p>
+                    {!libraryCollapsed && (
+                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_references')}</p>
+                    )}
                     <h3 className="text-xl font-semibold text-white">{text('reference_library')}</h3>
                 </div>
-                <div className="text-[11px] text-indigo-200/60">
-                    {brandScreenshotReferences.length}/{maxScreenshotRefs}
+                <div className="flex items-center gap-2">
+                    {!libraryCollapsed && (
+                        <div className="text-[11px] text-indigo-200/60">
+                            {brandScreenshotReferences.length}/{maxScreenshotRefs}
+                        </div>
+                    )}
+                    <button
+                        type="button"
+                        onClick={toggleLibraryCollapsed}
+                        className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                        aria-label={libraryCollapsed ? text('show_references') : text('hide_references')}
+                        title={libraryCollapsed ? text('show_references') : text('hide_references')}
+                    >
+                        <ChevronDown size={14} className={`transition ${libraryCollapsed ? '-rotate-90' : ''}`} />
+                    </button>
                 </div>
             </div>
 
-            <div className="mt-4">
-                <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_references')}</p>
-                            <span className="text-[10px] text-indigo-200/60">
-                                {brandScreenshotReferences.length}/{maxScreenshotRefs}
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {refsCollapsed && (
-                                <label
-                                    htmlFor="brand-screenshot-upload"
-                                    className={`inline-flex items-center gap-2 rounded-full bg-indigo-500/15 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/35 hover:bg-indigo-500/25 cursor-pointer ${
-                                        brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading
-                                            ? 'opacity-60 pointer-events-none'
-                                            : ''
-                                    }`}
-                                >
-                                    {brandScreenshotsUploading ? text('uploading') : text('upload_references')}
-                                </label>
-                            )}
-                            <button
-                                type="button"
-                                onClick={toggleRefsCollapsed}
-                                className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                aria-label={refsCollapsed ? text('show_references') : text('hide_references')}
-                                title={refsCollapsed ? text('show_references') : text('hide_references')}
-                            >
-                                <ChevronDown size={14} className={`transition ${refsCollapsed ? '-rotate-90' : ''}`} />
-                            </button>
-                        </div>
-                    </div>
+            <div
+                className={`overflow-hidden transition-[max-height,opacity,transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[max-height,opacity,transform] ${
+                    libraryCollapsed ? 'max-h-0 opacity-0 -translate-y-1 pointer-events-none' : 'max-h-[1400px] opacity-100 translate-y-0'
+                }`}
+            >
+                {renderLibraryBody && !isAutoCollapsed ? (
+                    <div className="mt-4">
+                        <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('screenshot_references')}</p>
+                                    <span className="text-[10px] text-indigo-200/60">
+                                        {brandScreenshotReferences.length}/{maxScreenshotRefs}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <label
+                                        htmlFor="brand-screenshot-upload"
+                                        className={`inline-flex items-center gap-2 rounded-full bg-indigo-500/15 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/35 hover:bg-indigo-500/25 cursor-pointer ${
+                                            brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading
+                                                ? 'opacity-60 pointer-events-none'
+                                                : ''
+                                        }`}
+                                    >
+                                        {brandScreenshotsUploading ? text('uploading') : text('upload_references')}
+                                    </label>
+                                </div>
+                            </div>
 
-                    {!refsCollapsed && (
-                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
                             <div>
                                 {brandScreenshotReferences.length === 0 ? (
                                     <div className="rounded-2xl border border-dashed border-indigo-900/40 p-4 text-xs text-indigo-200/60">
@@ -207,8 +250,9 @@ export const BrandReferencesPanel = ({
                                 </div>
                             </div>
                         </div>
-                    )}
-                </div>
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </section>
     );

@@ -164,6 +164,17 @@ const runReplicateNanoBananaPro = async (payload: {
             Number(err?.status) ||
             Number(err?.response?.status) ||
             502;
+        const looksLikeInsufficientCredit =
+            status === 402 || /insufficient\s+credit/i.test(message) || /payment\s+required/i.test(message);
+        if (looksLikeInsufficientCredit) {
+            const billingUrl = 'https://replicate.com/account/billing#billing';
+            const error = new Error(
+                `Replicate: insufficient credit for this token. Check billing or token/account ownership: ${billingUrl}.`
+            );
+            (error as any).statusCode = 402;
+            throw error;
+        }
+
         const error = new Error(message);
         (error as any).statusCode = status;
         throw error;
@@ -225,6 +236,17 @@ const runReplicateSeedream4 = async (payload: {
             Number(err?.status) ||
             Number(err?.response?.status) ||
             502;
+        const looksLikeInsufficientCredit =
+            status === 402 || /insufficient\s+credit/i.test(message) || /payment\s+required/i.test(message);
+        if (looksLikeInsufficientCredit) {
+            const billingUrl = 'https://replicate.com/account/billing#billing';
+            const error = new Error(
+                `Replicate: insufficient credit for this token. Check billing or token/account ownership: ${billingUrl}.`
+            );
+            (error as any).statusCode = 402;
+            throw error;
+        }
+
         const error = new Error(message);
         (error as any).statusCode = status;
         throw error;

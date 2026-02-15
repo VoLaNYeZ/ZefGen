@@ -395,6 +395,12 @@ export const LoginPage: React.FC = () => {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isAnimating, setIsAnimating] = useState(false);
     const [isReturningUser, setIsReturningUser] = useState(true);
+    const [isAmaterasu, setIsAmaterasu] = useState(false);
+
+    const AMATERASU_BACKGROUND =
+        'radial-gradient(1000px circle at 20% 20%, rgba(255, 24, 24, 0.35) 0%, transparent 55%), radial-gradient(900px circle at 80% 70%, rgba(255, 0, 80, 0.28) 0%, transparent 60%), radial-gradient(700px circle at 50% 55%, rgba(170, 0, 0, 0.22) 0%, transparent 65%), linear-gradient(135deg, #070001 0%, #2b0007 40%, #7a0016 92%, #2b0007 120%)';
+    const AMATERASU_GRAIN =
+        'url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27160%27%20height%3D%27160%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.8%27%20numOctaves%3D%273%27%20stitchTiles%3D%27stitch%27/%3E%3C/filter%3E%3Crect%20width%3D%27160%27%20height%3D%27160%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.35%27/%3E%3C/svg%3E")';
 
     // Random background selection (25% each)
     const [bgStyle] = useState<BackgroundStyle>(() => {
@@ -467,12 +473,37 @@ export const LoginPage: React.FC = () => {
         // case 'mesh': return <MeshBackground />;
         // case 'particles': return <ParticlesBackground />;
         // case 'grid': return <GridBackground />;
-        return <FluidBackground />;
+        return <FluidBackground variant={isAmaterasu ? 'amaterasu' : 'default'} />;
     };
 
     return (
         <div className="min-h-[100dvh] relative flex items-center justify-center p-4">
-            {renderBackground()}
+            {/* Background + fluid layer (overflow hidden so filters/texture can't create page scroll) */}
+            <div className="absolute inset-0 overflow-hidden">
+                {/* Base backgrounds (crossfade) */}
+                <div
+                    className={`absolute inset-0 pointer-events-none bg-black transition-opacity duration-700 ease-out ${isAmaterasu ? 'opacity-0' : 'opacity-100'
+                        }`}
+                />
+                <div
+                    className={`absolute inset-0 pointer-events-none transition-opacity duration-700 ease-out ${isAmaterasu ? 'opacity-100' : 'opacity-0'
+                        }`}
+                    style={{ background: AMATERASU_BACKGROUND }}
+                />
+
+                {renderBackground()}
+
+                {/* Amaterasu texture overlay (adds grain + a bit of bite) */}
+                {isAmaterasu && (
+                    <div
+                        className="absolute inset-0 pointer-events-none amaterasu-grain"
+                        style={{
+                            backgroundImage: AMATERASU_GRAIN,
+                            backgroundSize: '220px 220px',
+                        }}
+                    />
+                )}
+            </div>
 
 
 
@@ -558,7 +589,27 @@ export const LoginPage: React.FC = () => {
                     </form>
                 </div>
                 <div className="p-4 bg-slate-800/30 border-t border-slate-800/50 text-center">
-                    <p className="text-xs text-slate-400 font-medium">Protected by hawks • Жив, цел, орёл 🦅</p>
+                    <p className="text-xs text-slate-400 font-medium">
+                        Protected by hawks • Жив, цел, орёл{' '}
+                        <button
+                            type="button"
+                            onClick={() => setIsAmaterasu((v) => !v)}
+                            aria-pressed={isAmaterasu}
+                            aria-label="Toggle Amaterasu mode"
+                            className="inline-flex items-center justify-center rounded-sm align-text-bottom transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+                        >
+                            {isAmaterasu ? (
+                                <img
+                                    src="/itachi-mangekyo.png"
+                                    alt=""
+                                    className="w-[1em] h-[1em] object-contain motion-safe:animate-spin motion-reduce:animate-none"
+                                    style={{ animationDuration: '6s' }}
+                                />
+                            ) : (
+                                <span aria-hidden="true">🦅</span>
+                            )}
+                        </button>
+                    </p>
                 </div>
             </div>
         </div>

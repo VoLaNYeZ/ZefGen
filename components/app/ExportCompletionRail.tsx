@@ -32,7 +32,7 @@ export const ExportCompletionRail = ({
             : `${text('confirm_delete')} Lock in this work?`;
 
     return (
-        <div className="w-[220px] max-w-full">
+        <div className="w-[180px] max-w-full">
             <div className="rounded-2xl border border-indigo-900/40 bg-slate-950/35 p-3 space-y-3 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.95)]">
                 <div className="flex items-start justify-between gap-2">
                     <div>
@@ -45,7 +45,7 @@ export const ExportCompletionRail = ({
                         type="button"
                         onClick={onToggleAssetsCollapsed}
                         disabled={!canCollapse}
-                        className={`inline-flex items-center justify-center rounded-full border p-2 text-[10px] font-semibold ${
+                        className={`ui-btn-fit ui-btn-fit-dense inline-flex items-center justify-center rounded-full border p-2 text-[10px] font-semibold ${
                             canCollapse
                                 ? 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
                                 : 'border-white/10 text-indigo-200/30'
@@ -66,13 +66,13 @@ export const ExportCompletionRail = ({
                         const ok = pickedCount >= requiredCount && requiredCount > 0;
                         return (
                             <div key={set.id} className="flex items-center justify-between gap-2 text-[11px]">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
                                     {ok ? (
                                         <CheckCircle2 size={14} className="text-emerald-300" />
                                     ) : (
                                         <Circle size={14} className="text-indigo-200/40" />
                                     )}
-                                    <span className="text-indigo-100/80">{set.name}</span>
+                                    <span className="min-w-0 truncate text-indigo-100/80">{set.name} {text('screens_short')}</span>
                                 </div>
                                 <span className="text-indigo-200/50">
                                     {pickedCount}/{requiredCount}
@@ -91,17 +91,15 @@ export const ExportCompletionRail = ({
                     onConfirm={onMarkCompleted}
                     className="w-full"
                 >
-                    <button
-                        type="button"
-                        disabled={isCompleted}
-                        className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                    <span
+                        className={`ui-btn-fit ui-btn-fit-ellipsis w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                             isCompleted
                                 ? 'border-white/10 text-indigo-200/40'
                                 : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                         }`}
                     >
                         {text('mark_completed')}
-                    </button>
+                    </span>
                 </ConfirmIconButton>
             </div>
         </div>

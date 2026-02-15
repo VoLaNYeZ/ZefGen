@@ -87,6 +87,47 @@ export const useApps = ({
         [orderedApps, selectedBrandId]
     );
 
+    const { suggestedNewAppAlias, newAppAliasPlaceholder } = useMemo(() => {
+        const brandApps = orderedApps.filter((app) => app.brand_id === selectedBrandId);
+        const re = /^([a-z0-9][a-z0-9-]*?)-(\d+)$/i;
+
+        const parsed = brandApps
+            .map((app) => {
+                const m = re.exec(String(app.alias || '').trim());
+                if (!m) return null;
+                const prefix = String(m[1] || '').toLowerCase();
+                const n = Number.parseInt(String(m[2] || ''), 10);
+                if (!prefix) return null;
+                if (!Number.isFinite(n)) return null;
+                const createdAt = app.created_at ? new Date(app.created_at).getTime() : 0;
+                return { prefix, n, createdAt };
+            })
+            .filter(Boolean) as Array<{ prefix: string; n: number; createdAt: number }>;
+
+        let prefix = 'ef';
+        if (parsed.length) {
+            let latest = parsed[0]!;
+            for (const p of parsed) {
+                if (p.createdAt > latest.createdAt) latest = p;
+            }
+            prefix = latest.prefix || prefix;
+        }
+
+        let maxN = 0;
+        for (const p of parsed) {
+            if (p.prefix !== prefix) continue;
+            if (p.n > maxN) maxN = p.n;
+        }
+
+        const next = maxN > 0 ? maxN + 1 : 1;
+        const numStr = String(next).padStart(2, '0');
+        const prefixUpper = prefix.toUpperCase();
+        return {
+            suggestedNewAppAlias: `${prefixUpper}-${numStr}`,
+            newAppAliasPlaceholder: `${prefixUpper}-...`,
+        };
+    }, [orderedApps, selectedBrandId]);
+
     const bannedAppIdSet = useMemo(
         () => new Set(selectedBrandApps.filter((app) => app.is_banned).map((app) => app.id)),
         [selectedBrandApps]
@@ -139,11 +180,17 @@ export const useApps = ({
             setSelectedAppId(app.id);
         } else {
             setEditingAppId(null);
-            setAppForm({ name: '', alias: '' });
+            setAppForm({ name: '', alias: suggestedNewAppAlias });
         }
         setAppFormError(null);
         setAppFormOpen(true);
     };
+
+    const closeAppForm = useCallback(() => {
+        setAppFormOpen(false);
+        setAppFormError(null);
+        setEditingAppId(null);
+    }, []);
 
     const submitAppForm = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -210,7 +257,7 @@ export const useApps = ({
         }
 
         setAppFormLoading(false);
-        setAppFormOpen(false);
+        closeAppForm();
     };
 
     const handleDeleteApp = async () => {
@@ -229,8 +276,7 @@ export const useApps = ({
         const remaining = apps.filter((app) => app.brand_id === selectedBrand.id && app.id !== editingAppId);
         setSelectedAppId(remaining[0]?.id ?? null);
         setAppFormLoading(false);
-        setAppFormOpen(false);
-        setEditingAppId(null);
+        closeAppForm();
     };
 
     const updateAppBanStatus = async (appId: string, isBanned: boolean) => {
@@ -322,10 +368,12 @@ export const useApps = ({
         appFormLoading,
         editingAppId,
         appAliasPreview,
+        newAppAliasPlaceholder,
         isEditingBanned,
         isBannedView,
         setIsBannedView,
         openAppForm,
+        closeAppForm,
         submitAppForm,
         handleDeleteApp,
         handleBanApp,
