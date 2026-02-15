@@ -10,6 +10,7 @@ import { useAppFolderLayout } from '../../hooks/use-app-folder-layout';
 import { useAppPillPan } from '../../hooks/use-app-pill-pan';
 import { useBrands } from '../../hooks/use-brands';
 import { useApps } from '../../hooks/use-apps';
+import { useAppstoreAccounts } from '../../hooks/use-appstore-accounts';
 import { useBrandReferences } from '../../hooks/use-brand-references';
 import { useAppScreenshots } from '../../hooks/use-app-screenshots';
 import { useGeneratedAssets } from '../../hooks/use-generated-assets';
@@ -38,8 +39,12 @@ import { ConnectorVariablesSecretsPanel } from './ConnectorVariablesSecretsPanel
 import { IntegrationModulePanel } from './IntegrationModulePanel';
 import { AutoReleaseModulePanel } from './AutoReleaseModulePanel';
 import { StepBlock } from './StepBlock';
+import { AccountsPage } from './AccountsPage';
+import { IdeasPage } from './IdeasPage';
 import type { TextLayer } from '../../types/zefgen';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
+import type { AppPage } from '../../utils/routes';
+import { buildAccountsRoute, buildIdeasRoute, parseRoute } from '../../utils/routes';
 
 type AppShellProps = {
     session: Session;
@@ -54,6 +59,14 @@ export function AppShell({ session }: AppShellProps) {
             return 'en';
         }
     });
+    const [activePage, setActivePage] = useState<AppPage>(() => {
+        try {
+            return parseRoute().page;
+        } catch {
+            return 'workspace';
+        }
+    });
+    const [accountsFocusAppId, setAccountsFocusAppId] = useState<string | null>(null);
     const text = useCallback((key: TranslationKey) => t(lang, key), [lang]);
 
     const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
@@ -182,6 +195,24 @@ export function AppShell({ session }: AppShellProps) {
         () => apps.find((app) => app.id === selectedAppId) || null,
         [apps, selectedAppId]
     );
+
+    const {
+        accounts: appstoreAccounts,
+        loading: appstoreAccountsLoading,
+        error: appstoreAccountsError,
+        refresh: refreshAppstoreAccounts,
+        createAccount: createAppstoreAccount,
+        updateAccount: updateAppstoreAccount,
+        deleteAccount: deleteAppstoreAccount,
+    } = useAppstoreAccounts({
+        session,
+        onDataError: setDataError,
+    });
+
+    const selectedAppstoreAccount = useMemo(() => {
+        if (!selectedApp) return null;
+        return appstoreAccounts.find((a) => a.app_id === selectedApp.id) || null;
+    }, [appstoreAccounts, selectedApp]);
     const [ideaMode, setIdeaMode] = useState<'autonmode'>('autonmode');
 
     const brandAppSummaryByBrandId = useMemo(() => {
@@ -470,6 +501,27 @@ export function AppShell({ session }: AppShellProps) {
         reportError: reportActionError,
     });
 
+    const selectedAppAccountCompanyName = useMemo(() => {
+        return String(selectedAppstoreAccount?.company_name || '').trim();
+    }, [selectedAppstoreAccount?.company_name]);
+    const selectedAppAccountUsable = Boolean(selectedAppstoreAccount && selectedAppstoreAccount.usability);
+    const currentCompanyName = String((connectorForm.variables as any)?.company_name || '').trim();
+
+    useEffect(() => {
+        if (!selectedApp) return;
+        if (appstoreAccountsLoading) return;
+        const next = selectedAppAccountUsable ? selectedAppAccountCompanyName : '';
+        if (currentCompanyName === next) return;
+        connectorForm.setVariable('company_name', next);
+    }, [
+        selectedApp?.id,
+        appstoreAccountsLoading,
+        selectedAppAccountUsable,
+        selectedAppAccountCompanyName,
+        currentCompanyName,
+        connectorForm.setVariable,
+    ]);
+
     // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
     const { jobs: connectorRunnerJobs } = useConnectorJobs({
         session,
@@ -487,6 +539,7 @@ export function AppShell({ session }: AppShellProps) {
     // Note: we intentionally do NOT "live sync" these per-selected app anymore because it caused
     // visible count jitter in the sidebar. We'll replace this whole indicator pipeline later.
 
+    const routeLoading = brandsLoading || appsLoading;
     const dataLoading =
         brandsLoading ||
         appsLoading ||
@@ -600,6 +653,7 @@ export function AppShell({ session }: AppShellProps) {
         tabButtonWidth,
         tabButtonHeight,
     } = useAppFolderLayout({
+        enabled: activePage === 'workspace',
         selectedBrandId,
         selectedAppId,
         appsLength: apps.length,
@@ -609,6 +663,10 @@ export function AppShell({ session }: AppShellProps) {
     });
 
     useEffect(() => {
+        if (activePage !== 'workspace') {
+            setDeliverablesRailStyle((prev) => ({ ...prev, opacity: 0 }));
+            return;
+        }
         if (!selectedApp || assetsCollapsed) {
             setDeliverablesRailStyle((prev) => ({ ...prev, opacity: 0 }));
             return;
@@ -677,7 +735,7 @@ export function AppShell({ session }: AppShellProps) {
             window.removeEventListener('resize', schedule);
             ro.disconnect();
         };
-    }, [selectedApp?.id, assetsCollapsed]);
+    }, [activePage, selectedApp?.id, assetsCollapsed]);
 
     const { isPanning: isAppPillPanning, panRef: appPillPanRef, handlers: appPillPanHandlers } = useAppPillPan({
         isReorderMode: isAppReorderMode,
@@ -685,9 +743,11 @@ export function AppShell({ session }: AppShellProps) {
     });
 
     useRouteSync({
-        dataLoading,
+        dataLoading: routeLoading,
         hasParsedRoute,
         setHasParsedRoute,
+        activePage,
+        setActivePage,
         brands,
         apps,
         orderedApps,
@@ -701,6 +761,7 @@ export function AppShell({ session }: AppShellProps) {
         setDataError(null);
         refreshBrands();
         refreshApps();
+        refreshAppstoreAccounts();
         refreshBrandReferences();
         refreshAppScreenshots();
         refreshGeneratedAssets();
@@ -714,6 +775,37 @@ export function AppShell({ session }: AppShellProps) {
     const handleLogout = async () => {
         await signOut();
     };
+
+    const openAccounts = useCallback(
+        (focusAppId?: string | null) => {
+            setAccountsFocusAppId(focusAppId || null);
+            setActivePage('accounts');
+            window.history.pushState({}, '', buildAccountsRoute());
+            if (window.innerWidth < 768) setIsSidebarOpen(false);
+        },
+        [setActivePage]
+    );
+
+    const openIdeas = useCallback(() => {
+        setAccountsFocusAppId(null);
+        setActivePage('ideas');
+        window.history.pushState({}, '', buildIdeasRoute());
+        if (window.innerWidth < 768) setIsSidebarOpen(false);
+    }, [setActivePage]);
+
+    const selectBrandFromSidebar = useCallback(
+        (brandId: string | null) => {
+            setAccountsFocusAppId(null);
+            if (activePage !== 'workspace') {
+                const brand = brands.find((b) => b.id === brandId) || null;
+                const route = brand ? `/${brand.slug}` : '/';
+                window.history.pushState({}, '', route);
+            }
+            setActivePage('workspace');
+            setSelectedBrandId(brandId);
+        },
+        [activePage, brands, setSelectedBrandId, setActivePage]
+    );
 
     const openLightbox = (
         src: string,
@@ -970,6 +1062,9 @@ export function AppShell({ session }: AppShellProps) {
                 <Sidebar
                 isSidebarOpen={isSidebarOpen}
                 setIsSidebarOpen={setIsSidebarOpen}
+                activePage={activePage}
+                onSelectAccounts={() => openAccounts()}
+                onSelectIdeas={() => openIdeas()}
                 logoContainerRef={logoContainerRef}
                 logoVariantIndex={logoVariantIndex}
                 setLogoVariantIndex={setLogoVariantIndex}
@@ -996,7 +1091,7 @@ export function AppShell({ session }: AppShellProps) {
                 submitBrandForm={submitBrandForm}
                 setBrandForm={setBrandForm}
                 closeBrandForm={closeBrandForm}
-                setSelectedBrandId={setSelectedBrandId}
+                setSelectedBrandId={selectBrandFromSidebar}
                 openLightbox={openLightbox}
                 handleLogout={handleLogout}
                 text={text}
@@ -1006,6 +1101,7 @@ export function AppShell({ session }: AppShellProps) {
                 <div ref={mainScrollRef} className="flex-1 overflow-y-auto">
                     <div className="min-h-full px-6 py-8 lg:px-10">
                         <div className="mx-auto max-w-6xl space-y-8">
+                            {activePage === 'workspace' ? (
                             <div ref={stickyHeaderRef} className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
                                 <div className="flex flex-wrap items-center gap-4">
                                     <div className="flex flex-col items-center gap-2">
@@ -1161,6 +1257,7 @@ export function AppShell({ session }: AppShellProps) {
                                     )}
                                 </div>
                             </div>
+                            ) : null}
 
                             {dataError && (
                                 <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200 flex items-start gap-3">
@@ -1188,7 +1285,7 @@ export function AppShell({ session }: AppShellProps) {
                                 </div>
                             )}
 
-                            {!dataLoading && !brands.length && (
+                            {activePage === 'workspace' && !dataLoading && !brands.length && (
                                 <div className="rounded-[32px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.8)] p-10 text-center">
                                     <p className="text-lg font-semibold text-white">{text('create_first_brand')}</p>
                                     <p className="mt-2 text-sm text-indigo-200/70">
@@ -1204,7 +1301,7 @@ export function AppShell({ session }: AppShellProps) {
                                 </div>
                             )}
 
-                            {selectedBrand && (
+                            {activePage === 'workspace' && selectedBrand && (
                                 <>
                                 <div className="space-y-6">
                                     <BrandReleaseInfoPanel
@@ -1278,40 +1375,42 @@ export function AppShell({ session }: AppShellProps) {
                                                 }
                                                 picker={
                                                     <>
-                                                <div className="flex items-center justify-end gap-2">
-                                                    {selectedApp && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => openAppForm(selectedApp)}
-                                                            onDoubleClick={() => {
-                                                                closeAppForm();
-                                                            }}
-                                                            className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
-                                                        >
-                                                            <Pencil size={11} />
-                                                            {text('edit')}
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => openAppForm()}
-                                                        disabled={!canAddApp}
-                                                        className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold border ${
-                                                            canAddApp
-                                                                ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
-                                                                : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
-                                                        }`}
-                                                    >
-                                                        <Plus size={12} />
-                                                        {text('add_app')}
-                                                    </button>
-                                                </div>
+                                                        {!showNoAppsEmptyState && (
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {selectedApp && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openAppForm(selectedApp)}
+                                                                        onDoubleClick={() => {
+                                                                            closeAppForm();
+                                                                        }}
+                                                                        className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                                                    >
+                                                                        <Pencil size={11} />
+                                                                        {text('edit')}
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => openAppForm()}
+                                                                    disabled={!canAddApp}
+                                                                    className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold border ${
+                                                                        canAddApp
+                                                                            ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                                                            : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
+                                                                    }`}
+                                                                >
+                                                                    <Plus size={12} />
+                                                                    {text('add_app')}
+                                                                </button>
+                                                            </div>
+                                                        )}
 
-                                                {hasAnyAppsForBrand ? (
-                                                        <AppPills
-                                                        visibleApps={visibleApps}
-                                                        selectedAppId={selectedAppId}
-                                                        setSelectedAppId={setSelectedAppId}
-                                                        isBusy={false}
+                                                        {hasAnyAppsForBrand ? (
+                                                            <AppPills
+                                                            visibleApps={visibleApps}
+                                                            selectedAppId={selectedAppId}
+                                                            setSelectedAppId={setSelectedAppId}
+                                                            isBusy={false}
                                                         onBlockedAction={() => reportActionError(text('generation_in_progress'))}
                                                         lockedAppId={appFormOpen && editingAppId ? editingAppId : null}
                                                         onEditLockedAction={() => reportActionError(text('finish_editing_app_first'))}
@@ -1333,10 +1432,10 @@ export function AppShell({ session }: AppShellProps) {
                                                         isBannedView={isBannedView}
                                                         setIsBannedView={setIsBannedView}
                                                         visibleActiveApps={visibleActiveApps}
-                                                        bannedApps={bannedApps}
-                                                        text={text}
-                                                    />
-                                                ) : null}
+                                                            bannedApps={bannedApps}
+                                                            text={text}
+                                                        />
+                                                        ) : null}
 
                                                 <AppFormCard
                                                     appFormOpen={appFormOpen}
@@ -1416,6 +1515,9 @@ export function AppShell({ session }: AppShellProps) {
                                                                 <ConnectorVariablesSecretsPanel
                                                                     connectorForm={connectorForm}
                                                                     isEnabled={connectorEnabled}
+                                                                    selectedApp={selectedApp}
+                                                                    account={selectedAppstoreAccount}
+                                                                    onOpenAccountsForApp={() => openAccounts(selectedApp?.id || null)}
                                                                     text={text}
                                                                 />
                                                             </StepBlock>
@@ -1491,11 +1593,31 @@ export function AppShell({ session }: AppShellProps) {
                                 </div>
                                 </>
                             )}
+
+                            {activePage === 'accounts' ? (
+                                <AccountsPage
+                                    accounts={appstoreAccounts}
+                                    loading={appstoreAccountsLoading}
+                                    error={appstoreAccountsError}
+                                    refresh={refreshAppstoreAccounts}
+                                    createAccount={createAppstoreAccount}
+                                    updateAccount={updateAppstoreAccount}
+                                    deleteAccount={deleteAppstoreAccount}
+                                    apps={apps}
+                                    brands={brands}
+                                    focusAppId={accountsFocusAppId}
+                                    consumeFocus={() => setAccountsFocusAppId(null)}
+                                    reportError={reportActionError}
+                                    text={text}
+                                />
+                            ) : activePage === 'ideas' ? (
+                                <IdeasPage text={text} />
+                            ) : null}
                         </div>
                     </div>
                 </div>
             </main>
-            {selectedApp && !assetsCollapsed && (
+            {activePage === 'workspace' && selectedApp && !assetsCollapsed && (
                 <div
                     ref={deliverablesRailRef}
                     className="fixed z-40 transition-opacity duration-150"

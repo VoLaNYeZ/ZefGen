@@ -137,6 +137,21 @@ export type AppExportStatus = {
     updated_at?: string;
 };
 
+export type AppstoreAccount = {
+    app_id: string;
+    user_id?: string;
+    usability: boolean;
+    email: string;
+    password: string;
+    email_password: string;
+    number: string;
+    geo: string;
+    company_name: string;
+    proxy: string;
+    updated_at?: string;
+    created_at?: string;
+};
+
 export type BrandFormState = {
     name: string;
 };
