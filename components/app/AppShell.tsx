@@ -1100,7 +1100,11 @@ export function AppShell({ session }: AppShellProps) {
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 <div ref={mainScrollRef} className="flex-1 overflow-y-auto">
                     <div className="min-h-full px-6 py-8 lg:px-10">
-                        <div className="mx-auto max-w-6xl space-y-8">
+                        <div
+                            className={`mx-auto space-y-8 ${
+                                activePage === 'workspace' ? 'max-w-6xl' : 'max-w-none'
+                            }`}
+                        >
                             {activePage === 'workspace' ? (
                             <div ref={stickyHeaderRef} className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
                                 <div className="flex flex-wrap items-center gap-4">
