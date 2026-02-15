@@ -10,6 +10,7 @@ import {
     GripVertical,
 } from 'lucide-react';
 import { TranslationKey } from '../../i18n';
+import type { AppPage } from '../../utils/routes';
 import { SortableList } from './dnd/sortable-list';
 import { useSortableTile } from './dnd/sortable-grid';
 import {
@@ -25,6 +26,9 @@ import type { Brand, BrandFormState } from '../../types/zefgen';
 type SidebarProps = {
     isSidebarOpen: boolean;
     setIsSidebarOpen: (value: boolean) => void;
+    activePage: AppPage;
+    onSelectAccounts: () => void;
+    onSelectIdeas: () => void;
     logoContainerRef: React.RefObject<HTMLDivElement>;
     logoVariantIndex: number;
     setLogoVariantIndex: React.Dispatch<React.SetStateAction<number>>;
@@ -73,6 +77,9 @@ type SidebarProps = {
 export const Sidebar = ({
     isSidebarOpen,
     setIsSidebarOpen,
+    activePage,
+    onSelectAccounts,
+    onSelectIdeas,
     logoContainerRef,
     logoVariantIndex,
     setLogoVariantIndex,
@@ -188,6 +195,9 @@ export const Sidebar = ({
         brands.forEach((b) => map.set(b.id, b));
         return map;
     }, [brands]);
+
+    const isAccountsActive = activePage === 'accounts';
+    const isIdeasActive = activePage === 'ideas';
 
     return (
         <aside
@@ -432,23 +442,31 @@ export const Sidebar = ({
                 <div className="flex items-center justify-between gap-2">
                     <button
                         type="button"
-                        onClick={() => {}}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30"
-                        aria-label="Accounts"
-                        title="Accounts"
+                        onClick={() => onSelectAccounts()}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                            isAccountsActive
+                                ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
+                                : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
+                        }`}
+                        aria-label={text('accounts')}
+                        title={text('accounts')}
                     >
                         <Users size={13} className="text-indigo-200/70" />
-                        <span>Accounts</span>
+                        <span>{text('accounts')}</span>
                     </button>
                     <button
                         type="button"
-                        onClick={() => {}}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30"
-                        aria-label="Ideas"
-                        title="Ideas"
+                        onClick={() => onSelectIdeas()}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                            isIdeasActive
+                                ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
+                                : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
+                        }`}
+                        aria-label={text('ideas')}
+                        title={text('ideas')}
                     >
                         <Lightbulb size={13} className="text-indigo-200/70" />
-                        <span>Ideas</span>
+                        <span>{text('ideas')}</span>
                     </button>
                 </div>
             </div>

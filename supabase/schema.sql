@@ -47,6 +47,25 @@ create unique index if not exists apps_brand_alias_key on public.apps (brand_id,
 create index if not exists apps_user_id_idx on public.apps (user_id);
 create index if not exists apps_brand_id_idx on public.apps (brand_id);
 
+-- App Store accounts per app (source of truth for Setup data company name). (2026-02-15)
+create table if not exists public.appstore_accounts (
+    app_id uuid primary key references public.apps(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    usability boolean not null default true,
+    email text not null default '',
+    password text not null default '',
+    email_password text not null default '',
+    number text not null default '',
+    geo text not null default '',
+    company_name text not null default '',
+    proxy text not null default '',
+    updated_at timestamptz not null default now(),
+    created_at timestamptz not null default now()
+);
+
+create index if not exists appstore_accounts_user_id_idx on public.appstore_accounts (user_id);
+create index if not exists appstore_accounts_user_geo_idx on public.appstore_accounts (user_id, geo);
+
 create table if not exists public.brand_references (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
@@ -163,6 +182,7 @@ create index if not exists app_export_status_brand_id_idx on public.app_export_s
 
 alter table public.brands enable row level security;
 alter table public.apps enable row level security;
+alter table public.appstore_accounts enable row level security;
 alter table public.brand_references enable row level security;
 alter table public.app_screenshot_prompts enable row level security;
 alter table public.app_screenshots enable row level security;
@@ -187,6 +207,15 @@ create policy "apps_insert_own" on public.apps
 create policy "apps_update_own" on public.apps
     for update using (auth.uid() = user_id);
 create policy "apps_delete_own" on public.apps
+    for delete using (auth.uid() = user_id);
+
+create policy "appstore_accounts_select_own" on public.appstore_accounts
+    for select using (auth.uid() = user_id);
+create policy "appstore_accounts_insert_own" on public.appstore_accounts
+    for insert with check (auth.uid() = user_id);
+create policy "appstore_accounts_update_own" on public.appstore_accounts
+    for update using (auth.uid() = user_id);
+create policy "appstore_accounts_delete_own" on public.appstore_accounts
     for delete using (auth.uid() = user_id);
 
 create policy "brand_refs_select_own" on public.brand_references
@@ -426,3 +455,4 @@ grant select, insert, update, delete on public.connector_app_configs to authenti
 grant insert, update, delete on public.connector_app_secrets to authenticated;
 grant select, insert, update, delete on public.connector_jobs to authenticated;
 grant select, insert, update, delete on public.connector_job_messages to authenticated;
+grant select, insert, update, delete on public.appstore_accounts to authenticated;
