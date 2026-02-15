@@ -12,6 +12,7 @@ export type AppFolderLayout = {
 };
 
 type Params = {
+    enabled: boolean;
     selectedBrandId: string | null;
     selectedAppId: string | null;
     appsLength: number;
@@ -21,6 +22,7 @@ type Params = {
 };
 
 export const useAppFolderLayout = ({
+    enabled,
     selectedBrandId,
     selectedAppId,
     appsLength,
@@ -48,13 +50,16 @@ export const useAppFolderLayout = ({
     });
 
     useLayoutEffect(() => {
-        const wrap = appFolderWrapRef.current;
-        const picker = appPickerRef.current;
-        if (!wrap || !picker) return;
+        if (!enabled) return;
 
         const minTabWidth = 120;
 
         const update = () => {
+            const wrap = appFolderWrapRef.current;
+            const picker = appPickerRef.current;
+            if (!wrap || !picker) return;
+            if (!wrap.isConnected || !picker.isConnected) return;
+
             const wrapRect = wrap.getBoundingClientRect();
             const pickerRect = picker.getBoundingClientRect();
             const endEl = appFolderEndRef.current ?? appFolderContentRef.current ?? appGenerationRef.current ?? appSimulatorRef.current ?? picker;
@@ -64,7 +69,6 @@ export const useAppFolderLayout = ({
             const bodyInset = 6;
             const bodyGap = 0;
             const bodyTail = 60;
-            const verticalLift = 20;
             const minBodyTop = rowRect.bottom - wrapRect.top + bodyGap;
             let bodyTop = rowRect.top - wrapRect.top + bodyInset;
             const bodyBottom = endRect.bottom - wrapRect.top;
@@ -76,6 +80,9 @@ export const useAppFolderLayout = ({
             let tabTop = bodyTop - 18;
             let tabHeight = 36;
             const activePill = selectedAppId ? appActivePillRef.current : null;
+            // Slightly "lift" the gooey folder when a pill is active, but keep empty brands stable.
+            // When there are no apps, lifting can cause the tab to overlap the reference modules above.
+            const verticalLift = activePill ? 20 : 0;
             const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
             if (activePill) {
                 const pillRect = activePill.getBoundingClientRect();
@@ -101,6 +108,7 @@ export const useAppFolderLayout = ({
 
             bodyTop = Math.max(0, bodyTop - verticalLift);
             tabTop -= verticalLift;
+            tabTop = Math.max(0, tabTop);
 
             if (showBannedToggle) {
                 const rightClip = Math.max(0, tabWidth + 12);
@@ -137,19 +145,13 @@ export const useAppFolderLayout = ({
 
         update();
         const observer = new ResizeObserver(update);
-        observer.observe(wrap);
-        observer.observe(picker);
+        if (appFolderWrapRef.current) observer.observe(appFolderWrapRef.current);
+        if (appPickerRef.current) observer.observe(appPickerRef.current);
         if (appSimulatorRef.current) observer.observe(appSimulatorRef.current);
         if (appGenerationRef.current) observer.observe(appGenerationRef.current);
-        if (appFolderContentRef.current) {
-            observer.observe(appFolderContentRef.current);
-        }
-        if (appFolderEndRef.current) {
-            observer.observe(appFolderEndRef.current);
-        }
-        if (appPillRowRef.current) {
-            observer.observe(appPillRowRef.current);
-        }
+        if (appFolderContentRef.current) observer.observe(appFolderContentRef.current);
+        if (appFolderEndRef.current) observer.observe(appFolderEndRef.current);
+        if (appPillRowRef.current) observer.observe(appPillRowRef.current);
         const scrollEl = appPillScrollRef.current;
         if (scrollEl) {
             scrollEl.addEventListener('scroll', update, { passive: true });
@@ -161,7 +163,7 @@ export const useAppFolderLayout = ({
             if (scrollEl) scrollEl.removeEventListener('scroll', update);
             window.removeEventListener('resize', update);
         };
-    }, [selectedBrandId, selectedAppId, appsLength, visibleApps, isBannedView, showBannedToggle]);
+    }, [enabled, selectedBrandId, selectedAppId, appsLength, visibleApps, isBannedView, showBannedToggle]);
 
     const tabButtonWidth = appFolderLayout.tabWidth > 0 ? appFolderLayout.tabWidth : 120;
     const tabButtonHeight = appFolderLayout.tabHeight > 0 ? appFolderLayout.tabHeight : undefined;

@@ -9,6 +9,7 @@ select 'pgcrypto' as extension, exists(
 -- 2) Table existence
 select 'brands' as table, to_regclass('public.brands') is not null as exists
 union all select 'apps', to_regclass('public.apps') is not null
+union all select 'appstore_accounts', to_regclass('public.appstore_accounts') is not null
 union all select 'brand_references', to_regclass('public.brand_references') is not null
 union all select 'app_screenshot_prompts', to_regclass('public.app_screenshot_prompts') is not null
 union all select 'app_screenshots', to_regclass('public.app_screenshots') is not null
@@ -66,6 +67,10 @@ select 'apps', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relname = 'apps'
 union all
+select 'appstore_accounts', c.relrowsecurity
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'appstore_accounts'
+union all
 select 'brand_references', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relname = 'brand_references'
@@ -114,6 +119,22 @@ union all select 'apps_update_own', exists(
 union all select 'apps_delete_own', exists(
     select 1 from pg_policies
     where schemaname = 'public' and tablename = 'apps' and policyname = 'apps_delete_own'
+)
+union all select 'appstore_accounts_select_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'appstore_accounts' and policyname = 'appstore_accounts_select_own'
+)
+union all select 'appstore_accounts_insert_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'appstore_accounts' and policyname = 'appstore_accounts_insert_own'
+)
+union all select 'appstore_accounts_update_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'appstore_accounts' and policyname = 'appstore_accounts_update_own'
+)
+union all select 'appstore_accounts_delete_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'appstore_accounts' and policyname = 'appstore_accounts_delete_own'
 )
 union all select 'brand_refs_select_own', exists(
     select 1 from pg_policies

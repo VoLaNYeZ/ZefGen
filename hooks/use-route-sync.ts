@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 import type { AppItem, Brand } from '../types/zefgen';
+import type { AppPage } from '../utils/routes';
 import { buildRoute, parseRoute } from '../utils/routes';
 
 type RouteSyncParams = {
     dataLoading: boolean;
     hasParsedRoute: boolean;
     setHasParsedRoute: (value: boolean) => void;
+    activePage: AppPage;
+    setActivePage: (value: AppPage) => void;
     brands: Brand[];
     apps: AppItem[];
     orderedApps: AppItem[];
@@ -20,6 +23,8 @@ export const useRouteSync = (params: RouteSyncParams) => {
         dataLoading,
         hasParsedRoute,
         setHasParsedRoute,
+        activePage,
+        setActivePage,
         brands,
         apps,
         orderedApps,
@@ -31,12 +36,22 @@ export const useRouteSync = (params: RouteSyncParams) => {
 
     useEffect(() => {
         if (dataLoading || hasParsedRoute) return;
+
+        const parsed = parseRoute();
+        if (parsed.page !== 'workspace') {
+            setActivePage(parsed.page);
+            setHasParsedRoute(true);
+            return;
+        }
+
+        setActivePage('workspace');
+
         if (!brands.length) {
             setHasParsedRoute(true);
             return;
         }
 
-        const { brandSlug, appAlias } = parseRoute();
+        const { brandSlug, appAlias } = parsed;
         let nextBrand = brandSlug
             ? brands.find((brand) => brand.slug === brandSlug) || null
             : brands[0];
@@ -56,17 +71,29 @@ export const useRouteSync = (params: RouteSyncParams) => {
         }
 
         setHasParsedRoute(true);
-    }, [dataLoading, hasParsedRoute, brands, apps, orderedApps, setHasParsedRoute, setSelectedBrandId, setSelectedAppId]);
+    }, [
+        dataLoading,
+        hasParsedRoute,
+        brands,
+        apps,
+        orderedApps,
+        setHasParsedRoute,
+        setSelectedBrandId,
+        setSelectedAppId,
+        setActivePage,
+    ]);
 
     useEffect(() => {
         if (dataLoading || !hasParsedRoute) return;
+        if (activePage !== 'workspace') return;
         if (brands.length > 0 && !selectedBrand) {
             setHasParsedRoute(false);
         }
-    }, [dataLoading, hasParsedRoute, brands.length, selectedBrand, setHasParsedRoute]);
+    }, [dataLoading, hasParsedRoute, activePage, brands.length, selectedBrand, setHasParsedRoute]);
 
     useEffect(() => {
         if (!hasParsedRoute || dataLoading) return;
+        if (activePage !== 'workspace') return;
 
         if (!selectedBrand) {
             window.history.replaceState({}, '', '/');
@@ -79,14 +106,17 @@ export const useRouteSync = (params: RouteSyncParams) => {
         if (window.location.pathname !== nextRoute) {
             window.history.replaceState({}, '', nextRoute);
         }
-    }, [hasParsedRoute, dataLoading, selectedBrand, selectedApp]);
+    }, [hasParsedRoute, dataLoading, activePage, selectedBrand, selectedApp]);
 
     useEffect(() => {
         if (!hasParsedRoute) return;
 
         const handlePopState = () => {
             if (dataLoading) return;
-            const { brandSlug, appAlias } = parseRoute();
+            const parsed = parseRoute();
+            setActivePage(parsed.page);
+            if (parsed.page !== 'workspace') return;
+            const { brandSlug, appAlias } = parsed;
             const brandMatch = brands.find((brand) => brand.slug === brandSlug);
             const appMatch = brands.length && brandMatch && appAlias
                 ? apps.find((app) => app.brand_id === brandMatch.id && app.alias === appAlias)
@@ -98,5 +128,5 @@ export const useRouteSync = (params: RouteSyncParams) => {
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [brands, apps, dataLoading, hasParsedRoute, setSelectedBrandId, setSelectedAppId]);
+    }, [brands, apps, dataLoading, hasParsedRoute, setSelectedBrandId, setSelectedAppId, setActivePage]);
 };
