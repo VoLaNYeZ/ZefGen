@@ -94,10 +94,14 @@ These are the six variants used in the prototype project.
 npm install @fontsource-variable/roboto-flex
 ```
 
-**CSS import**
-```css
-@import "@fontsource-variable/roboto-flex/full.css";
+**Import (recommended)**
+```ts
+// index.tsx
+import '@fontsource-variable/roboto-flex/full.css';
 ```
+
+⚠️ Do not import the same `@fontsource-variable/roboto-flex` CSS in both `index.tsx` and `index.css`
+(it can create broken `/assets/files/*.woff2` requests in production).
 
 **Font family**
 ```css
