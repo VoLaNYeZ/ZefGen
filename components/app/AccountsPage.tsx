@@ -96,6 +96,7 @@ export function AccountsPage(props: {
     } | null>(null);
     const [newBusy, setNewBusy] = React.useState(false);
     const [newError, setNewError] = React.useState<string | null>(null);
+    const [newRowScrollNonce, setNewRowScrollNonce] = React.useState(0);
 
     const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
     const copiedTimerRef = React.useRef<number | null>(null);
@@ -273,13 +274,23 @@ export function AccountsPage(props: {
                     proxy: '',
                 };
             });
-            window.setTimeout(() => {
-                const el = document.getElementById('account-row-new');
-                el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }, 0);
+            setNewRowScrollNonce((v) => v + 1);
         },
         [availableAppsForNew, usedAppIdSet]
     );
+
+    React.useEffect(() => {
+        if (!newDraft) return;
+        if (!newRowScrollNonce) return;
+        // Ensure the element is in the DOM before scrolling (React commit can land after timers).
+        const raf1 = window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                const el = document.getElementById('account-row-new');
+                el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            });
+        });
+        return () => window.cancelAnimationFrame(raf1);
+    }, [newDraft, newRowScrollNonce]);
 
     const onSaveNew = React.useCallback(async () => {
         if (!newDraft) return;
@@ -385,9 +396,19 @@ export function AccountsPage(props: {
                     </button>
                     <button
                         type="button"
-                        onClick={() => openNewRow()}
-                        disabled={newDisabled}
-                        className="inline-flex h-9 items-center gap-2 rounded-xl border border-indigo-400/30 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                        onClick={() => {
+                            if (newDisabled) {
+                                reportError?.(text('accounts_all_apps_have_accounts'));
+                                return;
+                            }
+                            openNewRow();
+                        }}
+                        aria-disabled={newDisabled}
+                        className={`inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold text-indigo-100 ${
+                            newDisabled
+                                ? 'cursor-not-allowed border-white/10 bg-slate-950/20 opacity-60'
+                                : 'border-indigo-400/30 bg-indigo-500/10 hover:bg-indigo-500/20'
+                        }`}
                         title={newDisabled ? text('accounts_all_apps_have_accounts') : undefined}
                     >
                         <Plus size={14} />
