@@ -68,6 +68,8 @@ type AppGenerationSectionProps = {
     updateSlotMapping: (slotIndex: number, patch: { brandRefId?: string | null; simShotId?: string | null }) => void;
     promptsByRefId: Record<string, string>;
     setPrompt: (refId: string, value: string) => void;
+    slotPromptBySlotIndex: Record<number, string>;
+    setSlotPrompt: (slotIndex: number, value: string) => void;
     iconProviderId: ScreenshotProviderId;
     setIconProviderId: (value: ScreenshotProviderId) => void;
     iconVariationsCount: number;
@@ -159,6 +161,8 @@ export const AppGenerationSection = ({
     updateSlotMapping,
     promptsByRefId,
     setPrompt,
+    slotPromptBySlotIndex,
+    setSlotPrompt,
     iconProviderId,
     setIconProviderId,
     iconVariationsCount,
@@ -255,11 +259,11 @@ export const AppGenerationSection = ({
         <>
             {showHeader && (
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
+                    <div className="min-w-0">
+                        <p className="ui-btn-fit-ellipsis text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
                             {text('generation')}
                         </p>
-                        <p className="text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
+                        <p className="ui-btn-fit-ellipsis text-sm text-indigo-200/60">{text('generation_subtitle')}</p>
                     </div>
                 </div>
             )}
@@ -268,9 +272,9 @@ export const AppGenerationSection = ({
                 {showIcon && (
                 <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <p className="text-sm font-semibold text-white">{text('generate_icon')}</p>
-                            <p className="text-xs text-indigo-200/60">{text('generate_icon_subtitle')}</p>
+                        <div className="min-w-0">
+                            <p className="ui-btn-fit-ellipsis text-sm font-semibold text-white">{text('generate_icon')}</p>
+                            <p className="ui-btn-fit-ellipsis text-xs text-indigo-200/60">{text('generate_icon_subtitle')}</p>
                         </div>
                     </div>
 
@@ -293,7 +297,7 @@ export const AppGenerationSection = ({
                                 <select
                                     value={iconProviderId}
                                     onChange={(event) => setIconProviderId(event.target.value as ScreenshotProviderId)}
-                                    className="rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                     disabled={!selectedApp || iconGenerating}
                                 >
                                     <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
@@ -307,7 +311,7 @@ export const AppGenerationSection = ({
                                 <select
                                     value={iconVariationsCount}
                                     onChange={(event) => setIconVariationsCount(Number(event.target.value))}
-                                    className="rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                     disabled={!selectedApp || iconGenerating}
                                 >
                                     {[1, 2, 3].map((v) => (
@@ -322,7 +326,7 @@ export const AppGenerationSection = ({
                                 type="button"
                                 onClick={handleGenerateIcon}
                                 disabled={!canGenerateIcon || iconGenerating}
-                                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
+                                className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
                                     canGenerateIcon
                                         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                                         : 'border-white/10 text-indigo-200/40'
@@ -387,21 +391,21 @@ export const AppGenerationSection = ({
                                     className="snap-start shrink-0 w-[260px] rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3"
                                 >
                                     <div className="flex items-start justify-between gap-2">
-                                        <div>
-                                            <p className="text-sm font-semibold text-white">
+                                        <div className="min-w-0">
+                                            <p className="ui-btn-fit-ellipsis text-sm font-semibold text-white">
                                                 {slotIndex === 0 ? `Icon Legacy` : `Icon ${slotIndex}`}
                                             </p>
-                                            <p className="text-[11px] text-indigo-200/50">
+                                            <p className="ui-btn-fit-ellipsis text-[11px] text-indigo-200/50">
                                                 {primaryTab === 'generated'
                                                     ? `${text('tab_generated')} ${genVersions.length}`
                                                     : `${text('tab_enhanced')} ${enhVersions.length}`}
                                             </p>
                                         </div>
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1 shrink-0">
                                             <button
                                                 type="button"
                                                 onClick={() => setIconPrimaryTabBySlotIndex((prev) => ({ ...prev, [slotIndex]: 'generated' }))}
-                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                     primaryTab === 'generated'
                                                         ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
                                                         : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
@@ -412,7 +416,7 @@ export const AppGenerationSection = ({
                                             <button
                                                 type="button"
                                                 onClick={() => setIconPrimaryTabBySlotIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
-                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                     primaryTab === 'enhanced'
                                                         ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
                                                         : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
@@ -434,7 +438,7 @@ export const AppGenerationSection = ({
                                                     type="button"
                                                     disabled={!asset}
                                                     onClick={() => asset && setIconSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
-                                                    className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                                    className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-1 text-[10px] font-semibold ${
                                                         !asset
                                                             ? 'border-white/10 text-indigo-200/30'
                                                             : isSelected
@@ -455,7 +459,7 @@ export const AppGenerationSection = ({
                                                     const key = `icon:${slotIndex}:${primaryTab}`;
                                                     if (asset) setIconSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }));
                                                 }}
-                                                className="ml-auto rounded-full border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[10px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                className="ui-btn-fit ui-btn-fit-dense ml-auto rounded-full border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[10px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                                 disabled={!activeVersions.length}
                                                 aria-label={text('version')}
                                             >
@@ -525,7 +529,7 @@ export const AppGenerationSection = ({
                                                     });
                                                 }}
                                                 disabled={!canEnhance || enhanceIconSlotGenerating === slotIndex}
-                                                className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                                className={`ui-btn-fit w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                                                     !canEnhance
                                                         ? 'border-white/10 text-indigo-200/40'
                                                         : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
@@ -541,7 +545,7 @@ export const AppGenerationSection = ({
                                             type="button"
                                             disabled={!selectedAsset}
                                             onClick={() => selectedAsset && handlePickIcon(selectedAsset.id)}
-                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                            className={`ui-btn-fit rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                                                 !selectedAsset
                                                     ? 'border-white/10 text-indigo-200/40'
                                                     : isPicked
@@ -558,7 +562,7 @@ export const AppGenerationSection = ({
                                                 selectedAsset,
                                                 `icon-${slotIndex}-${primaryTab}-v${selectedAsset.version_index ?? 1}.jpg`
                                             )}
-                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                            className={`ui-btn-fit rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                                                 selectedAsset
                                                     ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
                                                     : 'border-white/10 text-indigo-200/40'
@@ -589,7 +593,7 @@ export const AppGenerationSection = ({
                                         <button
                                             type="button"
                                             onClick={() => setIconPrimaryTabBySlotIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
-                                            className="w-full rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                                            className="ui-btn-fit w-full rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                                         >
                                             {text('enhance_icon')}
                                         </button>
@@ -614,9 +618,9 @@ export const AppGenerationSection = ({
                 {showPrompts && (
 	                <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
 	                    <div className="flex flex-wrap items-start justify-between gap-3">
-	                        <div>
-	                            <p className="text-sm font-semibold text-white">{text('screenshot_prompt_label')}</p>
-	                            <p className="text-xs text-indigo-200/60">{text('screenshot_prompt_hint')}</p>
+	                        <div className="min-w-0">
+	                            <p className="ui-btn-fit-ellipsis text-sm font-semibold text-white">{text('screenshot_prompt_label')}</p>
+	                            <p className="ui-btn-fit-ellipsis text-xs text-indigo-200/60">{text('screenshot_prompt_hint')}</p>
 	                        </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="flex items-center gap-2">
@@ -639,7 +643,7 @@ export const AppGenerationSection = ({
                                     type="button"
                                     onClick={handleAddScreenshotSet}
                                     disabled={!selectedApp}
-                                    className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
+                                    className={`ui-btn-fit rounded-xl border px-3 py-2 text-xs font-semibold ${
                                         selectedApp
                                             ? 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
                                             : 'border-white/10 text-indigo-200/40'
@@ -685,7 +689,7 @@ export const AppGenerationSection = ({
                                 <select
                                     value={screenshotProviderId}
                                     onChange={(event) => setScreenshotProviderId(event.target.value as ScreenshotProviderId)}
-                                    className="rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                    className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                     disabled={!selectedApp || screenshotsGenerating}
                                 >
                                     <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
@@ -697,7 +701,7 @@ export const AppGenerationSection = ({
                                 type="button"
                                 onClick={handleGenerateAllScreenshots}
                                 disabled={!canGenerateScreenshots || screenshotsGenerating}
-                                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
+                                className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
                                     canGenerateScreenshots
                                         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                                         : 'border-white/10 text-indigo-200/40'
@@ -731,7 +735,7 @@ export const AppGenerationSection = ({
                                         key={sizeKey}
                                         type="button"
                                         onClick={() => setGenerationSize(sizeKey)}
-                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                                        className={`ui-btn-fit rounded-full border px-3 py-1 text-[11px] font-semibold ${
                                             generationSize === sizeKey
                                                 ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
                                                 : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
@@ -766,7 +770,7 @@ export const AppGenerationSection = ({
                                                 onChange={(event) => updateSlotMapping(slotIndex, { brandRefId: event.target.value || null })}
                                                 className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                             >
-                                                <option value="">{text('no_screenshot_refs')}</option>
+                                                <option value="">{text('no_reference')}</option>
                                                 {brandScreenshotReferences.map((ref, refIndex) => (
                                                     <option key={ref.id} value={ref.id}>
                                                         {text('reference_short')} {refIndex + 1}
@@ -792,12 +796,25 @@ export const AppGenerationSection = ({
                                     </div>
 
                                     <textarea
-                                        value={selectedApp && promptRefId ? (promptsByRefId[promptRefId] ?? '') : ''}
-                                        onChange={(event) => selectedApp && promptRefId && setPrompt(promptRefId, event.target.value)}
+                                        value={
+                                            selectedApp
+                                                ? promptRefId
+                                                    ? promptsByRefId[promptRefId] ?? ''
+                                                    : slotPromptBySlotIndex[slotIndex] ?? ''
+                                                : ''
+                                        }
+                                        onChange={(event) => {
+                                            if (!selectedApp) return;
+                                            if (promptRefId) {
+                                                setPrompt(promptRefId, event.target.value);
+                                            } else {
+                                                setSlotPrompt(slotIndex, event.target.value);
+                                            }
+                                        }}
                                         onInput={handleAutoGrowInput}
                                         placeholder={text('prompt_placeholder')}
                                         rows={2}
-                                        disabled={!selectedApp || !promptRefId}
+                                        disabled={!selectedApp}
                                         className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                                     />
 
@@ -839,7 +856,7 @@ export const AppGenerationSection = ({
                                                                 type="button"
                                                                 onClick={() => resetSystemPromptOverride(slotIndex, 'generate')}
                                                                 disabled={!selectedApp || !activeScreenshotSetId || !sys.isOverridden}
-                                                                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                                                     selectedApp && activeScreenshotSetId && sys.isOverridden
                                                                         ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
                                                                         : 'border-white/10 text-indigo-200/30'
@@ -872,7 +889,7 @@ export const AppGenerationSection = ({
                                         type="button"
                                         onClick={() => handleGenerateSlot(slotIndex)}
                                         disabled={!canGenerateScreenshots || screenshotsGenerating || slotGenerating === slotIndex || atLimit}
-                                        className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                        className={`ui-btn-fit w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                                             !canGenerateScreenshots || atLimit
                                                 ? 'border-white/10 text-indigo-200/40'
                                                 : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
@@ -890,15 +907,15 @@ export const AppGenerationSection = ({
                 {showGenerated && (
 	                <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
 	                    <div className="flex items-center justify-between gap-3">
-	                        <div>
-	                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
-	                            <p className="text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
+	                        <div className="min-w-0">
+	                            <p className="ui-btn-fit-ellipsis text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('generated_screenshots')}</p>
+	                            <p className="ui-btn-fit-ellipsis text-sm text-indigo-200/60">{text('generated_screenshots_subtitle')}</p>
 	                        </div>
                         <button
                             type="button"
                             onClick={handleDownloadAllScreenshots}
                             disabled={!generatedScreenshotSlots.length}
-                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                            className={`ui-btn-fit rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                                 generatedScreenshotSlots.length
                                     ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
                                     : 'border-white/10 text-indigo-200/40'
@@ -975,19 +992,19 @@ export const AppGenerationSection = ({
                                     }}
                                 >
                                     <div className="flex items-start justify-between gap-2">
-                                        <div>
-                                            <p className="text-sm font-semibold text-white">{text('slot')} {slotIndex}</p>
-                                            <p className="text-[11px] text-indigo-200/50">
+                                        <div className="min-w-0">
+                                            <p className="ui-btn-fit-ellipsis text-sm font-semibold text-white">{text('slot')} {slotIndex}</p>
+                                            <p className="ui-btn-fit-ellipsis text-[11px] text-indigo-200/50">
                                                 {primaryTab === 'generated'
                                                     ? `${text('tab_generated')} ${genVersions.length}/3`
                                                     : `${text('tab_enhanced')} ${enhVersions.length}/3`}
                                             </p>
                                         </div>
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1 shrink-0">
                                             <button
                                                 type="button"
                                                 onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [slotIndex]: 'generated' }))}
-                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                     primaryTab === 'generated'
                                                         ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
                                                         : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
@@ -998,7 +1015,7 @@ export const AppGenerationSection = ({
                                             <button
                                                 type="button"
                                                 onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
-                                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                     primaryTab === 'enhanced'
                                                         ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
                                                         : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
@@ -1020,7 +1037,7 @@ export const AppGenerationSection = ({
                                                     type="button"
                                                     disabled={!asset}
                                                     onClick={() => asset && setSlotSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
-                                                    className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                                    className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-1 text-[10px] font-semibold ${
                                                         !asset
                                                             ? 'border-white/10 text-indigo-200/30'
                                                             : isSelected
@@ -1354,7 +1371,7 @@ export const AppGenerationSection = ({
                                                     assetId: selectedAsset.id,
                                                 })
                                             }
-                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                            className={`ui-btn-fit rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                                                 !selectedAsset || !activeScreenshotSetId
                                                     ? 'border-white/10 text-indigo-200/40'
                                                     : isPicked
@@ -1371,7 +1388,7 @@ export const AppGenerationSection = ({
                                                 selectedAsset,
                                                 `${formatSlotIndex(slotIndex)}-${primaryTab === 'enhanced' ? 'enh' : 'gen'}-v${selectedAsset.version_index ?? 1}.jpg`
                                             )}
-                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                            className={`ui-btn-fit rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                                                 selectedAsset
                                                     ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
                                                     : 'border-white/10 text-indigo-200/40'
@@ -1384,7 +1401,7 @@ export const AppGenerationSection = ({
                                             type="button"
                                             disabled={!selectedAsset}
                                             onClick={() => selectedAsset && beginEditAsset(selectedAsset)}
-                                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                            className={`ui-btn-fit rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                                                 selectedAsset
                                                     ? 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
                                                     : 'border-white/10 text-indigo-200/40'
@@ -1452,7 +1469,7 @@ export const AppGenerationSection = ({
                                                         enhancePrompt,
                                                     })
                                                 }
-                                                className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                                className={`ui-btn-fit w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                                                     canEnhance
                                                         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                                                         : 'border-white/10 text-indigo-200/40'

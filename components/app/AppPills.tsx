@@ -10,6 +10,8 @@ type AppPillsProps = {
     setSelectedAppId: (value: string | null) => void;
     isBusy: boolean;
     onBlockedAction: () => void;
+    lockedAppId: string | null;
+    onEditLockedAction: () => void;
     isAppReorderMode: boolean;
     draggingAppId: string | null;
     setDraggingAppId: (value: string | null) => void;
@@ -44,6 +46,8 @@ export const AppPills = ({
     setSelectedAppId,
     isBusy,
     onBlockedAction,
+    lockedAppId,
+    onEditLockedAction,
     isAppReorderMode,
     draggingAppId,
     setDraggingAppId,
@@ -90,6 +94,7 @@ export const AppPills = ({
                         const isActive = app.id === selectedAppId;
                         const isFirst = index === 0;
                         const isDragTarget = dragOverAppId === app.id && draggingAppId !== app.id;
+                        const isSelectionLocked = Boolean(lockedAppId && app.id !== lockedAppId);
                         const displayName =
                             app.name.length > 10 ? `${app.name.slice(0, 10).trimEnd()}…` : app.name;
                         const firstShiftClass = isFirst ? '-translate-x-3' : '';
@@ -102,6 +107,10 @@ export const AppPills = ({
                                 onClick={() => {
                                     if (isBusy) {
                                         onBlockedAction();
+                                        return;
+                                    }
+                                    if (isSelectionLocked) {
+                                        onEditLockedAction();
                                         return;
                                     }
                                     if (Date.now() - appPillPanRef.current.lastDragTime < 250) {
@@ -139,6 +148,7 @@ export const AppPills = ({
                                     setDragOverAppId(null);
                                 }}
                                 style={{ width: tabButtonWidth || undefined, height: tabButtonHeight || undefined }}
+                                title={isSelectionLocked ? text('finish_editing_app_first') : undefined}
                                 className={`shrink-0 rounded-2xl border px-0 py-0 text-center transition flex flex-col items-center justify-center gap-0.5 leading-none relative ${firstGapClass} ${
                                     isActive
                                         ? 'border-transparent bg-transparent shadow-none text-indigo-100'
@@ -167,6 +177,10 @@ export const AppPills = ({
                     onClick={() => {
                         if (isBusy) {
                             onBlockedAction();
+                            return;
+                        }
+                        if (lockedAppId) {
+                            onEditLockedAction();
                             return;
                         }
                         if (Date.now() - appPillPanRef.current.lastDragTime < 250) {

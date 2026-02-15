@@ -222,6 +222,7 @@ export const useGeneratedAssets = ({
     const [slotHeadlineBySlotKey, setSlotHeadlineBySlotKey] = useState<Record<string, string>>({});
     const [slotHeadlinePosBySlotKey, setSlotHeadlinePosBySlotKey] = useState<Record<string, { x: number; y: number }>>({});
     const [slotHeadlineLayerBySlotKey, setSlotHeadlineLayerBySlotKey] = useState<Record<string, TextLayer>>({});
+    const [slotPromptBySlotKey, setSlotPromptBySlotKey] = useState<Record<string, string>>({});
     const [systemPromptOverridesByKey, setSystemPromptOverridesByKey] = useState<
         Record<string, { generate?: string; enhance?: string }>
     >({});
@@ -783,6 +784,12 @@ export const useGeneratedAssets = ({
         []
     );
 
+    const getSlotPromptStorageKey = useCallback(
+        (payload: { appId: string; screenshotSetId: string; slotIndex: number }) =>
+            `zefgen.slotPrompt.${payload.appId}.${payload.screenshotSetId}.${payload.slotIndex}`,
+        []
+    );
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
         if (!selectedApp?.id || !activeScreenshotSetId) return;
@@ -814,6 +821,27 @@ export const useGeneratedAssets = ({
 
         setSystemPromptOverridesByKey((prev) => ({ ...prev, ...next }));
     }, [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptStorageKey]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!selectedApp?.id || !activeScreenshotSetId) return;
+
+        const next: Record<string, string> = {};
+        for (let slotIndex = 1; slotIndex <= 6; slotIndex += 1) {
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            const lsKey = getSlotPromptStorageKey({
+                appId: selectedApp.id,
+                screenshotSetId: activeScreenshotSetId,
+                slotIndex,
+            });
+            const raw = window.localStorage.getItem(lsKey);
+            if (typeof raw === 'string') {
+                next[key] = raw;
+            }
+        }
+
+        setSlotPromptBySlotKey((prev) => ({ ...prev, ...next }));
+    }, [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSlotPromptStorageKey]);
 
     const buildDefaultSystemPrompt = useCallback(
         (payload: {
@@ -940,6 +968,27 @@ export const useGeneratedAssets = ({
             }
         },
         [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptStorageKey]
+    );
+
+    const setSlotPrompt = useCallback(
+        (slotIndex: number, value: string) => {
+            if (!selectedApp?.id || !activeScreenshotSetId) return;
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            setSlotPromptBySlotKey((prev) => ({ ...prev, [key]: value }));
+            if (typeof window !== 'undefined') {
+                const lsKey = getSlotPromptStorageKey({
+                    appId: selectedApp.id,
+                    screenshotSetId: activeScreenshotSetId,
+                    slotIndex,
+                });
+                if (String(value || '').trim().length) {
+                    window.localStorage.setItem(lsKey, value);
+                } else {
+                    window.localStorage.removeItem(lsKey);
+                }
+            }
+        },
+        [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSlotPromptStorageKey]
     );
 
     const deriveSlotHeadlineBySlotKey = useMemo(() => {
@@ -2019,9 +2068,6 @@ export const useGeneratedAssets = ({
         const mapping = getSlotMapping(slotIndex);
         const brandRefId = mapping.brandRefId;
         const simShotId = mapping.simShotId;
-        if (!brandRefId) {
-            throw new Error(text('select_brand_reference'));
-        }
         if (!simShotId) {
             throw new Error(text('select_sim_screenshot'));
         }
@@ -2031,17 +2077,28 @@ export const useGeneratedAssets = ({
             throw new Error(text('select_sim_screenshot'));
         }
 
-        const brandRef = brandScreenshotReferences.find((ref) => ref.id === brandRefId);
-        if (!brandRef) {
-            throw new Error(text('select_brand_reference'));
-        }
-
         const simulatorImageUrl =
             appScreenshotUrls[sourceShot.id] ??
             (await getSignedUrl(APP_SCREENSHOT_BUCKET, sourceShot.image_path));
-        const brandRefImageUrl =
-            brandRefUrls[brandRef.id] ??
-            (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+
+        const noReferenceClause =
+            `No style reference is provided. Ignore image 2 and invent the background/style per the prompt while preserving image 1 layout.`;
+
+        let brandRefImageUrl = simulatorImageUrl;
+        let userPrompt = '';
+        if (brandRefId) {
+            const brandRef = brandScreenshotReferences.find((ref) => ref.id === brandRefId) ?? null;
+            if (!brandRef) {
+                throw new Error(text('select_brand_reference'));
+            }
+            brandRefImageUrl =
+                brandRefUrls[brandRef.id] ??
+                (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+            userPrompt = (promptsByRefId[brandRef.id] ?? '').trim();
+        } else {
+            const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            userPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
+        }
 
         const existingSlot = generatedScreenshotSlots.find((item) => item.slotIndex === slotIndex) || null;
         if (existingSlot && existingSlot.versions.length >= MAX_SCREENSHOT_VERSIONS) {
@@ -2056,8 +2113,13 @@ export const useGeneratedAssets = ({
         const size = SCREENSHOT_SIZES[sizeLabel];
 
         const { effectivePrompt: basePrompt } = getSystemPromptForSlot(slotIndex, 'generate');
-        const userPrompt = (promptsByRefId[brandRef.id] ?? '').trim();
-        const prompt = userPrompt ? `${basePrompt}\n\n${userPrompt}` : basePrompt;
+        const prompt = [
+            basePrompt,
+            !brandRefId ? noReferenceClause : null,
+            userPrompt ? userPrompt : null,
+        ]
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            .join('\n\n');
 
         const image1 = simulatorImageUrl;
         const image2 = brandRefImageUrl;
@@ -2182,14 +2244,6 @@ export const useGeneratedAssets = ({
 
         const mapping = getSlotMapping(slotIndex);
         const brandRefId = mapping.brandRefId;
-        if (!brandRefId) {
-            throw new Error(text('select_brand_reference'));
-        }
-
-        const brandRef = brandScreenshotReferences.find((ref) => ref.id === brandRefId);
-        if (!brandRef) {
-            throw new Error(text('select_brand_reference'));
-        }
 
         const baseAsset = selectedGeneratedAssets.find((asset) => asset.id === base.assetId) || null;
         if (!baseAsset || (baseAsset.kind !== 'screenshot' && baseAsset.kind !== 'screenshot_enhanced')) {
@@ -2209,13 +2263,30 @@ export const useGeneratedAssets = ({
         const size = SCREENSHOT_SIZES[sizeLabel];
 
         const baseImageUrl = await resolveGeneratedUrl(baseAsset);
-        const brandRefImageUrl =
-            brandRefUrls[brandRef.id] ??
-            (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+
+        const noReferenceClause =
+            `No style reference is provided. Ignore image 2 and invent the background/style per the prompt while preserving image 1 layout.`;
+
+        let brandRefImageUrl = baseImageUrl;
+        if (brandRefId) {
+            const brandRef = brandScreenshotReferences.find((ref) => ref.id === brandRefId) ?? null;
+            if (!brandRef) {
+                throw new Error(text('select_brand_reference'));
+            }
+            brandRefImageUrl =
+                brandRefUrls[brandRef.id] ??
+                (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+        }
 
         const { effectivePrompt: enhanceBasePrompt } = getSystemPromptForSlot(slotIndex, 'enhance');
         const extra = String(enhancePrompt || '').trim();
-        const prompt = extra ? `${enhanceBasePrompt}\n\n${extra}` : enhanceBasePrompt;
+        const prompt = [
+            enhanceBasePrompt,
+            !brandRefId ? noReferenceClause : null,
+            extra ? extra : null,
+        ]
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            .join('\n\n');
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
@@ -2455,6 +2526,16 @@ export const useGeneratedAssets = ({
     );
     const canGenerateIcon = Boolean(selectedApp && selectedBrand && brandIconReference);
     const canGenerateScreenshots = Boolean(selectedApp && selectedBrand);
+
+    const slotPromptBySlotIndex = useMemo(() => {
+        const out: Record<number, string> = {};
+        if (!activeScreenshotSetId) return out;
+        for (let i = 1; i <= targetSlotCount; i += 1) {
+            const key = getScreenshotSlotKey(i, activeScreenshotSetId);
+            out[i] = slotPromptBySlotKey[key] ?? '';
+        }
+        return out;
+    }, [slotPromptBySlotKey, activeScreenshotSetId, targetSlotCount, getScreenshotSlotKey]);
 
     const slotHeadlineBySlotIndex = useMemo(() => {
         const out: Record<number, string> = {};
@@ -2824,6 +2905,8 @@ export const useGeneratedAssets = ({
         setIconProviderId,
         iconVariationsCount,
         setIconVariationsCount,
+        slotPromptBySlotIndex,
+        setSlotPrompt,
         slotHeadlineBySlotIndex,
         slotHeadlinePosBySlotIndex,
         setSlotHeadline,

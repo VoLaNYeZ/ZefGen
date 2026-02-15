@@ -45,6 +45,8 @@ export const AppFolder = ({
     collapsedAssets,
     endSections,
 }: AppFolderProps) => {
+    const hasSimulator = simulator !== null && simulator !== undefined;
+    const hasGeneration = generation !== null && generation !== undefined;
     return (
         <div ref={appFolderWrapRef} className="relative mt-[5px]">
             <GooeySvgFilter id="app-gooey-filter" strength={6} />
@@ -86,22 +88,27 @@ export const AppFolder = ({
                 <div
                     ref={appFolderContentRef}
                     className="app-folder-content space-y-5"
-                    style={{ borderRadius: bodyCornerRadius, overflow: 'hidden' }}
+                    // Allow step badges to render outside the folder body (left gutter).
+                    style={{ overflow: 'visible' }}
                 >
-                    <section ref={appSimulatorRef} className="app-folder-section p-5">
-                        {simulator}
-                    </section>
+                    {hasSimulator ? (
+                        <section ref={appSimulatorRef} className="app-folder-section p-5">
+                            {simulator}
+                        </section>
+                    ) : null}
 
-                    <section
-                        ref={appGenerationRef}
-                        className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
-                    >
-                        {isAssetsCollapsed ? (
-                            <div className="flex justify-center">{collapsedAssets}</div>
-                        ) : (
-                            generation
-                        )}
-                    </section>
+                    {isAssetsCollapsed || hasGeneration ? (
+                        <section
+                            ref={appGenerationRef}
+                            className="app-folder-section p-6 before:content-[''] before:absolute before:top-0 before:left-5 before:right-5 before:h-px before:bg-indigo-900/30 before:pointer-events-none"
+                        >
+                            {isAssetsCollapsed ? (
+                                <div className="flex justify-center">{collapsedAssets}</div>
+                            ) : (
+                                generation
+                            )}
+                        </section>
+                    ) : null}
                 </div>
 
                 {endSections ? (

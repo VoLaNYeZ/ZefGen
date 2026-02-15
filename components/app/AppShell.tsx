@@ -16,6 +16,8 @@ import { useGeneratedAssets } from '../../hooks/use-generated-assets';
 import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
 import { signOut } from '../../data/auth';
 import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../../data/app-indicators';
+import { useConnectorJobs } from '../../hooks/use-connector-jobs';
+import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
 import { Sidebar } from './Sidebar';
 import { BrandReleaseInfoPanel } from './BrandReleaseInfoPanel';
 import { BrandReferencesPanel } from './BrandReferencesPanel';
@@ -33,6 +35,9 @@ import { DevFilesPanel } from './DevFilesPanel';
 import { ConnectorRunnerPanel } from './ConnectorRunnerPanel';
 import { ConnectorClientSpecPanel } from './ConnectorClientSpecPanel';
 import { ConnectorVariablesSecretsPanel } from './ConnectorVariablesSecretsPanel';
+import { IntegrationModulePanel } from './IntegrationModulePanel';
+import { AutoReleaseModulePanel } from './AutoReleaseModulePanel';
+import { StepBlock } from './StepBlock';
 import type { TextLayer } from '../../types/zefgen';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 
@@ -57,11 +62,16 @@ export function AppShell({ session }: AppShellProps) {
     const [dataError, setDataError] = useState<string | null>(null);
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
-    const [logoVariantIndex, setLogoVariantIndex] = useState(() => Math.floor(Math.random() * 6));
+    const [logoVariantIndex, setLogoVariantIndex] = useState(() => {
+        const bag = [0, 1, 2, 3, 4, 4, 4, 5]; // Slight bias towards BreathingText.
+        return bag[Math.floor(Math.random() * bag.length)] ?? 0;
+    });
     const logoWord = 'ZEFGEN';
     const logoContainerRef = useRef<HTMLDivElement>(null);
     const mainScrollRef = useRef<HTMLDivElement>(null);
+    const stickyHeaderRef = useRef<HTMLDivElement>(null);
     const deliverablesRailRef = useRef<HTMLDivElement>(null);
+    const deliverablesAnchorRef = useRef<HTMLDivElement>(null);
     const [deliverablesRailStyle, setDeliverablesRailStyle] = useState<{ top: number; left: number; opacity: number }>({
         top: 96,
         left: 16,
@@ -112,7 +122,9 @@ export function AppShell({ session }: AppShellProps) {
         submitBrandForm,
         setBrandForm,
         setBrandFormOpen,
+        closeBrandForm,
         patchBrand,
+        reorderBrands,
     } = useBrands({
         session,
         text,
@@ -141,10 +153,12 @@ export function AppShell({ session }: AppShellProps) {
         appFormLoading,
         editingAppId,
         appAliasPreview,
+        newAppAliasPlaceholder,
         isEditingBanned,
         isBannedView,
         setIsBannedView,
         openAppForm,
+        closeAppForm,
         submitAppForm,
         handleDeleteApp,
         handleBanApp,
@@ -332,10 +346,13 @@ export function AppShell({ session }: AppShellProps) {
     const { slotMappings, setSlotMappings } = useSlotMappings(selectedAppId);
 
     const getSlotMapping = (slotIndex: number) => {
-        const stored = slotMappings[slotIndex] || {};
+        const stored = (slotMappings as Record<number, Partial<{ brandRefId: string | null; simShotId: string | null }>>)[slotIndex] || {};
+        const hasBrandRefId = Object.prototype.hasOwnProperty.call(stored, 'brandRefId');
+        const hasSimShotId = Object.prototype.hasOwnProperty.call(stored, 'simShotId');
         return {
-            brandRefId: stored.brandRefId ?? brandScreenshotReferences[slotIndex - 1]?.id ?? null,
-            simShotId: stored.simShotId ?? selectedAppScreenshots[slotIndex - 1]?.id ?? null,
+            // Important: allow explicit null (stored value) to persist. Only fallback when the key is missing.
+            brandRefId: hasBrandRefId ? (stored.brandRefId ?? null) : brandScreenshotReferences[slotIndex - 1]?.id ?? null,
+            simShotId: hasSimShotId ? (stored.simShotId ?? null) : selectedAppScreenshots[slotIndex - 1]?.id ?? null,
         };
     };
     const updateSlotMapping = (
@@ -392,6 +409,8 @@ export function AppShell({ session }: AppShellProps) {
         setGenerationSize,
         iconVariationsCount,
         setIconVariationsCount,
+        slotPromptBySlotIndex,
+        setSlotPrompt,
         iconProviderId,
         setIconProviderId,
         screenshotProviderId,
@@ -449,6 +468,20 @@ export function AppShell({ session }: AppShellProps) {
         session,
         selectedApp,
         reportError: reportActionError,
+    });
+
+    // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
+    const { jobs: connectorRunnerJobs } = useConnectorJobs({
+        session,
+        selectedApp,
+        githubRepoUrl,
+        pollMs: 10_000,
+    });
+
+    const connectorJobQueue = useConnectorJobQueue({
+        session,
+        apps,
+        pollMs: 2500,
     });
 
     // Note: we intentionally do NOT "live sync" these per-selected app anymore because it caused
@@ -509,13 +542,15 @@ export function AppShell({ session }: AppShellProps) {
         () => visibleApps.findIndex((app) => app.id === selectedAppId),
         [visibleApps, selectedAppId]
     );
+    const hasAnyAppsForBrand = visibleActiveApps.length + bannedApps.length > 0;
+    const showNoAppsEmptyState = Boolean(selectedBrand) && !hasAnyAppsForBrand;
     const hasApps = visibleApps.length > 0;
     const isSingleApp = hasApps && visibleApps.length === 1;
     const isFirstApp = hasApps && activeAppIndex === 0;
     const bodyCornerRadius = `${isFirstApp || isSingleApp ? 0 : 26}px 26px 26px 26px`;
     // Opaque folder background so modules don't "blend" with the page and the background never looks cut off.
     const appFolderTheme = isBannedView ? 'rgb(127, 29, 29)' : 'rgb(30, 41, 59)';
-    const isAppReorderMode = appFormOpen;
+    const isAppReorderMode = Boolean(appFormOpen && editingAppId);
 
     const pickedIconAsset = useMemo(() => {
         if (!pickedIconAssetId) return null;
@@ -580,24 +615,28 @@ export function AppShell({ session }: AppShellProps) {
         }
 
         let raf = 0;
-        const topOffset = 96; // Keep below the sticky header.
         const schedule = () => {
             cancelAnimationFrame(raf);
             raf = window.requestAnimationFrame(() => {
                 const gen = appGenerationRef.current;
                 const wrap = appFolderWrapRef.current;
                 const rail = deliverablesRailRef.current;
-                if (!gen || !wrap || !rail) return;
+                const anchor = deliverablesAnchorRef.current;
+                if (!gen || !wrap || !rail || !anchor) return;
 
                 const genRect = gen.getBoundingClientRect();
+                const anchorRect = anchor.getBoundingClientRect();
                 const wrapRect = wrap.getBoundingClientRect();
                 const railRect = rail.getBoundingClientRect();
+
+                const headerBottom = stickyHeaderRef.current?.getBoundingClientRect().bottom ?? 96;
+                const topOffset = Math.round(headerBottom + 12);
 
                 const railH = railRect.height || rail.offsetHeight || 0;
                 const railW = railRect.width || rail.offsetWidth || 0;
                 if (!railH || !railW) return;
 
-                const minTop = genRect.top;
+                const minTop = anchorRect.top;
                 const maxTop = genRect.bottom - railH;
                 let top = topOffset;
                 if (maxTop < minTop) {
@@ -613,7 +652,10 @@ export function AppShell({ session }: AppShellProps) {
                 left = Math.min(left, window.innerWidth - railW - 16);
                 left = Math.max(16, left);
 
-                const inView = genRect.bottom > topOffset + 40 && genRect.top < window.innerHeight - 40;
+                // Fade in only once we reach the screenshots workspace (anchor sits right before Step 08).
+                // Using the generation section rect can cause the rail to appear while still viewing Step 05–07
+                // if the next section is partially within the viewport on tall screens.
+                const inView = genRect.bottom > topOffset + 40 && anchorRect.top < window.innerHeight - 80;
                 setDeliverablesRailStyle({ top, left, opacity: inView ? 1 : 0 });
             });
         };
@@ -626,6 +668,8 @@ export function AppShell({ session }: AppShellProps) {
         const ro = new ResizeObserver(schedule);
         if (appFolderWrapRef.current) ro.observe(appFolderWrapRef.current);
         if (appGenerationRef.current) ro.observe(appGenerationRef.current);
+        if (deliverablesAnchorRef.current) ro.observe(deliverablesAnchorRef.current);
+        if (stickyHeaderRef.current) ro.observe(stickyHeaderRef.current);
 
         return () => {
             cancelAnimationFrame(raf);
@@ -695,7 +739,7 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     const isTabMotionDisabled = isAppReorderMode || isAppPillPanning || Boolean(draggingAppId);
-    const isBusy =
+    const isBusyForUnload =
         hasRunningJobs ||
         iconGenerating ||
         screenshotsGenerating ||
@@ -704,8 +748,77 @@ export function AppShell({ session }: AppShellProps) {
         iconSlotGenerating !== null ||
         enhanceIconSlotGenerating !== null;
     const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
+    const selectedBrandSummary = selectedBrand ? brandAppSummaryByBrandId[selectedBrand.id] : null;
     const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
     const connectorEnabled = Boolean(selectedApp);
+
+    const step1Done = connectorEnabled && Boolean(pickedIconAssetId);
+    const step2Done = connectorEnabled && String(connectorForm.projectBrief || '').trim().length > 0;
+    const step3Done = React.useMemo(() => {
+        if (!connectorEnabled) return false;
+        const direct = String((selectedApp as any)?.github_repo_full_name || '').trim();
+        if (direct) return true;
+
+        const toRepoFullNameFromUrl = (url: string | null | undefined) => {
+            let u = String(url || '').trim();
+            if (!u) return '';
+            u = u.replace(/#.*$/g, '').replace(/\?.*$/g, '').replace(/\/+$/g, '');
+            const m = u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)$/i);
+            if (!m) return '';
+            return `${m[1]}/${m[2]}`;
+        };
+
+        const fromRowUrl = toRepoFullNameFromUrl((selectedApp as any)?.github_repo_url);
+        if (fromRowUrl) return true;
+        const fromStateUrl = toRepoFullNameFromUrl(githubRepoUrl);
+        if (fromStateUrl) return true;
+        return false;
+    }, [connectorEnabled, githubRepoUrl, selectedApp]);
+    const step4Done =
+        connectorEnabled &&
+        String((connectorForm.variables as any)?.bundle_id || '').trim().length > 0 &&
+        String((connectorForm.variables as any)?.company_name || '').trim().length > 0 &&
+        String((connectorForm.variables as any)?.home_screen_name || '').trim().length > 0;
+    const step5Done = useMemo(
+        () => connectorEnabled && connectorRunnerJobs.some((j) => String((j as any)?.status) === 'succeeded'),
+        [connectorEnabled, connectorRunnerJobs]
+    );
+
+    const integrationReady = useMemo(() => {
+        if (!connectorEnabled) return false;
+        const vars = (connectorForm.variables ?? {}) as any;
+        const filled = (value: any) => {
+            const s = String(value ?? '').trim();
+            if (!s) return false;
+            // Historic placeholder used by default config bootstrap.
+            if (s === 'https://google.com') return false;
+            return true;
+        };
+        const secretKeys = new Set((connectorForm.secretMetas || []).map((m: any) => String(m?.key || '').toUpperCase()));
+        const reqs = [
+            secretKeys.has('APPHUD_API_KEY'),
+            filled(vars.id_purchases),
+            filled(vars.domain),
+            filled(vars.bundle_id),
+            filled(vars.privacy_policy_url),
+            filled(vars.terms_of_use_url),
+            filled(vars.support_form_url),
+            filled(vars.firebase_plist_snippet),
+        ];
+        return reqs.every(Boolean);
+    }, [connectorEnabled, connectorForm.variables, connectorForm.secretMetas]);
+
+    const step6Done = connectorEnabled && integrationReady;
+    const step7Done = connectorEnabled && integrationReady;
+
+    const step8Done = connectorEnabled && targetSlotCount > 0 && selectedAppScreenshots.length >= targetSlotCount;
+    const step9HasPrompt = useMemo(() => {
+        if (!connectorEnabled) return false;
+        return (brandScreenshotReferences || []).some((ref) => String((promptsByRefId as any)?.[ref.id] || '').trim().length > 0);
+    }, [connectorEnabled, brandScreenshotReferences, promptsByRefId]);
+    const step9HasAnyGenerated = connectorEnabled && (generatedScreenshotSlots.length > 0 || enhancedScreenshotSlots.length > 0);
+    const step9Done = step9HasPrompt || step9HasAnyGenerated;
+    const step10Done = connectorEnabled && Boolean(exportStatus?.is_completed);
 
     const generationModuleProps = {
         selectedApp,
@@ -742,6 +855,8 @@ export function AppShell({ session }: AppShellProps) {
         updateSlotMapping,
         promptsByRefId,
         setPrompt,
+        slotPromptBySlotIndex,
+        setSlotPrompt,
         iconProviderId,
         setIconProviderId,
         iconVariationsCount,
@@ -790,7 +905,7 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     useEffect(() => {
-        if (!isBusy) return;
+        if (!isBusyForUnload) return;
         const handler = (event: BeforeUnloadEvent) => {
             event.preventDefault();
             event.returnValue = '';
@@ -798,11 +913,44 @@ export function AppShell({ session }: AppShellProps) {
         };
         window.addEventListener('beforeunload', handler);
         return () => window.removeEventListener('beforeunload', handler);
-    }, [isBusy]);
+    }, [isBusyForUnload]);
+
+    const allQueueJobs = useMemo(() => {
+        const merged = [...generationJobs, ...(connectorJobQueue.jobs || [])];
+        merged.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+        return merged.slice(0, 50);
+    }, [generationJobs, connectorJobQueue.jobs]);
+
+    const handleDismissQueueJob = useCallback(
+        (id: string) => {
+            if (id.startsWith('connector:')) {
+                connectorJobQueue.dismiss(id.slice('connector:'.length));
+                return;
+            }
+            dismissJob(id);
+        },
+        [connectorJobQueue, dismissJob]
+    );
+
+    const handleClearFinishedQueueJobs = useCallback(() => {
+        clearFinished();
+        connectorJobQueue.clearFinished();
+    }, [clearFinished, connectorJobQueue]);
+
+    const handleCancelQueueJob = useCallback(
+        (id: string) => {
+            if (id.startsWith('connector:')) {
+                void connectorJobQueue.cancel(id.slice('connector:'.length));
+                return;
+            }
+            cancelGenerationJob(id);
+        },
+        [connectorJobQueue, cancelGenerationJob]
+    );
 
     
     return (
-        <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100 font-['Manrope']">
+        <div data-ui-lang={lang} className="flex h-screen overflow-hidden bg-slate-950 text-slate-100 font-['Manrope']">
             {!isSidebarOpen && (
                 <button
                     onClick={() => setIsSidebarOpen(true)}
@@ -841,12 +989,13 @@ export function AppShell({ session }: AppShellProps) {
                 editingBrandId={editingBrandId}
                 brandSlugPreview={brandSlugPreview}
                 dataLoading={dataLoading}
-                isBusy={isBusy}
+                isBusy={false}
                 onBlockedAction={() => reportActionError(text('generation_in_progress'))}
+                reorderBrands={reorderBrands}
                 openBrandForm={openBrandForm}
                 submitBrandForm={submitBrandForm}
                 setBrandForm={setBrandForm}
-                setBrandFormOpen={setBrandFormOpen}
+                closeBrandForm={closeBrandForm}
                 setSelectedBrandId={setSelectedBrandId}
                 openLightbox={openLightbox}
                 handleLogout={handleLogout}
@@ -857,7 +1006,7 @@ export function AppShell({ session }: AppShellProps) {
                 <div ref={mainScrollRef} className="flex-1 overflow-y-auto">
                     <div className="min-h-full px-6 py-8 lg:px-10">
                         <div className="mx-auto max-w-6xl space-y-8">
-                            <div className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
+                            <div ref={stickyHeaderRef} className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
                                 <div className="flex flex-wrap items-center gap-4">
                                     <div className="flex flex-col items-center gap-2">
                                         {isBrandEditing ? (
@@ -944,14 +1093,71 @@ export function AppShell({ session }: AppShellProps) {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-3">
+                                    {selectedBrand ? (
+                                        <div className="hidden lg:flex flex-col gap-1 rounded-2xl border border-white/10 bg-slate-950/20 px-3 py-2 shrink-0">
+                                            <div className="flex items-center justify-between gap-4 text-[11px] leading-none">
+                                                <span className="inline-flex items-center gap-2 whitespace-nowrap text-indigo-200/80">
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.35)]" />
+                                                    {text('active_apps')}
+                                                </span>
+                                                <span className="tabular-nums font-semibold text-white/90">
+                                                    {selectedBrandSummary?.active ?? 0}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-4 text-[11px] leading-none">
+                                                <span className="inline-flex items-center gap-2 whitespace-nowrap text-indigo-200/80">
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.30)]" />
+                                                    {text('ready')}
+                                                </span>
+                                                <span className="tabular-nums font-semibold text-white/90">
+                                                    {selectedBrandSummary?.yellow ?? 0}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-4 text-[11px] leading-none">
+                                                <span className="inline-flex items-center gap-2 whitespace-nowrap text-indigo-200/80">
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.30)]" />
+                                                    {text('banned_apps')}
+                                                </span>
+                                                <span className="tabular-nums font-semibold text-white/90">
+                                                    {selectedBrandSummary?.red ?? 0}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     {selectedBrand && (
-                                        <button
-                                            onClick={() => openBrandForm(selectedBrand)}
-                                            className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-400/10"
-                                        >
-                                            <Pencil size={14} />
-                                            {text('edit_brand')}
-                                        </button>
+                                        <>
+                                            {isBrandEditing ? (
+                                                <>
+                                                    <button
+                                                        onClick={() => submitBrandForm()}
+                                                        disabled={brandFormLoading}
+                                                        className={`inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-400/10 ${
+                                                            brandFormLoading ? 'opacity-70 pointer-events-none' : ''
+                                                        }`}
+                                                    >
+                                                        <Pencil size={14} />
+                                                        {brandFormLoading ? text('saving') : text('save')}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => closeBrandForm()}
+                                                        disabled={brandFormLoading}
+                                                        className={`inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-indigo-200/80 hover:border-indigo-400/30 hover:text-white ${
+                                                            brandFormLoading ? 'opacity-70 pointer-events-none' : ''
+                                                        }`}
+                                                    >
+                                                        {text('cancel')}
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    onClick={() => openBrandForm(selectedBrand)}
+                                                    className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-400/10"
+                                                >
+                                                    <Pencil size={14} />
+                                                    {text('edit_brand')}
+                                                </button>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -1008,6 +1214,7 @@ export function AppShell({ session }: AppShellProps) {
                                         text={text}
                                     />
                                     <BrandReferencesPanel
+                                        key={selectedBrand.id}
                                         brandId={selectedBrand.id}
                                         brandScreenshotReferences={brandScreenshotReferences}
                                         brandRefUrls={brandRefUrls}
@@ -1077,9 +1284,7 @@ export function AppShell({ session }: AppShellProps) {
                                                             type="button"
                                                             onClick={() => openAppForm(selectedApp)}
                                                             onDoubleClick={() => {
-                                                                setAppFormOpen(false);
-                                                                setEditingAppId(null);
-                                                                setAppFormError(null);
+                                                                closeAppForm();
                                                             }}
                                                             className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                                                         >
@@ -1101,15 +1306,15 @@ export function AppShell({ session }: AppShellProps) {
                                                     </button>
                                                 </div>
 
-                                                {!visibleApps.length && !showBannedToggle ? (
-                                                    <p className="mt-2 text-sm text-indigo-200/60">{text('no_apps_yet')}</p>
-                                                ) : (
-                                                    <AppPills
+                                                {hasAnyAppsForBrand ? (
+                                                        <AppPills
                                                         visibleApps={visibleApps}
                                                         selectedAppId={selectedAppId}
                                                         setSelectedAppId={setSelectedAppId}
-                                                        isBusy={isBusy}
+                                                        isBusy={false}
                                                         onBlockedAction={() => reportActionError(text('generation_in_progress'))}
+                                                        lockedAppId={appFormOpen && editingAppId ? editingAppId : null}
+                                                        onEditLockedAction={() => reportActionError(text('finish_editing_app_first'))}
                                                         isAppReorderMode={isAppReorderMode}
                                                         draggingAppId={draggingAppId}
                                                         setDraggingAppId={setDraggingAppId}
@@ -1131,7 +1336,7 @@ export function AppShell({ session }: AppShellProps) {
                                                         bannedApps={bannedApps}
                                                         text={text}
                                                     />
-                                                )}
+                                                ) : null}
 
                                                 <AppFormCard
                                                     appFormOpen={appFormOpen}
@@ -1142,80 +1347,143 @@ export function AppShell({ session }: AppShellProps) {
                                                     editingAppId={editingAppId}
                                                     isEditingBanned={isEditingBanned}
                                                     selectedBrandSlug={selectedBrand?.slug}
+                                                    selectedBrandName={selectedBrand?.name}
                                                     appAliasPreview={appAliasPreview}
+                                                    aliasPlaceholder={newAppAliasPlaceholder}
                                                     onSubmit={submitAppForm}
-                                                    onCancel={() => setAppFormOpen(false)}
+                                                    onCancel={() => closeAppForm()}
                                                     onDelete={handleDeleteApp}
                                                     onBan={handleBanApp}
                                                     onUnban={handleUnbanApp}
                                                     text={text}
                                                 />
 
-                                                {!selectedApp && (
+                                                {!selectedApp && hasAnyAppsForBrand && (
                                                     <p className="mt-2 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
                                                 )}
                                             </>
                                         }
                                                 simulator={
-                                                    <div className="space-y-6">
-                                                        {!assetsCollapsed && <IconGenerationModule {...generationModuleProps} />}
+                                                    showNoAppsEmptyState ? (
+                                                        <div className="rounded-[32px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.8)] p-10 text-center">
+                                                            <p className="text-lg font-semibold text-white">{text('no_apps_yet')}</p>
+                                                            <p className="mt-2 text-sm text-indigo-200/70">{text('ready_for_screenshots_icons')}</p>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openAppForm()}
+                                                                disabled={!canAddApp}
+                                                                className={`mt-5 inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold border ${
+                                                                    canAddApp
+                                                                        ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                                                        : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
+                                                                }`}
+                                                            >
+                                                                <Plus size={16} />
+                                                                {text('add_app')}
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-0">
+                                                            {!assetsCollapsed && (
+                                                                <StepBlock step={1} done={step1Done}>
+                                                                    <IconGenerationModule {...generationModuleProps} />
+                                                                </StepBlock>
+                                                            )}
 
-                                                        <ConnectorClientSpecPanel
-                                                            connectorForm={connectorForm}
-                                                            isEnabled={connectorEnabled}
-                                                            ideaMode={ideaMode}
-                                                            setIdeaMode={setIdeaMode}
-                                                            text={text}
-                                                        />
+                                                            <StepBlock step={2} done={step2Done}>
+                                                                <ConnectorClientSpecPanel
+                                                                    connectorForm={connectorForm}
+                                                                    isEnabled={connectorEnabled}
+                                                                    ideaMode={ideaMode}
+                                                                    setIdeaMode={setIdeaMode}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
 
-                                                        <DevFilesPanel
-                                                            selectedApp={selectedApp}
-                                                            githubRepoUrl={githubRepoUrl}
-                                                            isCreatingRepo={isCreatingGithubRepo}
-                                                            isDeletingRepo={isDeletingGithubRepo}
-                                                            onCreateRepo={handleCreateGithubRepo}
-                                                            onDeleteRepo={handleDeleteGithubRepo}
-                                                            text={text}
-                                                        />
+                                                            <StepBlock step={3} done={step3Done}>
+                                                                <DevFilesPanel
+                                                                    selectedApp={selectedApp}
+                                                                    githubRepoUrl={githubRepoUrl}
+                                                                    isCreatingRepo={isCreatingGithubRepo}
+                                                                    isDeletingRepo={isDeletingGithubRepo}
+                                                                    onCreateRepo={handleCreateGithubRepo}
+                                                                    onDeleteRepo={handleDeleteGithubRepo}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
 
-                                                        <ConnectorVariablesSecretsPanel
-                                                            connectorForm={connectorForm}
-                                                            isEnabled={connectorEnabled}
-                                                            text={text}
-                                                        />
+                                                            <StepBlock step={4} done={step4Done}>
+                                                                <ConnectorVariablesSecretsPanel
+                                                                    connectorForm={connectorForm}
+                                                                    isEnabled={connectorEnabled}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
 
-                                                        <ConnectorRunnerPanel
-                                                            session={session}
-                                                            selectedApp={selectedApp}
-                                                            githubRepoUrl={githubRepoUrl}
-                                                            text={text}
-                                                            reportError={reportActionError}
-                                                        />
-                                                    </div>
+                                                            <StepBlock step={5} done={step5Done}>
+                                                                <ConnectorRunnerPanel
+                                                                    session={session}
+                                                                    selectedApp={selectedApp}
+                                                                    githubRepoUrl={githubRepoUrl}
+                                                                    connectorForm={connectorForm}
+                                                                    pickedIcon={Boolean(pickedIconAssetId)}
+                                                                    text={text}
+                                                                    reportError={reportActionError}
+                                                                />
+                                                            </StepBlock>
+
+                                                            <StepBlock step={6} done={step6Done}>
+                                                                <IntegrationModulePanel
+                                                                    connectorForm={connectorForm}
+                                                                    isEnabled={connectorEnabled}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
+
+                                                            <StepBlock step={7} done={step7Done} isLast>
+                                                                <AutoReleaseModulePanel
+                                                                    isEnabled={connectorEnabled}
+                                                                    integrationReady={integrationReady}
+                                                                    onNotImplemented={() => reportActionError(text('coming_soon'))}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
+                                                        </div>
+                                                    )
                                                 }
                                                 generation={
-                                                    <div className="space-y-6">
-                                                        <AppSimulatorSection
-                                                            selectedApp={selectedApp}
-                                                            selectedAppScreenshots={selectedAppScreenshots}
-                                                            appScreenshotUrls={appScreenshotUrls}
-                                                            handleReorderAppScreenshot={handleReorderAppScreenshot}
-                                                            handleDeleteAppScreenshot={handleDeleteAppScreenshot}
-                                                            handleScreenshotDragOver={handleScreenshotDragOver}
-                                                            handleScreenshotDragLeave={handleScreenshotDragLeave}
-                                                            handleScreenshotDrop={handleScreenshotDrop}
-                                                            handleAppScreenshotsUpload={handleAppScreenshotsUpload}
-                                                            isScreenshotDropActive={isScreenshotDropActive}
-                                                            appScreenshotsUploading={appScreenshotsUploading}
-                                                            canUploadAppScreenshots={canUploadAppScreenshots}
-                                                            openLightbox={openLightbox}
-                                                            text={text}
-                                                        />
+                                                    showNoAppsEmptyState ? null : (
+                                                        <div className="space-y-0">
+                                                            <div ref={deliverablesAnchorRef} />
 
-                                                        <ScreenshotPromptsModule {...generationModuleProps} />
+                                                            <StepBlock step={8} done={step8Done}>
+                                                                <AppSimulatorSection
+                                                                    selectedApp={selectedApp}
+                                                                    selectedAppScreenshots={selectedAppScreenshots}
+                                                                    appScreenshotUrls={appScreenshotUrls}
+                                                                    handleReorderAppScreenshot={handleReorderAppScreenshot}
+                                                                    handleDeleteAppScreenshot={handleDeleteAppScreenshot}
+                                                                    handleScreenshotDragOver={handleScreenshotDragOver}
+                                                                    handleScreenshotDragLeave={handleScreenshotDragLeave}
+                                                                    handleScreenshotDrop={handleScreenshotDrop}
+                                                                    handleAppScreenshotsUpload={handleAppScreenshotsUpload}
+                                                                    isScreenshotDropActive={isScreenshotDropActive}
+                                                                    appScreenshotsUploading={appScreenshotsUploading}
+                                                                    canUploadAppScreenshots={canUploadAppScreenshots}
+                                                                    openLightbox={openLightbox}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
 
-                                                        <GeneratedScreenshotsModule {...generationModuleProps} />
-                                                    </div>
+                                                            <StepBlock step={9} done={step9Done}>
+                                                                <ScreenshotPromptsModule {...generationModuleProps} />
+                                                            </StepBlock>
+
+                                                            <StepBlock step={10} done={step10Done} isLast>
+                                                                <GeneratedScreenshotsModule {...generationModuleProps} />
+                                                            </StepBlock>
+                                                        </div>
+                                                    )
                                                 }
                                                 endSections={null}
                                         />
@@ -1252,10 +1520,10 @@ export function AppShell({ session }: AppShellProps) {
             )}
             <Lightbox lightbox={lightbox} onClose={closeLightbox} closeLabel={text('close')} />
             <GenerationQueueWidget
-                jobs={generationJobs}
-                onDismissJob={dismissJob}
-                onClearFinished={clearFinished}
-                onCancelJob={cancelGenerationJob}
+                jobs={allQueueJobs}
+                onDismissJob={handleDismissQueueJob}
+                onClearFinished={handleClearFinishedQueueJobs}
+                onCancelJob={handleCancelQueueJob}
             />
         </div>
     );

@@ -8,6 +8,8 @@ export type GenerationJobKind =
     | 'screenshot_generate'
     | 'screenshot_enhance'
     | 'download_zip'
+    | 'connector_generate'
+    | 'connector_fix'
     | 'github_repo_create'
     | 'github_repo_delete';
 

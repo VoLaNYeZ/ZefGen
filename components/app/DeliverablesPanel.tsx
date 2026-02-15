@@ -49,7 +49,7 @@ export const DeliverablesPanel = ({
                     type="button"
                     disabled={!isCompleted || !pickedIconAsset}
                     onClick={onDownloadIcon}
-                    className={`relative w-full rounded-full border px-3 py-2 text-[11px] font-semibold flex items-center justify-center ${
+                    className={`ui-btn-fit ui-btn-fit-ellipsis relative w-full rounded-full border px-3 py-2 text-[11px] font-semibold flex items-center justify-center ${
                         isCompleted && pickedIconAsset
                             ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
                             : 'border-white/10 text-indigo-200/40'
@@ -76,7 +76,7 @@ export const DeliverablesPanel = ({
                         type="button"
                         disabled={!isCompleted}
                         onClick={() => onDownloadSetZip(set.id)}
-                        className={`w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                        className={`ui-btn-fit ui-btn-fit-ellipsis w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                             isCompleted
                                 ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
                                 : 'border-white/10 text-indigo-200/40'
@@ -97,7 +97,7 @@ export const DeliverablesPanel = ({
                 <button
                     type="button"
                     onClick={onShowWorkspace}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
+                    className="ui-btn-fit ui-btn-fit-ellipsis w-full inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                 >
                     <ChevronDown size={14} />
                     {text('assets_show')}

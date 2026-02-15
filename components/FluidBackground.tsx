@@ -5,8 +5,11 @@ import WebGLFluid from 'webgl-fluid';
  * WebGL Fluid Simulation Background
  * Uses Pavel Dobrý's WebGL-Fluid-Simulation via webgl-fluid npm package
  */
-export const FluidBackground: React.FC = () => {
+export type FluidBackgroundVariant = 'default' | 'amaterasu';
+
+export const FluidBackground: React.FC<{ variant?: FluidBackgroundVariant }> = ({ variant = 'default' }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const isAmaterasu = variant === 'amaterasu';
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -81,7 +84,11 @@ export const FluidBackground: React.FC = () => {
             ref={canvasRef}
             className="absolute inset-0 w-full h-full"
             style={{
-                background: '#000000',
+                background: 'transparent',
+                filter: isAmaterasu
+                    ? 'saturate(0) brightness(0.06) contrast(12) drop-shadow(0 0 10px rgba(255, 44, 0, 0.22)) drop-shadow(0 0 22px rgba(255, 170, 0, 0.12))'
+                    : 'none',
+                willChange: isAmaterasu ? 'filter' : undefined,
                 touchAction: 'none'
             }}
         />

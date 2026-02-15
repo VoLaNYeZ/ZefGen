@@ -11,7 +11,9 @@ type AppFormCardProps = {
     editingAppId: string | null;
     isEditingBanned: boolean;
     selectedBrandSlug?: string;
+    selectedBrandName?: string;
     appAliasPreview: string;
+    aliasPlaceholder: string;
     onSubmit: (event: React.FormEvent) => void;
     onCancel: () => void;
     onDelete: () => void;
@@ -29,7 +31,9 @@ export const AppFormCard = ({
     editingAppId,
     isEditingBanned,
     selectedBrandSlug,
+    selectedBrandName,
     appAliasPreview,
+    aliasPlaceholder,
     onSubmit,
     onCancel,
     onDelete,
@@ -38,6 +42,17 @@ export const AppFormCard = ({
     text,
 }: AppFormCardProps) => {
     if (!appFormOpen) return null;
+
+    const appNamePlaceholder = React.useMemo(() => {
+        const raw = String(selectedBrandName || '').trim();
+        if (!raw) return 'APP...';
+        const words = raw.split(/\s+/).filter(Boolean).slice(0, 4);
+        const parts = words
+            .map((w) => String(w[0] || '').toUpperCase())
+            .filter(Boolean)
+            .map((ch) => `${ch}...`);
+        return parts.length ? parts.join(' ') : 'APP...';
+    }, [selectedBrandName]);
 
     return (
         <form
@@ -53,8 +68,8 @@ export const AppFormCard = ({
                     <input
                         value={appForm.name}
                         onChange={(event) => setAppForm((prev) => ({ ...prev, name: event.target.value }))}
-                        className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                        placeholder="HW200"
+                        className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:italic placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                        placeholder={appNamePlaceholder}
                     />
                 </div>
                 <div>
@@ -62,8 +77,8 @@ export const AppFormCard = ({
                     <input
                         value={appForm.alias}
                         onChange={(event) => setAppForm((prev) => ({ ...prev, alias: event.target.value }))}
-                        className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                        placeholder="hw200"
+                        className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:italic placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                        placeholder={aliasPlaceholder || 'EF-...'}
                     />
                 </div>
             </div>

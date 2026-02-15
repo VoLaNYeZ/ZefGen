@@ -4,6 +4,7 @@ Concise overview of the current post-refactor layout. Excludes `node_modules/` a
 Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 Screenshot sets + export picks/completion state are stored in Supabase (`app_screenshot_sets`, `app_asset_picks`, `app_export_status`).
 Brand release planning metadata is stored in Supabase on `brands` (`target_countries`, `keywords`, `release_strategy_notes`, `release_strategy_updated_at`).
+Brand ordering is stored in Supabase on `brands.order_index` (drag-and-drop reorder in Sidebar edit mode).
 
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
@@ -49,13 +50,18 @@ Brand release planning metadata is stored in Supabase on `brands` (`target_count
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
 - `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 6 in the AppFolder).
 - `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots).
+- `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
 - `components/app/ConnectorClientSpecPanel.tsx` - Idea picker placeholder + client spec editor (Step 2).
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 4).
 - `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5).
+- `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6).
+- `components/app/AutoReleaseModulePanel.tsx` - Auto-release / Fastlane placeholder (Step 7).
+- `components/app/MatrixTerminal.tsx` - Matrix-themed terminal frame used by the Runner messages panel.
+- `components/app/MatrixRain.tsx` - Canvas-based Matrix "code rain" idle animation (Runner).
 - `components/app/EditPanel.tsx` - Text-layer editor for generated assets.
 - `components/app/Lightbox.tsx` - Image lightbox overlay.
-- `components/app/GenerationQueueWidget.tsx` - Bottom-right job/status widget for generation + ZIP downloads.
+- `components/app/GenerationQueueWidget.tsx` - Bottom-right job/status widget for generation + ZIP + GitHub + Runner jobs.
 - `components/app/TextLayersCanvasOverlay.tsx` - Canvas-rendered text overlay for accurate shadow/outline preview.
 - `components/app/ConfirmIconButton.tsx` - Reusable inline delete confirmation popover for image deletes.
 
@@ -65,12 +71,33 @@ The App-level workflow inside the gooey folder is ordered as:
 2. Idea picker + Client spec (`components/app/ConnectorClientSpecPanel.tsx`) (project kind is fixed to iOS)
 3. GitHub repository (`components/app/DevFilesPanel.tsx`)
 4. Connector config: Variables + Secrets (`components/app/ConnectorVariablesSecretsPanel.tsx`)
-5. Runner (`components/app/ConnectorRunnerPanel.tsx`)
-6. Simulator screenshots (`components/app/AppSimulatorSection.tsx`)
-7. Screenshot prompts (`components/app/AppGenerationSection.tsx` via `ScreenshotPromptsModule`)
-8. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
+5. Development (`components/app/ConnectorRunnerPanel.tsx`)
+6. Integration (placeholder) (`components/app/IntegrationModulePanel.tsx`)
+7. Auto-release (placeholder) (`components/app/AutoReleaseModulePanel.tsx`)
+8. Simulator screenshots (`components/app/AppSimulatorSection.tsx`)
+9. Screenshot prompts (`components/app/AppGenerationSection.tsx` via `ScreenshotPromptsModule`)
+10. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
 
-The sticky Deliverables rail is anchored to Steps 6–8 only.
+The sticky Deliverables rail is anchored to Steps 8–10 only.
+
+## Integration Step (Badges → Setup Data Mapping)
+The Integration step (Step 6) is a checklist driven by the values stored in Setup data (Step 4). Badges turn green once the corresponding field is filled.
+
+- Apphud API key → Setup data: Secrets key `APPHUD_API_KEY`
+- IAP Product ID → Setup data: Variables `id_purchases`
+- Analytics URL → Setup data: Variables `domain` (re-labeled in UI; treated as `ANALYTICS_URL` by future integrations)
+- Bundle ID → Setup data: Variables `bundle_id`
+- Privacy Policy URL → Setup data: Variables `privacy_policy_url`
+- Terms of Use URL → Setup data: Variables `terms_of_use_url`
+- Support form URL → Setup data: Variables `support_form_url`
+- Firebase plist snippet → Setup data: Variables `firebase_plist_snippet`
+
+## Auto-Release Step (Placeholder)
+Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and release automation.
+
+- Gating: the “Fastlane integration” button is disabled until all Integration (Step 6) requirements are filled.
+- Current behavior: when enabled and clicked, it only shows a “Coming soon” toast (no repo modifications yet).
+- Future intent: use the same Setup data + secrets to apply a Fastlane integration template into the app repo (and later run delivery jobs).
 
 ## hooks Breakdown
 - `hooks/use-auth-session.ts` - Supabase auth session + loading state.
@@ -82,7 +109,6 @@ The sticky Deliverables rail is anchored to Steps 6–8 only.
 - `hooks/use-generation-jobs.ts` - In-memory job tracking for long-running operations (generation, ZIP).
 - `hooks/use-app-screenshot-prompts.ts` - Screenshot prompt persistence in Supabase.
 - `hooks/use-connector-config-form.ts` - Loads/saves Connector app config + secret metadata (used by the Step 2/4 panels).
-- `hooks/use-connector-jobs.ts` - Connector runner job list + create/cancel actions.
 - `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
@@ -91,6 +117,8 @@ The sticky Deliverables rail is anchored to Steps 6–8 only.
 - `hooks/use-app-pill-pan.ts` - Pointer-based horizontal panning logic.
 - `hooks/use-detect-browser.ts` - Browser detection helper.
 - `hooks/use-screen-size.ts` - Screen size tracking.
+- `hooks/use-connector-jobs.ts` - Connector job polling + runner job lifecycle actions.
+- `hooks/use-connector-job-queue.ts` - Global Runner job polling across apps (feeds the bottom-right job queue widget).
 
 ## data Breakdown
 - `data/auth.ts` - Auth actions (sign out).
@@ -105,7 +133,7 @@ The sticky Deliverables rail is anchored to Steps 6–8 only.
 - `data/app-screenshot-prompts.ts` - Screenshot prompt upserts/deletes.
 - `data/connector-app-config.ts` - Connector non-secret app config (`connector_app_configs`).
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
-- `data/connector-jobs.ts` - Runner job queue (`connector_jobs`).
+- `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
 
 ## utils Breakdown
@@ -116,15 +144,23 @@ The sticky Deliverables rail is anchored to Steps 6–8 only.
 - `utils/dom.ts` - Auto-grow textarea sync.
 - `utils/download.ts` - Download trigger helper.
 - `utils/retry.ts` - Retry helper for async actions.
+- `utils/runner-log.ts` - Best-effort parser that compacts Runner log lines into a user-friendly status view.
 
 ## Generation/Download Notes
+- Step markers:
+  - Step number chips are rendered via `components/app/StepBlock.tsx` and visually indicate completion by turning green.
+  - Step completion is UI heuristic-based (e.g. picked icon, project brief saved, repo present, variables filled, runner success, prompts/screenshots/export completion) and is non-blocking.
 - Generated assets upload a small `-preview.jpg` variant for fast UI thumbnails/lightbox.
 - Older assets may not have previews; the UI falls back to full-size objects automatically.
 - “Download all screenshots” produces a ZIP of final-rendered images named in App Store order (`iOS 6.5 1.jpg`, ...).
-- While generation/ZIP is running, app/brand switching is blocked and the app warns on refresh/close to avoid wasting work.
+- While client-side generation/ZIP is running, the app warns on refresh/close to avoid wasting work. Brand/app switching is allowed; jobs continue in background. Runner jobs do not trigger unload warnings.
 - Screenshot sets:
   - Each app has a default set named `Original`, plus optional additional named sets (A/B tests).
   - Screenshot generation/enhancement is scoped to the currently selected set.
+- Slot mappings + prompts:
+  - Slot source mapping (simulator screenshot + optional brand reference) is stored in `localStorage` per app: `zefgen.slotMappings.<appId>`.
+  - Users can select “No reference” per slot (persisted as `brandRefId: null`). Generation still works by reusing image 1 as image 2 and instructing the provider to ignore image 2.
+  - When “No reference” is selected, the per-slot prompt is stored in `localStorage` per app + set + slot: `zefgen.slotPrompt.<appId>.<setId>.<slotIndex>`.
 - Slot system prompts:
   - Each screenshot slot shows a “System prompt” block (provider-facing instructions).
   - Overrides are stored in `localStorage` per app + screenshot set + slot (generate/enhance modes) and used for subsequent generations.
@@ -145,6 +181,11 @@ The sticky Deliverables rail is anchored to Steps 6–8 only.
 - Migration: `supabase/migrations/2026-02-09_connector_runner_jobs.sql`
   - Tables: `connector_app_configs`, `connector_app_secrets`, `connector_jobs`, `connector_job_messages`
   - RPC: `connector_claim_next_job(p_runner_id text)` (service-role only)
+- The Runner verify log (`verify_tail`) is hidden by default (too noisy for normal users).
+  - Debug enable (local only): `localStorage.setItem('zefgen.debug.verifyTail', '1'); location.reload();`
+- The Runner log output is compacted by default (product-grade).
+  - Debug enable verbose logs (local only): `localStorage.setItem('zefgen.debug.runnerVerbose', '1'); location.reload();`
+  - Debug disable: `localStorage.removeItem('zefgen.debug.runnerVerbose'); location.reload();`
 
 ## Generation Providers (Prod)
 - `api/generate-screenshot.ts` runs server-side on Vercel so provider keys are never exposed to the client.

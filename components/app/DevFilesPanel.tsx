@@ -97,7 +97,7 @@ export function DevFilesPanel(props: {
                                 href={githubRepoUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1.5 font-semibold text-indigo-100 hover:bg-indigo-500/15"
+                                className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1.5 font-semibold text-indigo-100 hover:bg-indigo-500/15"
                             >
                                 {text('open_github_repo')}
                                 <ExternalLink size={14} />
@@ -122,7 +122,7 @@ export function DevFilesPanel(props: {
                                 <button
                                     type="button"
                                     onClick={copyClone}
-                                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 font-mono text-[11px] text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15"
+                                    className="ui-btn-fit-ellipsis inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 font-mono text-[11px] text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15"
                                     title={cloneCopied ? text('copied') : text('copy_clone_command')}
                                     aria-label={text('copy_clone_command')}
                                 >
@@ -140,7 +140,7 @@ export function DevFilesPanel(props: {
                             type="button"
                             onClick={onCreateRepo}
                             disabled={!selectedApp || isCreatingRepo}
-                            className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                            className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                         >
                             {isCreatingRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
                             {text('create_github_repo')}
