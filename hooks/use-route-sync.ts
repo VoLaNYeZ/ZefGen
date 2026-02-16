@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { AppItem, Brand } from '../types/zefgen';
 import type { AppPage } from '../utils/routes';
 import { buildRoute, parseRoute } from '../utils/routes';
@@ -16,6 +16,7 @@ type RouteSyncParams = {
     selectedApp: AppItem | null;
     setSelectedBrandId: (value: string | null) => void;
     setSelectedAppId: (value: string | null) => void;
+    canNavigate?: (next: ReturnType<typeof parseRoute>) => boolean;
 };
 
 export const useRouteSync = (params: RouteSyncParams) => {
@@ -32,7 +33,10 @@ export const useRouteSync = (params: RouteSyncParams) => {
         selectedApp,
         setSelectedBrandId,
         setSelectedAppId,
+        canNavigate,
     } = params;
+
+    const restorePopStateRef = useRef(false);
 
     useEffect(() => {
         if (dataLoading || hasParsedRoute) return;
@@ -112,8 +116,18 @@ export const useRouteSync = (params: RouteSyncParams) => {
         if (!hasParsedRoute) return;
 
         const handlePopState = () => {
+            if (restorePopStateRef.current) {
+                restorePopStateRef.current = false;
+                return;
+            }
             if (dataLoading) return;
             const parsed = parseRoute();
+            if (canNavigate && !canNavigate(parsed)) {
+                restorePopStateRef.current = true;
+                // Most blocked navigations are "back" out of /accounts. Attempt to restore by going forward.
+                window.history.go(1);
+                return;
+            }
             setActivePage(parsed.page);
             if (parsed.page !== 'workspace') return;
             const { brandSlug, appAlias } = parsed;
@@ -128,5 +142,5 @@ export const useRouteSync = (params: RouteSyncParams) => {
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [brands, apps, dataLoading, hasParsedRoute, setSelectedBrandId, setSelectedAppId, setActivePage]);
+    }, [brands, apps, dataLoading, hasParsedRoute, setSelectedBrandId, setSelectedAppId, setActivePage, canNavigate]);
 };

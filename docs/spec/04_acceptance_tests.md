@@ -11,6 +11,13 @@
 8) Given a generated screenshot, when the user edits text and saves, then the edits persist and are visible on reload.
 9) Given a screenshot slot with 3 generated versions, when the user attempts to generate another, then they are prompted to delete a version before continuing.
 10) Given an app detail page, then the App Data placeholder fields are visible (AppId, BundleID, Company Name, id_purchases, Apphud API URL, Privacy Policy, Term of Use, Support Form, Domain, Appstore Description).
+11) Accounts navigation: clicking sidebar `Accounts` navigates to `/accounts` and renders the Accounts grid; browser back/forward returns to the prior workspace route.
+12) Accounts edit guard: in Edit mode with unsaved changes, navigation away from `/accounts` is blocked and browser refresh/close shows a native confirm.
+13) Accounts CRUD: user can create an unassigned account row, save, refresh, and values persist. User can delete an account row and it stays deleted after refresh.
+14) Accounts assignment: user can assign an account to an app (max 1 per app), and the assigned account is shown in the app’s Setup data panel; company name is locked to the account value when usable.
+15) Accounts ban filter: Active filter hides rows assigned to banned apps, Banned filter shows only those rows, and All shows everything.
+16) Accounts status: if assigned app is banned, Status shows `Banned` in red; Unusable uses “ice” color; Used before amber; Usable green.
+17) Accounts copy: Email/Password/Email password/Proxy have copy buttons; copy copies the full value and shows a brief “copied” feedback.
 
 ## Smoke tests
 - Login page still matches the existing UI and behavior.

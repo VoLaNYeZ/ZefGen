@@ -21,6 +21,12 @@ type GenerateScreenshotRequestBody = {
 const json = (res: any, status: number, payload: any) => {
     res.statusCode = status;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-ZefGen-Api', 'generate-screenshot');
+    const deploySha = process.env.VERCEL_GIT_COMMIT_SHA;
+    if (deploySha) {
+        res.setHeader('X-ZefGen-Deploy', deploySha);
+    }
     res.end(JSON.stringify(payload));
 };
 
