@@ -6,6 +6,8 @@ ZefGen v1 is a web-based CRM for managing brands and their apps, with strong ima
 ## In scope (v1)
 - Web UI with a workspace shell, brand sidebar, brand references, and app management.
 - App-level workflows: upload simulator screenshots, reorder them, generate icon and App Store screenshots, and edit generated screenshots.
+- Accounts pool: a dedicated `/accounts` screen to store App Store account rows (incl. passwords) per user, optionally assignable to apps.
+- Setup data integration: when an account is assigned to an app and is usable, its `company_name` is surfaced as read-only and synced into Setup data.
 - Cloud storage for data + images, with simple auth and user isolation.
 - Placeholder sections for App Data and Dev Files (no functional data entry).
 - App Data placeholder fields: AppId, BundleID, Company Name, id_purchases, Apphud API URL, Privacy Policy, Term of Use, Support Form, Domain, Appstore Description.
@@ -35,6 +37,8 @@ ZefGen v1 is a web-based CRM for managing brands and their apps, with strong ima
 - R014: The system integrates with external APIs for image generation and supports multiple integrations if needed (Replicate “nanobanana” and ChatGPT image 1.5 targeted for v1).
 - R015: Non-functional priorities: fast delivery and maintainable structure, with baseline security (auth-protected access, per-user data isolation).
 - R016: Generated App Store screenshots are versioned up to 3 per screenshot slot; when the limit is reached, the user must delete a version before generating more.
+- R017: Accounts screen: users can create unlimited App Store account rows, optionally assign 1 row per app, and view/copy all fields.
+- R018: Setup data lock-in: `company_name` is not user-editable in Setup data; it is sourced from the assigned account when the account is usable, otherwise it must be empty (blocking the step).
 
 ## Acceptance criteria (v1)
 - [ ] User can log in with the existing page and reach the workspace shell.

@@ -55,20 +55,18 @@ export const useAppstoreAccounts = (payload: {
 
     const createAccount = useCallback(
         async (args: {
-            appId: string;
-            row: Partial<Omit<AppstoreAccount, 'app_id' | 'user_id' | 'created_at' | 'updated_at'>>;
+            row: Partial<Omit<AppstoreAccount, 'id' | 'user_id' | 'created_at' | 'updated_at'>>;
         }) => {
             if (!session) throw new Error('Not authenticated.');
             const { data, error } = await createAppstoreAccount({
                 userId: session.user.id,
-                appId: args.appId,
                 row: args.row,
             });
             if (error) throw error;
             if (data) {
                 setAccounts((prev) => {
-                    const exists = prev.some((a) => a.app_id === data.app_id);
-                    if (exists) return prev.map((a) => (a.app_id === data.app_id ? data : a));
+                    const exists = prev.some((a) => a.id === data.id);
+                    if (exists) return prev.map((a) => (a.id === data.id ? data : a));
                     return [...prev, data];
                 });
             }
@@ -79,28 +77,28 @@ export const useAppstoreAccounts = (payload: {
 
     const updateAccount = useCallback(
         async (args: {
-            appId: string;
-            patch: Partial<Omit<AppstoreAccount, 'app_id' | 'user_id' | 'created_at'>>;
+            id: string;
+            patch: Partial<Omit<AppstoreAccount, 'id' | 'user_id' | 'created_at'>>;
         }) => {
             if (!session) throw new Error('Not authenticated.');
             const { data, error } = await updateAppstoreAccount({
                 userId: session.user.id,
-                appId: args.appId,
+                id: args.id,
                 patch: args.patch,
             });
             if (error) throw error;
-            if (data) setAccounts((prev) => prev.map((a) => (a.app_id === data.app_id ? data : a)));
+            if (data) setAccounts((prev) => prev.map((a) => (a.id === data.id ? data : a)));
             return data;
         },
         [session]
     );
 
     const deleteAccount = useCallback(
-        async (args: { appId: string }) => {
+        async (args: { id: string }) => {
             if (!session) throw new Error('Not authenticated.');
-            const { error } = await deleteAppstoreAccount({ userId: session.user.id, appId: args.appId });
+            const { error } = await deleteAppstoreAccount({ userId: session.user.id, id: args.id });
             if (error) throw error;
-            setAccounts((prev) => prev.filter((a) => a.app_id !== args.appId));
+            setAccounts((prev) => prev.filter((a) => a.id !== args.id));
         },
         [session]
     );
@@ -116,4 +114,3 @@ export const useAppstoreAccounts = (payload: {
         setAccounts,
     };
 };
-

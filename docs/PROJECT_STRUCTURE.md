@@ -5,6 +5,7 @@ Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
 Screenshot sets + export picks/completion state are stored in Supabase (`app_screenshot_sets`, `app_asset_picks`, `app_export_status`).
 Brand release planning metadata is stored in Supabase on `brands` (`target_countries`, `keywords`, `release_strategy_notes`, `release_strategy_updated_at`).
 Brand ordering is stored in Supabase on `brands.order_index` (drag-and-drop reorder in Sidebar edit mode).
+Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/accounts` screen (pooled rows, optional 1-per-app assignment).
 
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
@@ -54,6 +55,8 @@ Brand ordering is stored in Supabase on `brands.order_index` (drag-and-drop reor
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
 - `components/app/ConnectorClientSpecPanel.tsx` - Idea picker placeholder + client spec editor (Step 2).
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 4).
+- `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
+- `components/app/IdeasPage.tsx` - Ideas stub screen (`/ideas`) (coming soon).
 - `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5).
 - `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6).
 - `components/app/AutoReleaseModulePanel.tsx` - Auto-release / Fastlane placeholder (Step 7).
@@ -91,6 +94,7 @@ The Integration step (Step 6) is a checklist driven by the values stored in Setu
 - Terms of Use URL → Setup data: Variables `terms_of_use_url`
 - Support form URL → Setup data: Variables `support_form_url`
 - Firebase plist snippet → Setup data: Variables `firebase_plist_snippet`
+- Company name → Setup data: read-only and sourced from the app’s assigned usable account (`appstore_accounts.company_name`)
 
 ## Auto-Release Step (Placeholder)
 Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and release automation.
@@ -119,6 +123,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-screen-size.ts` - Screen size tracking.
 - `hooks/use-connector-jobs.ts` - Connector job polling + runner job lifecycle actions.
 - `hooks/use-connector-job-queue.ts` - Global Runner job polling across apps (feeds the bottom-right job queue widget).
+- `hooks/use-appstore-accounts.ts` - App Store accounts pool list + CRUD (feeds `/accounts` and Setup data account block).
 
 ## data Breakdown
 - `data/auth.ts` - Auth actions (sign out).
@@ -135,6 +140,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
 - `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
+- `data/appstore-accounts.ts` - App Store accounts pool CRUD (`appstore_accounts`).
 
 ## utils Breakdown
 - `utils/slug.ts` - Slug creation helpers.

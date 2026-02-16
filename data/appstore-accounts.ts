@@ -1,7 +1,8 @@
 import { supabase } from '../lib/supabase';
 import type { AppstoreAccount } from '../types/zefgen';
 
-const SELECT = 'app_id, user_id, usability, email, password, email_password, number, geo, company_name, proxy, updated_at, created_at';
+const SELECT =
+    'id, user_id, app_id, usability, was_used_before, email, password, email_password, number, geo, company_name, proxy, notes, updated_at, created_at';
 
 export const fetchAppstoreAccounts = async (userId: string) =>
     supabase
@@ -20,14 +21,12 @@ export const fetchAppstoreAccount = async (payload: { userId: string; appId: str
 
 export const createAppstoreAccount = async (payload: {
     userId: string;
-    appId: string;
-    row: Partial<Omit<AppstoreAccount, 'app_id' | 'user_id' | 'created_at' | 'updated_at'>>;
+    row: Partial<Omit<AppstoreAccount, 'id' | 'user_id' | 'created_at' | 'updated_at'>>;
 }) => {
     const nowIso = new Date().toISOString();
     return supabase
         .from('appstore_accounts')
         .insert({
-            app_id: payload.appId,
             user_id: payload.userId,
             updated_at: nowIso,
             ...payload.row,
@@ -38,23 +37,22 @@ export const createAppstoreAccount = async (payload: {
 
 export const updateAppstoreAccount = async (payload: {
     userId: string;
-    appId: string;
-    patch: Partial<Omit<AppstoreAccount, 'app_id' | 'user_id' | 'created_at'>>;
+    id: string;
+    patch: Partial<Omit<AppstoreAccount, 'id' | 'user_id' | 'created_at'>>;
 }) => {
     const nowIso = new Date().toISOString();
     return supabase
         .from('appstore_accounts')
         .update({ ...payload.patch, updated_at: nowIso })
         .eq('user_id', payload.userId)
-        .eq('app_id', payload.appId)
+        .eq('id', payload.id)
         .select(SELECT)
         .single();
 };
 
-export const deleteAppstoreAccount = async (payload: { userId: string; appId: string }) =>
+export const deleteAppstoreAccount = async (payload: { userId: string; id: string }) =>
     supabase
         .from('appstore_accounts')
         .delete()
         .eq('user_id', payload.userId)
-        .eq('app_id', payload.appId);
-
+        .eq('id', payload.id);

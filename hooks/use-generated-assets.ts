@@ -1998,6 +1998,61 @@ export const useGeneratedAssets = ({
         }
     };
 
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    const readErrorPayload = async (response: Response) => {
+        const status = response.status;
+        const contentType = response.headers.get('content-type');
+        const xZefGenApi = response.headers.get('x-zefgen-api');
+        const xVercelId = response.headers.get('x-vercel-id');
+
+        let message = `Generation failed (${status}).`;
+
+        try {
+            const data = await response.clone().json().catch(() => ({}));
+            const maybeError = (data as any)?.error ?? (data as any)?.message;
+            if (typeof maybeError === 'string' && maybeError.trim()) {
+                message = maybeError;
+            } else if (maybeError && typeof maybeError === 'object') {
+                message = JSON.stringify(maybeError).slice(0, 500);
+            }
+        } catch {
+            // ignore and fall back to text
+        }
+
+        if (message.startsWith('Generation failed')) {
+            try {
+                const textBody = await response.text();
+                const snippet = textBody.trim().slice(0, 200);
+                if (snippet) message = snippet;
+            } catch {
+                // ignore
+            }
+        }
+
+        return { status, contentType, xZefGenApi, xVercelId, message };
+    };
+
+    const fetchWithRetry = async (url: string, init: RequestInit) => {
+        const retryStatuses = new Set([403, 429, 502, 503, 504]);
+        const maxAttempts = 2;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const response = await fetch(url, init);
+            if (response.ok) return response;
+
+            const shouldRetry = retryStatuses.has(response.status);
+            if (!shouldRetry || attempt >= maxAttempts) return response;
+
+            // Small, jittered backoff: enough to bypass transient edge/WAF/rate-limit spikes.
+            const delayMs = 400 + Math.random() * 600;
+            await sleep(delayMs);
+        }
+
+        // Unreachable; loop always returns above.
+        throw new Error('Failed to fetch generation result.');
+    };
+
     const requestGeneratedScreenshot = async (payload: {
         providerId: ScreenshotProviderId;
         prompt: string;
@@ -2016,7 +2071,7 @@ export const useGeneratedAssets = ({
                 ? 'url'
                 : 'b64';
 
-        const response = await fetch('/api/generate-screenshot', {
+        const response = await fetchWithRetry('/api/generate-screenshot', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -2034,12 +2089,25 @@ export const useGeneratedAssets = ({
             }),
         });
 
-        const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-            const message = (data as any)?.error || `Generation failed (${response.status}).`;
-            throw new Error(message);
+            const errorPayload = await readErrorPayload(response);
+            const contentType = errorPayload.contentType || '';
+
+            if (
+                errorPayload.status === 403 &&
+                contentType.includes('text/html') &&
+                !errorPayload.xZefGenApi
+            ) {
+                throw new Error(
+                    "Request blocked at edge (403). Try again or refresh. If this keeps happening, check Vercel Firewall/Bot Protection for /api/* and /manifest.json."
+                );
+            }
+
+            const vercelSuffix = errorPayload.xVercelId ? ` (x-vercel-id: ${errorPayload.xVercelId})` : '';
+            throw new Error(`${errorPayload.message}${vercelSuffix}`);
         }
 
+        const data = await response.json().catch(() => ({}));
         const outputUrl = (data as any)?.outputUrl;
         if (typeof outputUrl === 'string' && outputUrl.length) {
             return { kind: 'url', outputUrl };

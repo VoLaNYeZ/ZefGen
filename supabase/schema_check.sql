@@ -24,6 +24,18 @@ union all select 'apps.is_banned', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'apps' and column_name = 'is_banned'
 )
+union all select 'appstore_accounts.id', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'appstore_accounts' and column_name = 'id'
+)
+union all select 'appstore_accounts.was_used_before', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'appstore_accounts' and column_name = 'was_used_before'
+)
+union all select 'appstore_accounts.notes', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'appstore_accounts' and column_name = 'notes'
+)
 union all select 'brand_references.kind', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'brand_references' and column_name = 'kind'
@@ -43,6 +55,9 @@ union all select 'brands_user_id_idx', to_regclass('public.brands_user_id_idx') 
 union all select 'apps_brand_alias_key', to_regclass('public.apps_brand_alias_key') is not null
 union all select 'apps_user_id_idx', to_regclass('public.apps_user_id_idx') is not null
 union all select 'apps_brand_id_idx', to_regclass('public.apps_brand_id_idx') is not null
+union all select 'appstore_accounts_user_id_idx', to_regclass('public.appstore_accounts_user_id_idx') is not null
+union all select 'appstore_accounts_user_geo_idx', to_regclass('public.appstore_accounts_user_geo_idx') is not null
+union all select 'appstore_accounts_app_id_unique', to_regclass('public.appstore_accounts_app_id_unique') is not null
 union all select 'brand_references_user_id_idx', to_regclass('public.brand_references_user_id_idx') is not null
 union all select 'brand_references_brand_id_idx', to_regclass('public.brand_references_brand_id_idx') is not null
 union all select 'brand_references_one_icon_per_brand', to_regclass('public.brand_references_one_icon_per_brand') is not null
@@ -135,6 +150,11 @@ union all select 'appstore_accounts_update_own', exists(
 union all select 'appstore_accounts_delete_own', exists(
     select 1 from pg_policies
     where schemaname = 'public' and tablename = 'appstore_accounts' and policyname = 'appstore_accounts_delete_own'
+)
+union all select 'appstore_accounts_used_before_blocks', exists(
+    select 1 from pg_constraint
+    where conname = 'appstore_accounts_used_before_blocks'
+        and conrelid = 'public.appstore_accounts'::regclass
 )
 union all select 'brand_refs_select_own', exists(
     select 1 from pg_policies

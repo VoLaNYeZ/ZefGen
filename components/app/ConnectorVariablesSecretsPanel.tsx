@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Copy, ExternalLink, Plus } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2, Plus } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
@@ -24,10 +24,13 @@ export function ConnectorVariablesSecretsPanel(props: {
     isEnabled: boolean;
     selectedApp: AppItem | null;
     account: AppstoreAccount | null;
+    allAccounts: AppstoreAccount[];
+    onPickAccount?: (modeOrId: 'auto' | null | string) => Promise<void>;
     onOpenAccountsForApp?: () => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { connectorForm, isEnabled, selectedApp, account, onOpenAccountsForApp, text } = props;
+    const { connectorForm, isEnabled, selectedApp, account, allAccounts, onPickAccount, onOpenAccountsForApp, text } =
+        props;
 
     const [secretKey, setSecretKey] = React.useState('');
     const [secretValue, setSecretValue] = React.useState('');
@@ -65,6 +68,44 @@ export function ConnectorVariablesSecretsPanel(props: {
         setCopiedKey(key);
         if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
         copiedTimerRef.current = window.setTimeout(() => setCopiedKey(null), 1200);
+    };
+
+    const [pickBusy, setPickBusy] = React.useState(false);
+
+    const accountIndexById = React.useMemo(() => {
+        const map = new Map<string, number>();
+        allAccounts.forEach((a, i) => map.set(a.id, i + 1));
+        return map;
+    }, [allAccounts]);
+
+    const pickerOptions = React.useMemo(() => {
+        if (!selectedApp) return [];
+        return allAccounts.filter((a) => !a.app_id || a.app_id === selectedApp.id);
+    }, [allAccounts, selectedApp]);
+
+    const pickerValue = React.useMemo(() => {
+        return account?.id || 'auto';
+    }, [account?.id]);
+
+    const handlePickChange = async (raw: string) => {
+        if (!selectedApp) return;
+        if (!onPickAccount) return;
+        if (pickBusy) return;
+
+        const next: 'auto' | null | string = raw === 'auto' ? 'auto' : raw === 'unassigned' ? null : raw;
+        if (account && next === account.id) return;
+
+        if (account && next !== account.id) {
+            const ok = window.confirm(text('accounts_confirm_switch_account'));
+            if (!ok) return;
+        }
+
+        setPickBusy(true);
+        try {
+            await onPickAccount(next);
+        } finally {
+            setPickBusy(false);
+        }
     };
 
     const upsertSecret = async () => {
@@ -134,41 +175,83 @@ export function ConnectorVariablesSecretsPanel(props: {
                             <div className="text-xs font-semibold text-indigo-100">{text('accounts_account')}</div>
                             <div className="mt-1 text-[11px] text-indigo-200/45">{text('accounts_account_hint')}</div>
                         </div>
-                        {account ? (
-                            <span
-                                className={`shrink-0 inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
-                                    account.usability
-                                        ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
-                                        : 'border-rose-400/25 bg-rose-500/10 text-rose-50/90'
-                                }`}
-                                title={account.usability ? text('accounts_usable') : text('accounts_disabled')}
-                            >
-                                {account.usability ? text('accounts_usable') : text('accounts_disabled')}
-                            </span>
-                        ) : (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            <div className="relative">
+                                <select
+                                    value={pickerValue}
+                                    onChange={(e) => void handlePickChange(e.target.value)}
+                                    disabled={!isEnabled || !selectedApp || !onPickAccount || pickBusy}
+                                    className="h-9 rounded-full border border-white/10 bg-slate-950/20 pl-4 pr-9 text-[11px] font-semibold text-indigo-100/85 outline-none hover:border-indigo-400/35 disabled:opacity-60"
+                                    title={text('accounts_account')}
+                                >
+                                    <option value="auto">{text('accounts_auto')}</option>
+                                    <option value="unassigned">{text('accounts_unassigned')}</option>
+                                    {pickerOptions.map((a) => {
+                                        const n = accountIndexById.get(a.id) ?? null;
+                                        const nLabel = n ? `#${n}` : '#—';
+                                        const email = String(a.email || '').trim();
+                                        const label = email ? `${nLabel} · ${email}` : nLabel;
+                                        return (
+                                            <option key={a.id} value={a.id}>
+                                                {label}
+                                            </option>
+                                        );
+                                    })}
+                                    {account && !pickerOptions.some((a) => a.id === account.id) ? (
+                                        <option value={account.id}>
+                                            {`${accountIndexById.get(account.id) ? `#${accountIndexById.get(account.id)}` : '#—'}${
+                                                account.email ? ` · ${account.email}` : ''
+                                            }`}
+                                        </option>
+                                    ) : null}
+                                </select>
+                                {pickBusy ? (
+                                    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-indigo-100/70">
+                                        <Loader2 size={14} className="animate-spin" />
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            {account ? (
+                                <span
+                                    className={`shrink-0 inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                                        account.was_used_before
+                                            ? 'border-amber-400/30 bg-amber-500/10 text-amber-100/95'
+                                            : account.usability
+                                              ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
+                                              : 'border-rose-400/25 bg-rose-500/10 text-rose-50/90'
+                                    }`}
+                                    title={
+                                        account.was_used_before
+                                            ? text('accounts_used_before')
+                                            : account.usability
+                                              ? text('accounts_usable')
+                                              : text('accounts_disabled')
+                                    }
+                                >
+                                    {account.was_used_before
+                                        ? text('accounts_used_before')
+                                        : account.usability
+                                          ? text('accounts_usable')
+                                          : text('accounts_disabled')}
+                                </span>
+                            ) : null}
+
                             <button
                                 type="button"
                                 onClick={() => onOpenAccountsForApp?.()}
-                                className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/15"
+                                className="ui-btn-fit ui-btn-fit-dense inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:text-white disabled:opacity-60"
                                 title={text('accounts_open_accounts')}
+                                disabled={!isEnabled}
                             >
-                                <ExternalLink size={14} />
-                                {text('accounts_open_accounts')}
+                                <ExternalLink size={16} />
                             </button>
-                        )}
+                        </div>
                     </div>
 
                     {!account ? (
                         <div className="mt-3 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-3 text-[11px] text-amber-50/90 flex items-center justify-between gap-3">
                             <span>{text('accounts_no_account_for_app')}</span>
-                            <button
-                                type="button"
-                                onClick={() => onOpenAccountsForApp?.()}
-                                className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-50 hover:bg-amber-500/15"
-                            >
-                                <ExternalLink size={14} />
-                                {text('accounts_open_accounts')}
-                            </button>
                         </div>
                     ) : (
                         <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -176,7 +259,6 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 [
                                     { key: 'email', label: text('accounts_email'), value: account.email },
                                     { key: 'password', label: text('accounts_password'), value: account.password },
-                                    { key: 'email_password', label: text('accounts_email_password'), value: account.email_password },
                                     { key: 'number', label: text('accounts_number'), value: account.number },
                                     { key: 'geo', label: text('accounts_geo'), value: account.geo },
                                     { key: 'company_name', label: text('accounts_company_name'), value: account.company_name },
@@ -205,24 +287,35 @@ export function ConnectorVariablesSecretsPanel(props: {
                         </div>
                     )}
 
-                    {account && !account.usability ? (
-                        <div className="mt-3 text-[11px] text-rose-200/80">
-                            {text('accounts_disabled_hint')}
+                    {account && (account.was_used_before || !account.usability) ? (
+                        <div
+                            className={`mt-3 text-[11px] ${
+                                account.was_used_before ? 'text-amber-100/85' : 'text-rose-200/80'
+                            }`}
+                        >
+                            {account.was_used_before ? text('accounts_used_before_hint') : text('accounts_disabled_hint')}
                         </div>
                     ) : null}
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-4">
                     <div className="text-xs font-semibold text-indigo-100">{text('connector_variables')}</div>
-                    <div className="mt-3 grid gap-2">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {DEFAULT_VARIABLES.map((f) => (
-                            <label key={f.key} className="grid gap-1">
+                            <label
+                                key={f.key}
+                                className={`grid gap-1 ${
+                                    f.key === 'appstore_description' || f.key === 'firebase_plist_snippet'
+                                        ? 'sm:col-span-2'
+                                        : ''
+                                }`}
+                            >
                                 <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
                                 {f.key === 'appstore_description' || f.key === 'firebase_plist_snippet' ? (
                                     <textarea
                                         value={String(connectorForm.variables?.[f.key] ?? '')}
                                         onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
-                                        rows={f.key === 'firebase_plist_snippet' ? 6 : 3}
+                                        rows={4}
                                         disabled={!isEnabled}
                                         className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
                                             f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''

@@ -44,7 +44,7 @@ import { IdeasPage } from './IdeasPage';
 import type { TextLayer } from '../../types/zefgen';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppPage } from '../../utils/routes';
-import { buildAccountsRoute, buildIdeasRoute, parseRoute } from '../../utils/routes';
+import { buildAccountsRoute, buildIdeasRoute, buildRoute, parseRoute } from '../../utils/routes';
 
 type AppShellProps = {
     session: Session;
@@ -67,6 +67,7 @@ export function AppShell({ session }: AppShellProps) {
         }
     });
     const [accountsFocusAppId, setAccountsFocusAppId] = useState<string | null>(null);
+    const [accountsHasUnsavedChanges, setAccountsHasUnsavedChanges] = useState(false);
     const text = useCallback((key: TranslationKey) => t(lang, key), [lang]);
 
     const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
@@ -504,7 +505,9 @@ export function AppShell({ session }: AppShellProps) {
     const selectedAppAccountCompanyName = useMemo(() => {
         return String(selectedAppstoreAccount?.company_name || '').trim();
     }, [selectedAppstoreAccount?.company_name]);
-    const selectedAppAccountUsable = Boolean(selectedAppstoreAccount && selectedAppstoreAccount.usability);
+    const selectedAppAccountUsable = Boolean(
+        selectedAppstoreAccount && selectedAppstoreAccount.usability && !selectedAppstoreAccount.was_used_before
+    );
     const currentCompanyName = String((connectorForm.variables as any)?.company_name || '').trim();
 
     useEffect(() => {
@@ -755,6 +758,13 @@ export function AppShell({ session }: AppShellProps) {
         selectedApp,
         setSelectedBrandId,
         setSelectedAppId,
+        canNavigate: (next) => {
+            if (activePage === 'accounts' && accountsHasUnsavedChanges && next.page !== 'accounts') {
+                reportActionError(text('accounts_unsaved_block'));
+                return false;
+            }
+            return true;
+        },
     });
 
     const handleRetry = () => {
@@ -787,14 +797,110 @@ export function AppShell({ session }: AppShellProps) {
     );
 
     const openIdeas = useCallback(() => {
+        if (activePage === 'accounts' && accountsHasUnsavedChanges) {
+            reportActionError(text('accounts_unsaved_block'));
+            return;
+        }
         setAccountsFocusAppId(null);
         setActivePage('ideas');
         window.history.pushState({}, '', buildIdeasRoute());
         if (window.innerWidth < 768) setIsSidebarOpen(false);
-    }, [setActivePage]);
+    }, [activePage, accountsHasUnsavedChanges, reportActionError, setActivePage, text]);
+
+    const openWorkspaceForApp = useCallback(
+        (appId: string) => {
+            if (activePage === 'accounts' && accountsHasUnsavedChanges) {
+                reportActionError(text('accounts_unsaved_block'));
+                return;
+            }
+            const app = apps.find((a) => a.id === appId) || null;
+            if (!app) return;
+            const brand = brands.find((b) => b.id === app.brand_id) || null;
+            if (!brand) return;
+
+            setAccountsFocusAppId(null);
+            setActivePage('workspace');
+            setSelectedBrandId(brand.id);
+            setSelectedAppId(app.id);
+            window.history.pushState({}, '', buildRoute(brand, app));
+            if (window.innerWidth < 768) setIsSidebarOpen(false);
+        },
+        [
+            activePage,
+            accountsHasUnsavedChanges,
+            reportActionError,
+            text,
+            apps,
+            brands,
+            setActivePage,
+            setSelectedBrandId,
+            setSelectedAppId,
+        ]
+    );
+
+    const pickAccountForSelectedApp = useCallback(
+        async (modeOrId: 'auto' | null | string) => {
+            if (!selectedApp) return;
+            if (appstoreAccountsLoading) return;
+
+            const current = selectedAppstoreAccount;
+
+            const pickAuto = () =>
+                appstoreAccounts.find((a) => !a.app_id && a.usability && !a.was_used_before) || null;
+
+            try {
+                if (modeOrId === null) {
+                    if (!current) return;
+                    await updateAppstoreAccount({ id: current.id, patch: { app_id: null } });
+                    return;
+                }
+
+                const next =
+                    modeOrId === 'auto'
+                        ? pickAuto()
+                        : appstoreAccounts.find((a) => a.id === modeOrId) || null;
+
+                if (!next) {
+                    if (modeOrId === 'auto') {
+                        reportActionError(text('accounts_no_usable_accounts'));
+                        return;
+                    }
+                    reportActionError(text('download_failed'));
+                    return;
+                }
+
+                // Already assigned to this app.
+                if (current && next.id === current.id) return;
+
+                // Detach current first to satisfy unique index on app_id.
+                if (current && current.id !== next.id) {
+                    await updateAppstoreAccount({ id: current.id, patch: { app_id: null } });
+                }
+
+                await updateAppstoreAccount({ id: next.id, patch: { app_id: selectedApp.id } });
+            } catch (e: any) {
+                const msg = String(e?.message || e);
+                reportActionError(msg);
+                throw e;
+            }
+        },
+        [
+            selectedApp,
+            appstoreAccountsLoading,
+            appstoreAccounts,
+            selectedAppstoreAccount,
+            updateAppstoreAccount,
+            reportActionError,
+            text,
+        ]
+    );
 
     const selectBrandFromSidebar = useCallback(
         (brandId: string | null) => {
+            if (activePage === 'accounts' && accountsHasUnsavedChanges) {
+                reportActionError(text('accounts_unsaved_block'));
+                return;
+            }
             setAccountsFocusAppId(null);
             if (activePage !== 'workspace') {
                 const brand = brands.find((b) => b.id === brandId) || null;
@@ -804,7 +910,7 @@ export function AppShell({ session }: AppShellProps) {
             setActivePage('workspace');
             setSelectedBrandId(brandId);
         },
-        [activePage, brands, setSelectedBrandId, setActivePage]
+        [activePage, accountsHasUnsavedChanges, reportActionError, text, brands, setSelectedBrandId, setActivePage]
     );
 
     const openLightbox = (
@@ -838,7 +944,8 @@ export function AppShell({ session }: AppShellProps) {
         slotGenerating !== null ||
         enhanceSlotGenerating !== null ||
         iconSlotGenerating !== null ||
-        enhanceIconSlotGenerating !== null;
+        enhanceIconSlotGenerating !== null ||
+        accountsHasUnsavedChanges;
     const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
     const selectedBrandSummary = selectedBrand ? brandAppSummaryByBrandId[selectedBrand.id] : null;
     const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
@@ -1079,11 +1186,11 @@ export function AppShell({ session }: AppShellProps) {
                     brandIconUrls={brandIconUrls}
                     brandFormOpen={brandFormOpen}
                     brandForm={brandForm}
-                    brandFormError={brandFormError}
+                brandFormError={brandFormError}
                 brandFormLoading={brandFormLoading}
                 editingBrandId={editingBrandId}
                 brandSlugPreview={brandSlugPreview}
-                dataLoading={dataLoading}
+                brandsLoading={brandsLoading}
                 isBusy={false}
                 onBlockedAction={() => reportActionError(text('generation_in_progress'))}
                 reorderBrands={reorderBrands}
@@ -1521,6 +1628,8 @@ export function AppShell({ session }: AppShellProps) {
                                                                     isEnabled={connectorEnabled}
                                                                     selectedApp={selectedApp}
                                                                     account={selectedAppstoreAccount}
+                                                                    allAccounts={appstoreAccounts}
+                                                                    onPickAccount={pickAccountForSelectedApp}
                                                                     onOpenAccountsForApp={() => openAccounts(selectedApp?.id || null)}
                                                                     text={text}
                                                                 />
@@ -1609,8 +1718,10 @@ export function AppShell({ session }: AppShellProps) {
                                     deleteAccount={deleteAppstoreAccount}
                                     apps={apps}
                                     brands={brands}
+                                    onOpenApp={openWorkspaceForApp}
                                     focusAppId={accountsFocusAppId}
                                     consumeFocus={() => setAccountsFocusAppId(null)}
+                                    onUnsavedChangesChange={setAccountsHasUnsavedChanges}
                                     reportError={reportActionError}
                                     text={text}
                                 />
