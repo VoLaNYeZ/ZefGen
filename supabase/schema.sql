@@ -47,11 +47,14 @@ create unique index if not exists apps_brand_alias_key on public.apps (brand_id,
 create index if not exists apps_user_id_idx on public.apps (user_id);
 create index if not exists apps_brand_id_idx on public.apps (brand_id);
 
--- App Store accounts per app (source of truth for Setup data company name). (2026-02-15)
+-- App Store accounts pool with optional app assignment (source of truth for Setup data company name). (2026-02-15)
+-- Note: updated from the initial 1-row-per-app design to a pooled accounts model. (2026-02-15)
 create table if not exists public.appstore_accounts (
-    app_id uuid primary key references public.apps(id) on delete cascade,
+    id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
+    app_id uuid references public.apps(id) on delete set null,
     usability boolean not null default true,
+    was_used_before boolean not null default false,
     email text not null default '',
     password text not null default '',
     email_password text not null default '',
@@ -59,10 +62,14 @@ create table if not exists public.appstore_accounts (
     geo text not null default '',
     company_name text not null default '',
     proxy text not null default '',
+    notes text not null default '',
     updated_at timestamptz not null default now(),
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    constraint appstore_accounts_used_before_blocks check (not was_used_before or not usability)
 );
 
+create unique index if not exists appstore_accounts_app_id_unique
+    on public.appstore_accounts (app_id) where app_id is not null;
 create index if not exists appstore_accounts_user_id_idx on public.appstore_accounts (user_id);
 create index if not exists appstore_accounts_user_geo_idx on public.appstore_accounts (user_id, geo);
 

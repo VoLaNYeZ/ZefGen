@@ -138,9 +138,11 @@ export type AppExportStatus = {
 };
 
 export type AppstoreAccount = {
-    app_id: string;
+    id: string;
+    app_id: string | null;
     user_id?: string;
     usability: boolean;
+    was_used_before: boolean;
     email: string;
     password: string;
     email_password: string;
@@ -148,6 +150,7 @@ export type AppstoreAccount = {
     geo: string;
     company_name: string;
     proxy: string;
+    notes: string;
     updated_at?: string;
     created_at?: string;
 };

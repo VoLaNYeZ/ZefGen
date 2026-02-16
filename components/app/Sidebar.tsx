@@ -56,7 +56,7 @@ type SidebarProps = {
     brandFormLoading: boolean;
     editingBrandId: string | null;
     brandSlugPreview: string;
-    dataLoading: boolean;
+    brandsLoading: boolean;
     isBusy: boolean;
     onBlockedAction: () => void;
     reorderBrands: (sourceId: string, targetId: string) => void;
@@ -98,7 +98,7 @@ export const Sidebar = ({
     brandFormLoading,
     editingBrandId,
     brandSlugPreview,
-    dataLoading,
+    brandsLoading,
     isBusy,
     onBlockedAction,
     reorderBrands,
@@ -162,7 +162,17 @@ export const Sidebar = ({
         });
     }, [selectedBrandId]);
 
-    React.useEffect(() => {
+    const setBrandRowRef = React.useCallback(
+        (brandId: string, el: HTMLButtonElement | null) => {
+            brandRowRefs.current[brandId] = el;
+            if (el && brandId === selectedBrandId) {
+                requestAnimationFrame(updateActiveBrandHighlight);
+            }
+        },
+        [selectedBrandId, updateActiveBrandHighlight]
+    );
+
+    React.useLayoutEffect(() => {
         updateActiveBrandHighlight();
         const container = brandListRef.current;
         if (!container) return;
@@ -188,7 +198,26 @@ export const Sidebar = ({
             window.removeEventListener('resize', handleRecalc);
             resizeObserver.disconnect();
         };
-    }, [brands, selectedBrandId, updateActiveBrandHighlight]);
+    }, [brands, selectedBrandId, updateActiveBrandHighlight, brandsLoading, isSidebarOpen]);
+
+    React.useEffect(() => {
+        const container = brandListRef.current;
+        if (!container) return;
+        if (brandListDragActiveId) return;
+
+        let raf = 0;
+        const schedule = () => {
+            cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(updateActiveBrandHighlight);
+        };
+
+        const observer = new MutationObserver(() => schedule());
+        observer.observe(container, { childList: true });
+        return () => {
+            cancelAnimationFrame(raf);
+            observer.disconnect();
+        };
+    }, [brandListDragActiveId, updateActiveBrandHighlight]);
 
     const brandById = React.useMemo(() => {
         const map = new Map<string, Brand>();
@@ -330,112 +359,116 @@ export const Sidebar = ({
                 </div>
             ) : null}
 
-            <div
-                ref={brandListRef}
-                className="relative flex-1 overflow-y-auto px-3 pt-1 pb-6 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40"
-            >
-                {activeBrandRect && !brandListDragActiveId ? (
+            <div className="relative flex-1 min-h-0">
+                <div
+                    ref={brandListRef}
+                    className="relative h-full min-h-0 overflow-y-auto px-3 pt-1 pb-6 space-y-2 scrollbar-thin scrollbar-thumb-indigo-900/40"
+                >
+                    {activeBrandRect && !brandListDragActiveId ? (
+                        <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute left-3 right-3 top-0 rounded-2xl border border-indigo-400/30 bg-indigo-500/15 transition-[transform,height] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+                            style={{
+                                transform: `translateY(${activeBrandRect.top}px)`,
+                                height: `${activeBrandRect.height}px`,
+                            }}
+                        />
+                    ) : null}
+
+                    {!brandsLoading && !brands.length && (
+                        <div className="rounded-2xl border border-dashed border-indigo-900/60 p-4 text-sm text-indigo-200/70">
+                            {text('no_brands_yet')}
+                        </div>
+                    )}
+
+                    {isBrandReorderMode ? (
+                        <SortableList
+                            ids={brands.map((b) => b.id)}
+                            disabled={isBusy}
+                            onActiveIdChange={setBrandListDragActiveId}
+                            onCommitMove={({ activeId, toIndex }) => {
+                                const targetId = brands[toIndex]?.id;
+                                if (!targetId) return;
+                                brandListLastDragAtRef.current = Date.now();
+                                reorderBrands(activeId, targetId);
+                            }}
+                        >
+                            {(orderedIds, activeId) => (
+                                <>
+                                    {orderedIds.map((brandId) => {
+                                        const brand = brandById.get(brandId);
+                                        if (!brand) return null;
+                                        const iconUrl = brandIconUrls[brand.id];
+                                        const summary =
+                                            brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
+                                        return (
+                                            <SortableBrandRow
+                                                key={brand.id}
+                                                brand={brand}
+                                                iconUrl={iconUrl}
+                                                summary={summary}
+                                                isActive={brand.id === selectedBrandId}
+                                                isBusy={isBusy}
+                                                isDragging={Boolean(activeId)}
+                                                showDragIndicator={isBrandReorderMode}
+                                                onBlockedAction={onBlockedAction}
+                                                onSelect={() => {
+                                                    if (Date.now() - brandListLastDragAtRef.current < 250) return;
+                                                    setSelectedBrandId(brand.id);
+                                                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                                }}
+                                                onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                                clampCount={clampCount}
+                                                dotClass={dotClass}
+                                                countTextClass={countTextClass}
+                                                setRowRef={(el) => setBrandRowRef(brand.id, el)}
+                                                text={text}
+                                            />
+                                        );
+                                    })}
+                                </>
+                            )}
+                        </SortableList>
+                    ) : (
+                        brands.map((brand) => {
+                            const isActive = brand.id === selectedBrandId;
+                            const iconUrl = brandIconUrls[brand.id];
+                            const summary =
+                                brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
+                            return (
+                                <PlainBrandRow
+                                    key={brand.id}
+                                    brand={brand}
+                                    iconUrl={iconUrl}
+                                    summary={summary}
+                                    isActive={isActive}
+                                    isBusy={isBusy}
+                                    onBlockedAction={onBlockedAction}
+                                    onSelect={() => {
+                                        setSelectedBrandId(brand.id);
+                                        if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                    }}
+                                    onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                    clampCount={clampCount}
+                                    dotClass={dotClass}
+                                    countTextClass={countTextClass}
+                                    setRowRef={(el) => setBrandRowRef(brand.id, el)}
+                                    text={text}
+                                />
+                            );
+                        })
+                    )}
+                </div>
+
+                {brandsLoading ? (
                     <div
-                        aria-hidden="true"
-                        className="pointer-events-none absolute left-3 right-3 top-0 rounded-2xl border border-indigo-400/30 bg-indigo-500/15 transition-[transform,height] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-                        style={{
-                            transform: `translateY(${activeBrandRect.top}px)`,
-                            height: `${activeBrandRect.height}px`,
-                        }}
-                    />
-                ) : null}
-                {dataLoading && (
-                    <div className="flex items-center gap-2 text-xs text-indigo-200/60 px-3">
-                        <Loader2 className="animate-spin" size={14} />
-                        {text('loading_brands')}
-                    </div>
-                )}
-                {!dataLoading && !brands.length && (
-                    <div className="rounded-2xl border border-dashed border-indigo-900/60 p-4 text-sm text-indigo-200/70">
-                        {text('no_brands_yet')}
-                    </div>
-                )}
-                {isBrandReorderMode ? (
-                    <SortableList
-                        ids={brands.map((b) => b.id)}
-                        disabled={isBusy}
-                        onActiveIdChange={setBrandListDragActiveId}
-                        onCommitMove={({ activeId, toIndex }) => {
-                            const targetId = brands[toIndex]?.id;
-                            if (!targetId) return;
-                            brandListLastDragAtRef.current = Date.now();
-                            reorderBrands(activeId, targetId);
-                        }}
+                        className="pointer-events-none absolute left-5 bottom-3 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-slate-950/35 text-indigo-100/75 backdrop-blur"
+                        title={text('loading_brands')}
+                        aria-label={text('loading_brands')}
                     >
-                        {(orderedIds, activeId) => (
-                            <>
-                                {orderedIds.map((brandId) => {
-                                    const brand = brandById.get(brandId);
-                                    if (!brand) return null;
-                                    const iconUrl = brandIconUrls[brand.id];
-                                    const summary =
-                                        brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
-                                    return (
-                                        <SortableBrandRow
-                                            key={brand.id}
-                                            brand={brand}
-                                            iconUrl={iconUrl}
-                                            summary={summary}
-                                            isActive={brand.id === selectedBrandId}
-                                            isBusy={isBusy}
-                                            isDragging={Boolean(activeId)}
-                                            showDragIndicator={isBrandReorderMode}
-                                            onBlockedAction={onBlockedAction}
-                                            onSelect={() => {
-                                                if (Date.now() - brandListLastDragAtRef.current < 250) return;
-                                                setSelectedBrandId(brand.id);
-                                                if (window.innerWidth < 768) setIsSidebarOpen(false);
-                                            }}
-                                            onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
-                                            clampCount={clampCount}
-                                            dotClass={dotClass}
-                                            countTextClass={countTextClass}
-                                            setRowRef={(el) => {
-                                                brandRowRefs.current[brand.id] = el;
-                                            }}
-                                            text={text}
-                                        />
-                                    );
-                                })}
-                            </>
-                        )}
-                    </SortableList>
-                ) : (
-                    brands.map((brand) => {
-                        const isActive = brand.id === selectedBrandId;
-                        const iconUrl = brandIconUrls[brand.id];
-                        const summary =
-                            brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
-                        return (
-                            <PlainBrandRow
-                                key={brand.id}
-                                brand={brand}
-                                iconUrl={iconUrl}
-                                summary={summary}
-                                isActive={isActive}
-                                isBusy={isBusy}
-                                onBlockedAction={onBlockedAction}
-                                onSelect={() => {
-                                    setSelectedBrandId(brand.id);
-                                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                                }}
-                                onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
-                                clampCount={clampCount}
-                                dotClass={dotClass}
-                                countTextClass={countTextClass}
-                                setRowRef={(el) => {
-                                    brandRowRefs.current[brand.id] = el;
-                                }}
-                                text={text}
-                            />
-                        );
-                    })
-                )}
+                        <Loader2 className="animate-spin" size={14} />
+                    </div>
+                ) : null}
             </div>
 
             <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-3">
