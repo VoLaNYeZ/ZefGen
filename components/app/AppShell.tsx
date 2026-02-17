@@ -420,6 +420,10 @@ export function AppShell({ session }: AppShellProps) {
         cancelGenerationJob,
         dismissJob,
         clearFinished,
+        queueCreateJob,
+        queueSetJobProgress,
+        queueSetJobMessage,
+        queueFinishJob,
         githubRepoUrl,
         handleCreateGithubRepo,
         handleDeleteGithubRepo,
@@ -500,6 +504,12 @@ export function AppShell({ session }: AppShellProps) {
         session,
         selectedApp,
         reportError: reportActionError,
+        queueJobs: {
+            createJob: queueCreateJob,
+            setJobProgress: queueSetJobProgress,
+            setJobMessage: queueSetJobMessage,
+            finishJob: queueFinishJob,
+        },
     });
 
     const selectedAppAccountCompanyName = useMemo(() => {
@@ -953,7 +963,7 @@ export function AppShell({ session }: AppShellProps) {
 
     const step1Done = connectorEnabled && Boolean(pickedIconAssetId);
     const step2Done = connectorEnabled && String(connectorForm.projectBrief || '').trim().length > 0;
-    const step3Done = React.useMemo(() => {
+    const githubStepDone = React.useMemo(() => {
         if (!connectorEnabled) return false;
         const direct = String((selectedApp as any)?.github_repo_full_name || '').trim();
         if (direct) return true;
@@ -973,10 +983,13 @@ export function AppShell({ session }: AppShellProps) {
         if (fromStateUrl) return true;
         return false;
     }, [connectorEnabled, githubRepoUrl, selectedApp]);
-    const step4Done =
+    const setupCompanyName = String(
+        (connectorForm.variables as any)?.company_name || selectedAppstoreAccount?.company_name || ''
+    ).trim();
+    const setupStepDone =
         connectorEnabled &&
         String((connectorForm.variables as any)?.bundle_id || '').trim().length > 0 &&
-        String((connectorForm.variables as any)?.company_name || '').trim().length > 0 &&
+        setupCompanyName.length > 0 &&
         String((connectorForm.variables as any)?.home_screen_name || '').trim().length > 0;
     const step5Done = useMemo(
         () => connectorEnabled && connectorRunnerJobs.some((j) => String((j as any)?.status) === 'succeeded'),
@@ -1610,19 +1623,7 @@ export function AppShell({ session }: AppShellProps) {
                                                                 />
                                                             </StepBlock>
 
-                                                            <StepBlock step={3} done={step3Done}>
-                                                                <DevFilesPanel
-                                                                    selectedApp={selectedApp}
-                                                                    githubRepoUrl={githubRepoUrl}
-                                                                    isCreatingRepo={isCreatingGithubRepo}
-                                                                    isDeletingRepo={isDeletingGithubRepo}
-                                                                    onCreateRepo={handleCreateGithubRepo}
-                                                                    onDeleteRepo={handleDeleteGithubRepo}
-                                                                    text={text}
-                                                                />
-                                                            </StepBlock>
-
-                                                            <StepBlock step={4} done={step4Done}>
+                                                            <StepBlock step={3} done={setupStepDone}>
                                                                 <ConnectorVariablesSecretsPanel
                                                                     connectorForm={connectorForm}
                                                                     isEnabled={connectorEnabled}
@@ -1631,6 +1632,18 @@ export function AppShell({ session }: AppShellProps) {
                                                                     allAccounts={appstoreAccounts}
                                                                     onPickAccount={pickAccountForSelectedApp}
                                                                     onOpenAccountsForApp={() => openAccounts(selectedApp?.id || null)}
+                                                                    text={text}
+                                                                />
+                                                            </StepBlock>
+
+                                                            <StepBlock step={4} done={githubStepDone}>
+                                                                <DevFilesPanel
+                                                                    selectedApp={selectedApp}
+                                                                    githubRepoUrl={githubRepoUrl}
+                                                                    isCreatingRepo={isCreatingGithubRepo}
+                                                                    isDeletingRepo={isDeletingGithubRepo}
+                                                                    onCreateRepo={handleCreateGithubRepo}
+                                                                    onDeleteRepo={handleDeleteGithubRepo}
                                                                     text={text}
                                                                 />
                                                             </StepBlock>

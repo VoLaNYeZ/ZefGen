@@ -54,7 +54,7 @@ Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/acco
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
 - `components/app/ConnectorClientSpecPanel.tsx` - Idea picker placeholder + client spec editor (Step 2).
-- `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 4).
+- `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
 - `components/app/IdeasPage.tsx` - Ideas stub screen (`/ideas`) (coming soon).
 - `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5).
@@ -72,8 +72,8 @@ Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/acco
 The App-level workflow inside the gooey folder is ordered as:
 1. Icon generation (`components/app/AppGenerationSection.tsx` via `IconGenerationModule`)
 2. Idea picker + Client spec (`components/app/ConnectorClientSpecPanel.tsx`) (project kind is fixed to iOS)
-3. GitHub repository (`components/app/DevFilesPanel.tsx`)
-4. Connector config: Variables + Secrets (`components/app/ConnectorVariablesSecretsPanel.tsx`)
+3. Connector config: Variables + Secrets (`components/app/ConnectorVariablesSecretsPanel.tsx`)
+4. GitHub repository (`components/app/DevFilesPanel.tsx`)
 5. Development (`components/app/ConnectorRunnerPanel.tsx`)
 6. Integration (placeholder) (`components/app/IntegrationModulePanel.tsx`)
 7. Auto-release (placeholder) (`components/app/AutoReleaseModulePanel.tsx`)
@@ -84,7 +84,7 @@ The App-level workflow inside the gooey folder is ordered as:
 The sticky Deliverables rail is anchored to Steps 8–10 only.
 
 ## Integration Step (Badges → Setup Data Mapping)
-The Integration step (Step 6) is a checklist driven by the values stored in Setup data (Step 4). Badges turn green once the corresponding field is filled.
+The Integration step (Step 6) is a checklist driven by the values stored in Setup data (Step 3). Badges turn green once the corresponding field is filled.
 
 - Apphud API key → Setup data: Secrets key `APPHUD_API_KEY`
 - IAP Product ID → Setup data: Variables `id_purchases`
@@ -112,7 +112,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-generated-assets.ts` - Generation actions, downloads, and edit state.
 - `hooks/use-generation-jobs.ts` - In-memory job tracking for long-running operations (generation, ZIP).
 - `hooks/use-app-screenshot-prompts.ts` - Screenshot prompt persistence in Supabase.
-- `hooks/use-connector-config-form.ts` - Loads/saves Connector app config + secret metadata (used by the Step 2/4 panels).
+- `hooks/use-connector-config-form.ts` - Loads/saves Connector app config + secret metadata (used by the Step 2/3 panels).
 - `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
@@ -138,6 +138,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/app-screenshot-prompts.ts` - Screenshot prompt upserts/deletes.
 - `data/connector-app-config.ts` - Connector non-secret app config (`connector_app_configs`).
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
+- `data/connector-legal-links.ts` - Legal links precheck/fingerprint + Edge Function invoke (`generate-legal-links`).
 - `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
 - `data/appstore-accounts.ts` - App Store accounts pool CRUD (`appstore_accounts`).
@@ -192,6 +193,54 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - The Runner log output is compacted by default (product-grade).
   - Debug enable verbose logs (local only): `localStorage.setItem('zefgen.debug.runnerVerbose', '1'); location.reload();`
   - Debug disable: `localStorage.removeItem('zefgen.debug.runnerVerbose'); location.reload();`
+
+## Legal Links Generation (Step 3 Setup data)
+- Trigger UI: `Generate privacies` button in `components/app/ConnectorVariablesSecretsPanel.tsx`.
+- Backend: Supabase Edge Function `supabase/functions/generate-legal-links/index.ts`.
+- Output keys in `connector_app_configs.variables`:
+  - `privacy_policy_url`
+  - `terms_of_use_url`
+  - `support_form_url`
+- History table: `public.connector_legal_links` (succeeded/failed runs, fingerprint, metadata).
+- Atomic success write: RPC `public.connector_commit_legal_links_success(...)` updates setup URLs + inserts success run in one transaction.
+
+### Inputs / preconditions
+- Required data:
+  - `company_name` (from variables, fallback to assigned account company name)
+  - `appstore_name`
+  - assigned account `email`
+- `appstore_name` is capped at 30 chars (App Store constraint).
+- Frontend blocks generation when required inputs are missing.
+
+### Generation behavior
+- Fingerprint = `sha256(normalize(company_name) + "|" + normalize(appstore_name) + "|" + normalize(email))`.
+- If latest succeeded run has same fingerprint and `confirmRegenerate=false`, function returns `confirm_required`.
+- Creates per-app folder in Google My Drive (`zefgen-<appId>-<slug>`), then:
+  - Google Doc: Privacy Policy
+  - Google Doc: Terms of Use
+  - Google Form: Support form
+- Docs are shared as anyone-with-link reader.
+- Form is published and accepting responses.
+- On failure after partial file creation, function does best-effort cleanup by moving created Google files to trash.
+
+### Where support form responses go
+- Responses are stored in Google Forms (Google account context), not in Supabase.
+- Supabase stores only generated URLs + generation run history.
+
+### Auth model (important)
+- Google side: OAuth refresh token flow (`GOOGLE_OAUTH_*` secrets), personal My Drive mode.
+- Supabase side for this function: deploy with gateway JWT verification disabled and validate bearer token inside function via `service.auth.getUser(token)`.
+- Deployment guardrail command:
+  - `npm run deploy:legal-links`
+  - (equivalent) `supabase functions deploy generate-legal-links --project-ref onzswbbqaikkjpmvzplb --use-api --no-verify-jwt`
+
+### Common troubleshooting
+- `Invalid JWT` / auth errors on invoke:
+  - ensure function was deployed with `--no-verify-jwt`;
+  - hard refresh app and re-login once;
+  - verify frontend uses current auth session (data-layer handles refresh/retry).
+- Google 403 quota/storage errors:
+  - check target Google account storage and OAuth scopes.
 
 ## Generation Providers (Prod)
 - `api/generate-screenshot.ts` runs server-side on Vercel so provider keys are never exposed to the client.

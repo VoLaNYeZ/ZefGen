@@ -13,7 +13,8 @@ union all select 'appstore_accounts', to_regclass('public.appstore_accounts') is
 union all select 'brand_references', to_regclass('public.brand_references') is not null
 union all select 'app_screenshot_prompts', to_regclass('public.app_screenshot_prompts') is not null
 union all select 'app_screenshots', to_regclass('public.app_screenshots') is not null
-union all select 'app_generated_assets', to_regclass('public.app_generated_assets') is not null;
+union all select 'app_generated_assets', to_regclass('public.app_generated_assets') is not null
+union all select 'connector_legal_links', to_regclass('public.connector_legal_links') is not null;
 
 -- 3) Required columns (sample critical columns)
 select 'brands.slug' as column, exists(
@@ -47,6 +48,10 @@ union all select 'app_screenshot_prompts.brand_reference_id', exists(
 union all select 'app_generated_assets.edit_state', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'app_generated_assets' and column_name = 'edit_state'
+)
+union all select 'connector_legal_links.fingerprint', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'connector_legal_links' and column_name = 'fingerprint'
 );
 
 -- 4) Index existence
@@ -71,7 +76,9 @@ union all select 'app_screenshots_app_id_idx', to_regclass('public.app_screensho
 union all select 'app_generated_assets_user_id_idx', to_regclass('public.app_generated_assets_user_id_idx') is not null
 union all select 'app_generated_assets_brand_id_idx', to_regclass('public.app_generated_assets_brand_id_idx') is not null
 union all select 'app_generated_assets_app_id_idx', to_regclass('public.app_generated_assets_app_id_idx') is not null
-union all select 'app_generated_assets_slot_idx', to_regclass('public.app_generated_assets_slot_idx') is not null;
+union all select 'app_generated_assets_slot_idx', to_regclass('public.app_generated_assets_slot_idx') is not null
+union all select 'connector_legal_links_user_app_created_idx', to_regclass('public.connector_legal_links_user_app_created_idx') is not null
+union all select 'connector_legal_links_app_fingerprint_created_idx', to_regclass('public.connector_legal_links_app_fingerprint_created_idx') is not null;
 
 -- 5) RLS enabled
 select 'brands' as table, c.relrowsecurity as rls_enabled
@@ -100,7 +107,11 @@ where n.nspname = 'public' and c.relname = 'app_screenshots'
 union all
 select 'app_generated_assets', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
-where n.nspname = 'public' and c.relname = 'app_generated_assets';
+where n.nspname = 'public' and c.relname = 'app_generated_assets'
+union all
+select 'connector_legal_links', c.relrowsecurity
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'connector_legal_links';
 
 -- 6) RLS policies existence
 select 'brands_select_own' as policy, exists(
@@ -219,9 +230,38 @@ union all select 'app_generated_assets_update_own', exists(
 union all select 'app_generated_assets_delete_own', exists(
     select 1 from pg_policies
     where schemaname = 'public' and tablename = 'app_generated_assets' and policyname = 'app_generated_assets_delete_own'
+)
+union all select 'connector_legal_links_select_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'connector_legal_links' and policyname = 'connector_legal_links_select_own'
+)
+union all select 'connector_legal_links_insert_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'connector_legal_links' and policyname = 'connector_legal_links_insert_own'
 );
 
--- 7) Storage buckets existence (requires access to storage schema)
+-- 7) RPC function existence + grants
+select
+    'connector_claim_next_job_exists' as item,
+    to_regprocedure('public.connector_claim_next_job(text)') is not null as exists
+union all
+select
+    'connector_commit_legal_links_success_exists',
+    to_regprocedure('public.connector_commit_legal_links_success(uuid,uuid,text,text,text,text,text,text,text,text,text,text,jsonb,text,boolean,timestamptz)') is not null
+union all
+select
+    'connector_claim_next_job_service_role_execute',
+    has_function_privilege('service_role', 'public.connector_claim_next_job(text)', 'EXECUTE')
+union all
+select
+    'connector_commit_legal_links_success_service_role_execute',
+    has_function_privilege(
+        'service_role',
+        'public.connector_commit_legal_links_success(uuid,uuid,text,text,text,text,text,text,text,text,text,text,jsonb,text,boolean,timestamptz)',
+        'EXECUTE'
+    );
+
+-- 8) Storage buckets existence (requires access to storage schema)
 select id, name, public
 from storage.buckets
 where id in ('brand-references', 'app-screenshots', 'generated-assets');
