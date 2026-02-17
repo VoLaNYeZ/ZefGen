@@ -39,3 +39,12 @@ coverage/
 playwright-report/
 test-results/
 .vercel
+
+# Security: local credential artifacts (never commit)
+.secrets/
+*service-account*.json
+*credentials*.json
+*gcp*.json
+ace-scarab-*.json
+genefiena-*.json
+*.p12

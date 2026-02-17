@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "Running staged credential guard..."
+npm run check:credentials:staged
