@@ -324,6 +324,43 @@ create policy "connector_app_configs_update_own" on public.connector_app_configs
 create policy "connector_app_configs_delete_own" on public.connector_app_configs
     for delete using (auth.uid() = user_id);
 
+-- Connector legal links history for generated Privacy/Terms/Support assets. (2026-02-16)
+create table if not exists public.connector_legal_links (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users(id) on delete cascade,
+    app_id uuid not null references public.apps(id) on delete cascade,
+    fingerprint text not null,
+    company_name text not null,
+    appstore_name text not null,
+    account_email text not null,
+    privacy_doc_id text not null,
+    privacy_url text not null,
+    terms_doc_id text not null,
+    terms_url text not null,
+    support_form_id text not null,
+    support_url text not null,
+    support_schema jsonb not null default '{}'::jsonb,
+    subtitle_variant text,
+    regenerated_with_confirmation boolean not null default false,
+    status text not null check (status in ('succeeded', 'failed')),
+    error text,
+    created_at timestamptz not null default now()
+);
+
+-- Indexes for app history scans and fingerprint checks. (2026-02-16)
+create index if not exists connector_legal_links_user_app_created_idx
+    on public.connector_legal_links (user_id, app_id, created_at desc);
+create index if not exists connector_legal_links_app_fingerprint_created_idx
+    on public.connector_legal_links (app_id, fingerprint, created_at desc);
+
+-- Per-user access only; append-only from the client role. (2026-02-16)
+alter table public.connector_legal_links enable row level security;
+
+create policy "connector_legal_links_select_own" on public.connector_legal_links
+    for select using (auth.uid() = user_id);
+create policy "connector_legal_links_insert_own" on public.connector_legal_links
+    for insert with check (auth.uid() = user_id);
+
 -- Per-app secrets for runner (plaintext for MVP). (2026-02-09)
 -- Critical: clients must never be able to read `value` back via SELECT.
 create table if not exists public.connector_app_secrets (
@@ -458,7 +495,102 @@ $$;
 revoke all on function public.connector_claim_next_job(text) from public;
 grant execute on function public.connector_claim_next_job(text) to service_role;
 
+create or replace function public.connector_commit_legal_links_success(
+    p_user_id uuid,
+    p_app_id uuid,
+    p_fingerprint text,
+    p_company_name text,
+    p_appstore_name text,
+    p_account_email text,
+    p_privacy_doc_id text,
+    p_privacy_url text,
+    p_terms_doc_id text,
+    p_terms_url text,
+    p_support_form_id text,
+    p_support_url text,
+    p_support_schema jsonb default '{}'::jsonb,
+    p_subtitle_variant text default null,
+    p_regenerated_with_confirmation boolean default false,
+    p_now timestamptz default now()
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_run_id uuid;
+begin
+    update public.connector_app_configs
+    set
+        variables = coalesce(variables, '{}'::jsonb) || jsonb_build_object(
+            'privacy_policy_url', p_privacy_url,
+            'terms_of_use_url', p_terms_url,
+            'support_form_url', p_support_url
+        ),
+        updated_at = p_now
+    where user_id = p_user_id
+      and app_id = p_app_id;
+
+    if not found then
+        raise exception 'connector_app_configs row not found for user/app';
+    end if;
+
+    insert into public.connector_legal_links (
+        user_id,
+        app_id,
+        fingerprint,
+        company_name,
+        appstore_name,
+        account_email,
+        privacy_doc_id,
+        privacy_url,
+        terms_doc_id,
+        terms_url,
+        support_form_id,
+        support_url,
+        support_schema,
+        subtitle_variant,
+        regenerated_with_confirmation,
+        status,
+        error,
+        created_at
+    )
+    values (
+        p_user_id,
+        p_app_id,
+        p_fingerprint,
+        p_company_name,
+        p_appstore_name,
+        p_account_email,
+        p_privacy_doc_id,
+        p_privacy_url,
+        p_terms_doc_id,
+        p_terms_url,
+        p_support_form_id,
+        p_support_url,
+        coalesce(p_support_schema, '{}'::jsonb),
+        p_subtitle_variant,
+        coalesce(p_regenerated_with_confirmation, false),
+        'succeeded',
+        null,
+        p_now
+    )
+    returning id into v_run_id;
+
+    return v_run_id;
+end;
+$$;
+
+revoke all on function public.connector_commit_legal_links_success(
+    uuid, uuid, text, text, text, text, text, text, text, text, text, text, jsonb, text, boolean, timestamptz
+) from public;
+grant execute on function public.connector_commit_legal_links_success(
+    uuid, uuid, text, text, text, text, text, text, text, text, text, text, jsonb, text, boolean, timestamptz
+) to service_role;
+
 grant select, insert, update, delete on public.connector_app_configs to authenticated;
+grant select, insert on public.connector_legal_links to authenticated;
 grant insert, update, delete on public.connector_app_secrets to authenticated;
 grant select, insert, update, delete on public.connector_jobs to authenticated;
 grant select, insert, update, delete on public.connector_job_messages to authenticated;

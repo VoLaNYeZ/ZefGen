@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Copy, ExternalLink, Loader2, Plus } from 'lucide-react';
+import { Check, Copy, ExternalLink, FileText, LifeBuoy, Loader2, Plus, Shield } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
@@ -11,13 +11,27 @@ const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder
     { key: 'bundle_id', label: 'connector_bundle_id', placeholder: 'com.example.app' },
     { key: 'id_purchases', label: 'connector_id_purchases' },
     { key: 'apphud_api_url', label: 'connector_apphud_api_url', placeholder: 'https://api.apphud.com/...' },
-    { key: 'privacy_policy_url', label: 'connector_privacy_policy_url', placeholder: 'https://...' },
-    { key: 'terms_of_use_url', label: 'connector_terms_of_use_url', placeholder: 'https://...' },
-    { key: 'support_form_url', label: 'connector_support_form_url', placeholder: 'https://...' },
     { key: 'domain', label: 'connector_domain', placeholder: 'https://...' },
     { key: 'firebase_plist_snippet', label: 'connector_firebase_plist_snippet' },
     { key: 'appstore_description', label: 'connector_appstore_description' },
 ];
+
+const APP_NAME_MAX_LENGTH = 30;
+const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
+const WIDE_VARIABLE_KEYS = new Set(['firebase_plist_snippet', 'appstore_description']);
+const BOOTSTRAP_LEGAL_URL_PLACEHOLDER = 'https://google.com';
+
+const isUsableLegalUrl = (value: unknown) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return false;
+    if (raw.replace(/\/+$/g, '') === BOOTSTRAP_LEGAL_URL_PLACEHOLDER) return false;
+    try {
+        const parsed = new URL(raw);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
+};
 
 export function ConnectorVariablesSecretsPanel(props: {
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
@@ -35,6 +49,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     const [secretKey, setSecretKey] = React.useState('');
     const [secretValue, setSecretValue] = React.useState('');
     const secretKeyInputRef = React.useRef<HTMLInputElement | null>(null);
+    const [generateNotice, setGenerateNotice] = React.useState<string | null>(null);
 
     const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
     const copiedTimerRef = React.useRef<number | null>(null);
@@ -44,6 +59,10 @@ export function ConnectorVariablesSecretsPanel(props: {
             if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
         };
     }, []);
+
+    React.useEffect(() => {
+        setGenerateNotice(null);
+    }, [selectedApp?.id]);
 
     const copyValue = async (key: string, value: string) => {
         const v = String(value ?? '');
@@ -87,6 +106,65 @@ export function ConnectorVariablesSecretsPanel(props: {
         return account?.id || 'auto';
     }, [account?.id]);
 
+    const resolvedCompanyName = React.useMemo(() => {
+        return String((connectorForm.variables as any)?.company_name || account?.company_name || '').trim();
+    }, [connectorForm.variables, account?.company_name]);
+
+    const resolvedAppStoreName = React.useMemo(() => {
+        return String((connectorForm.variables as any)?.appstore_name || '').trim();
+    }, [connectorForm.variables]);
+
+    const resolvedAccountEmail = React.useMemo(() => {
+        return String(account?.email || '').trim();
+    }, [account?.email]);
+
+    const missingGenerateInputs = React.useMemo(() => {
+        const missing: string[] = [];
+        if (!resolvedCompanyName) missing.push(text('connector_company_name'));
+        if (!resolvedAppStoreName) missing.push(text('connector_appstore_name'));
+        if (!resolvedAccountEmail) missing.push(text('accounts_email'));
+        return missing;
+    }, [resolvedCompanyName, resolvedAppStoreName, resolvedAccountEmail, text]);
+
+    const generateBlocked = missingGenerateInputs.length > 0;
+    const generateButtonTitle = generateBlocked
+        ? String(text('connector_generate_blocked_missing') || '').replace('{items}', missingGenerateInputs.join(', '))
+        : text('connector_generate_links_hint');
+
+    const legalLinks = React.useMemo(
+        () =>
+            [
+                {
+                    key: 'privacy_policy_url',
+                    shortLabel: text('connector_legal_privacy_short'),
+                    fullLabel: text('connector_privacy_policy_url'),
+                    Icon: Shield,
+                },
+                {
+                    key: 'terms_of_use_url',
+                    shortLabel: text('connector_legal_terms_short'),
+                    fullLabel: text('connector_terms_of_use_url'),
+                    Icon: FileText,
+                },
+                {
+                    key: 'support_form_url',
+                    shortLabel: text('connector_legal_support_short'),
+                    fullLabel: text('connector_support_form_url'),
+                    Icon: LifeBuoy,
+                },
+            ] as const,
+        [text]
+    );
+
+    const compactVariables = React.useMemo(
+        () => DEFAULT_VARIABLES.filter((f) => !WIDE_VARIABLE_KEYS.has(f.key)),
+        []
+    );
+    const wideVariables = React.useMemo(
+        () => DEFAULT_VARIABLES.filter((f) => WIDE_VARIABLE_KEYS.has(f.key)),
+        []
+    );
+
     const handlePickChange = async (raw: string) => {
         if (!selectedApp) return;
         if (!onPickAccount) return;
@@ -115,6 +193,40 @@ export function ConnectorVariablesSecretsPanel(props: {
         await connectorForm.upsertSecret(k, secretValue);
         setSecretKey('');
         setSecretValue('');
+    };
+
+    const handleGenerateLinks = async () => {
+        if (!isEnabled || connectorForm.generateLinksBusy || generateBlocked) return;
+        setGenerateNotice(null);
+
+        const precheck = await connectorForm.precheckLegalLinksRegeneration({
+            companyName: resolvedCompanyName,
+            appStoreName: resolvedAppStoreName,
+            accountEmail: resolvedAccountEmail,
+        });
+        if (!precheck) return;
+
+        const shouldRegenerate = precheck.requiresConfirm
+            ? window.confirm(text('connector_generate_links_confirm_regenerate'))
+            : false;
+        if (precheck.requiresConfirm && !shouldRegenerate) return;
+
+        const first = await connectorForm.generateLegalLinks(shouldRegenerate);
+        if (!first) return;
+
+        // Race-safe fallback: backend still guards with confirm_required.
+        if (first.status === 'confirm_required') {
+            const confirm = window.confirm(text('connector_generate_links_confirm_regenerate'));
+            if (!confirm) {
+                connectorForm.cancelPendingLegalLinksGeneration('Canceled');
+                return;
+            }
+
+            const second = await connectorForm.generateLegalLinks(true);
+            if (!second || second.status !== 'generated') return;
+        }
+
+        setGenerateNotice(text('connector_generate_links_success'));
     };
 
     if (!isEnabled) {
@@ -151,6 +263,23 @@ export function ConnectorVariablesSecretsPanel(props: {
                     >
                         {connectorForm.loading ? text('loading') : text('refresh')}
                     </button>
+                    <span title={generateButtonTitle} className="inline-flex">
+                        <button
+                            type="button"
+                            onClick={() => void handleGenerateLinks()}
+                            disabled={
+                                !isEnabled ||
+                                connectorForm.loading ||
+                                connectorForm.saving ||
+                                connectorForm.generateLinksBusy ||
+                                generateBlocked
+                            }
+                            title={generateButtonTitle}
+                            className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
+                        >
+                            {connectorForm.generateLinksBusy ? text('loading') : text('connector_generate_links')}
+                        </button>
+                    </span>
                     <button
                         type="button"
                         onClick={() => connectorForm.savePatch({ variables: connectorForm.variables })}
@@ -165,6 +294,11 @@ export function ConnectorVariablesSecretsPanel(props: {
             {connectorForm.error && (
                 <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3 text-xs text-rose-100/90">
                     {connectorForm.error}
+                </div>
+            )}
+            {generateNotice && (
+                <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-xs text-emerald-100/90">
+                    {generateNotice}
                 </div>
             )}
 
@@ -301,36 +435,100 @@ export function ConnectorVariablesSecretsPanel(props: {
                 <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-4">
                     <div className="text-xs font-semibold text-indigo-100">{text('connector_variables')}</div>
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {DEFAULT_VARIABLES.map((f) => (
+                        {compactVariables.map((f) => (
                             <label
                                 key={f.key}
-                                className={`grid gap-1 ${
-                                    f.key === 'appstore_description' || f.key === 'firebase_plist_snippet'
-                                        ? 'sm:col-span-2'
-                                        : ''
-                                }`}
+                                className="grid gap-1"
                             >
                                 <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
-                                {f.key === 'appstore_description' || f.key === 'firebase_plist_snippet' ? (
-                                    <textarea
-                                        value={String(connectorForm.variables?.[f.key] ?? '')}
-                                        onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
-                                        rows={4}
-                                        disabled={!isEnabled}
-                                        className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
-                                            f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
-                                        }`}
-                                        placeholder={f.placeholder ? String(f.placeholder) : undefined}
-                                    />
-                                ) : (
-                                    <input
-                                        value={String(connectorForm.variables?.[f.key] ?? '')}
-                                        onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
-                                        disabled={!isEnabled}
-                                        className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
-                                        placeholder={f.placeholder ? String(f.placeholder) : undefined}
-                                    />
-                                )}
+                                <input
+                                    value={String(connectorForm.variables?.[f.key] ?? '')}
+                                    onChange={(e) =>
+                                        connectorForm.setVariable(
+                                            f.key,
+                                            APP_NAME_VARIABLE_KEYS.has(f.key)
+                                                ? e.target.value.slice(0, APP_NAME_MAX_LENGTH)
+                                                : e.target.value
+                                        )
+                                    }
+                                    maxLength={APP_NAME_VARIABLE_KEYS.has(f.key) ? APP_NAME_MAX_LENGTH : undefined}
+                                    disabled={!isEnabled}
+                                    className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
+                                    placeholder={f.placeholder ? String(f.placeholder) : undefined}
+                                />
+                            </label>
+                        ))}
+
+                        <div className="grid gap-1">
+                            <div className="text-[11px] text-indigo-200/60">{text('connector_legal_links')}</div>
+                            <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
+                                {legalLinks.map((link) => {
+                                    const rawUrl = String((connectorForm.variables as any)?.[link.key] ?? '').trim();
+                                    const usable = isUsableLegalUrl(rawUrl);
+                                    const hint = usable
+                                        ? `${text('connector_legal_link_open_hint')}: ${link.fullLabel}`
+                                        : text('connector_legal_link_pending_hint');
+                                    const Icon = link.Icon;
+
+                                    if (usable) {
+                                        return (
+                                            <div key={link.key} className="relative min-w-0 flex-1">
+                                                <a
+                                                    href={rawUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    title={hint}
+                                                    aria-label={link.fullLabel}
+                                                    className="ui-btn-fit ui-btn-fit-dense inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2 py-2 pr-2 sm:pr-7 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20"
+                                                >
+                                                    <Icon size={13} />
+                                                    <span className="hidden sm:inline truncate">{link.shortLabel}</span>
+                                                    <span className="sr-only sm:hidden">{link.shortLabel}</span>
+                                                </a>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void copyValue(`legal.${link.key}`, rawUrl)}
+                                                    className="hidden sm:inline-flex absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 items-center justify-center rounded-full border border-white/10 bg-slate-950/35 text-indigo-100/70 hover:border-indigo-300/40 hover:text-white"
+                                                    title={text('copy')}
+                                                    aria-label={text('copy')}
+                                                >
+                                                    {copiedKey === `legal.${link.key}` ? <Check size={11} /> : <Copy size={11} />}
+                                                </button>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <button
+                                            key={link.key}
+                                            type="button"
+                                            disabled
+                                            title={hint}
+                                            aria-label={link.fullLabel}
+                                            className="ui-btn-fit ui-btn-fit-dense inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/15 px-2 py-2 text-[11px] font-semibold text-indigo-200/45 disabled:opacity-80"
+                                        >
+                                            <Icon size={13} />
+                                            <span className="hidden sm:inline truncate">{link.shortLabel}</span>
+                                            <span className="sr-only sm:hidden">{link.shortLabel}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {wideVariables.map((f) => (
+                            <label key={f.key} className="grid gap-1 sm:col-span-2">
+                                <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
+                                <textarea
+                                    value={String(connectorForm.variables?.[f.key] ?? '')}
+                                    onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
+                                    rows={4}
+                                    disabled={!isEnabled}
+                                    className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
+                                        f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
+                                    }`}
+                                    placeholder={f.placeholder ? String(f.placeholder) : undefined}
+                                />
                             </label>
                         ))}
                     </div>
