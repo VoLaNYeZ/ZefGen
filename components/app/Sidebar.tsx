@@ -21,6 +21,7 @@ import {
     VariableFontCursorProximity,
     VariableFontHoverByRandomLetter,
 } from '../fancy/text';
+import { InstantTooltip } from '../ui/InstantTooltip';
 import type { Brand, BrandFormState } from '../../types/zefgen';
 
 type SidebarProps = {
@@ -49,6 +50,9 @@ type SidebarProps = {
         }
     >;
     selectedBrandId: string | null;
+    activeSessionCount: number;
+    activeSessionCountries: string[];
+    lockedBrandIdSet: Set<string>;
     brandIconUrls: Record<string, string>;
     brandFormOpen: boolean;
     brandForm: BrandFormState;
@@ -65,6 +69,7 @@ type SidebarProps = {
     setBrandForm: React.Dispatch<React.SetStateAction<BrandFormState>>;
     closeBrandForm: () => void;
     setSelectedBrandId: (value: string | null) => void;
+    onLockedBrandAction: () => void;
     openLightbox: (
         src: string,
         alt: string,
@@ -91,6 +96,9 @@ export const Sidebar = ({
     brands,
     brandAppSummaryByBrandId,
     selectedBrandId,
+    activeSessionCount,
+    activeSessionCountries,
+    lockedBrandIdSet,
     brandIconUrls,
     brandFormOpen,
     brandForm,
@@ -107,6 +115,7 @@ export const Sidebar = ({
     setBrandForm,
     closeBrandForm,
     setSelectedBrandId,
+    onLockedBrandAction,
     openLightbox,
     handleLogout,
     text,
@@ -138,6 +147,7 @@ export const Sidebar = ({
     const [activeBrandRect, setActiveBrandRect] = React.useState<{ top: number; height: number } | null>(null);
     const [brandListDragActiveId, setBrandListDragActiveId] = React.useState<string | null>(null);
     const brandListLastDragAtRef = React.useRef<number>(0);
+    const [showLockedBrandNotice, setShowLockedBrandNotice] = React.useState(false);
     const isBrandReorderMode = brandFormOpen && Boolean(editingBrandId);
 
     const updateActiveBrandHighlight = React.useCallback(() => {
@@ -227,6 +237,32 @@ export const Sidebar = ({
 
     const isAccountsActive = activePage === 'accounts';
     const isIdeasActive = activePage === 'ideas';
+    const tooltipCountries = React.useMemo(() => {
+        if (activeSessionCountries.length > 0) {
+            return activeSessionCountries;
+        }
+        const fallbackCount = Math.max(0, Math.floor(Number(activeSessionCount) || 0));
+        if (!fallbackCount) return [];
+        return Array.from({ length: fallbackCount }, () => 'unknown');
+    }, [activeSessionCountries, activeSessionCount]);
+    const formatCountryLabel = React.useCallback(
+        (country: string) => {
+            const raw = String(country || '').trim().toLowerCase();
+            if (!raw || raw === 'unknown') return text('active_sessions_unknown_country');
+            return raw.toUpperCase();
+        },
+        [text]
+    );
+    const handleLockedBrandAction = React.useCallback(() => {
+        setShowLockedBrandNotice(true);
+        onLockedBrandAction();
+    }, [onLockedBrandAction]);
+
+    React.useEffect(() => {
+        if (!showLockedBrandNotice) return;
+        const timer = window.setTimeout(() => setShowLockedBrandNotice(false), 2600);
+        return () => window.clearTimeout(timer);
+    }, [showLockedBrandNotice]);
 
     return (
         <aside
@@ -408,10 +444,12 @@ export const Sidebar = ({
                                                 iconUrl={iconUrl}
                                                 summary={summary}
                                                 isActive={brand.id === selectedBrandId}
+                                                isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                                 isBusy={isBusy}
                                                 isDragging={Boolean(activeId)}
                                                 showDragIndicator={isBrandReorderMode}
                                                 onBlockedAction={onBlockedAction}
+                                                onLockedAction={handleLockedBrandAction}
                                                 onSelect={() => {
                                                     if (Date.now() - brandListLastDragAtRef.current < 250) return;
                                                     setSelectedBrandId(brand.id);
@@ -442,8 +480,10 @@ export const Sidebar = ({
                                     iconUrl={iconUrl}
                                     summary={summary}
                                     isActive={isActive}
+                                    isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                     isBusy={isBusy}
                                     onBlockedAction={onBlockedAction}
+                                    onLockedAction={handleLockedBrandAction}
                                     onSelect={() => {
                                         setSelectedBrandId(brand.id);
                                         if (window.innerWidth < 768) setIsSidebarOpen(false);
@@ -472,11 +512,11 @@ export const Sidebar = ({
             </div>
 
             <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-3">
-                <div className="flex items-center justify-between gap-2">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                     <button
                         type="button"
                         onClick={() => onSelectAccounts()}
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                        className={`justify-self-start inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                             isAccountsActive
                                 ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
                                 : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
@@ -487,10 +527,39 @@ export const Sidebar = ({
                         <Users size={13} className="text-indigo-200/70" />
                         <span>{text('accounts')}</span>
                     </button>
+                    <InstantTooltip
+                        content={
+                            <div className="min-w-[180px] space-y-1">
+                                <p className="font-semibold text-indigo-100">
+                                    {`${Math.max(0, Math.floor(Number(activeSessionCount) || 0))} ${text('active_sessions_tooltip_title')}`}
+                                </p>
+                                {tooltipCountries.length > 0 ? (
+                                    <div className="space-y-0.5">
+                                        {tooltipCountries.map((country, index) => (
+                                            <p key={`${country}-${index}`} className="leading-snug text-indigo-200/85">
+                                                {formatCountryLabel(country)}
+                                            </p>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </div>
+                        }
+                    >
+                        <span
+                            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/25 px-2.5 text-indigo-100/80"
+                            aria-label={`${Math.max(0, Math.floor(Number(activeSessionCount) || 0))} ${text('active_sessions_tooltip_title')}`}
+                            title={`${Math.max(0, Math.floor(Number(activeSessionCount) || 0))} ${text('active_sessions_tooltip_title')}`}
+                        >
+                            <Users size={13} className="text-indigo-200/80" />
+                            <span className="text-xs font-semibold tabular-nums">
+                                {Math.max(0, Math.floor(Number(activeSessionCount) || 0))}
+                            </span>
+                        </span>
+                    </InstantTooltip>
                     <button
                         type="button"
                         onClick={() => onSelectIdeas()}
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                        className={`justify-self-end inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
                             isIdeasActive
                                 ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
                                 : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
@@ -503,6 +572,13 @@ export const Sidebar = ({
                     </button>
                 </div>
             </div>
+            {showLockedBrandNotice ? (
+                <div className="bg-slate-900 px-5 pb-3">
+                    <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100/90">
+                        {text('brand_locked_open_blocked')}
+                    </div>
+                </div>
+            ) : null}
 
             <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-4 text-xs text-indigo-200/60 flex items-center justify-between gap-3">
                 <span className="truncate">{sessionEmail}</span>
@@ -553,8 +629,10 @@ function PlainBrandRow({
     iconUrl,
     summary,
     isActive,
+    isLockedByOtherDevice,
     isBusy,
     onBlockedAction,
+    onLockedAction,
     onSelect,
     onOpenLightbox,
     clampCount,
@@ -567,8 +645,10 @@ function PlainBrandRow({
     iconUrl: string | undefined;
     summary: { total: number; active: number; green: number; yellow: number; red: number };
     isActive: boolean;
+    isLockedByOtherDevice: boolean;
     isBusy: boolean;
     onBlockedAction: () => void;
+    onLockedAction: () => void;
     onSelect: () => void;
     onOpenLightbox: () => void;
     clampCount: (n: number) => string;
@@ -577,21 +657,27 @@ function PlainBrandRow({
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
+    const rowStateClass = isLockedByOtherDevice
+        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55 cursor-not-allowed'
+        : isActive
+          ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
+          : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
+
     return (
         <button
             ref={setRowRef}
             onClick={() => {
+                if (isLockedByOtherDevice) {
+                    onLockedAction();
+                    return;
+                }
                 if (isBusy) {
                     onBlockedAction();
                     return;
                 }
                 onSelect();
             }}
-            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 ${
-                isActive
-                    ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
-                    : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70'
-            }`}
+            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 ${rowStateClass}`}
         >
             <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -605,6 +691,8 @@ function PlainBrandRow({
                                 src={iconUrl}
                                 alt={text('icon_reference')}
                                 className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
+                                loading="lazy"
+                                decoding="async"
                                 onClick={(event) => {
                                     event.stopPropagation();
                                     onOpenLightbox();
@@ -615,12 +703,19 @@ function PlainBrandRow({
                         )}
                     </div>
                     <div className="min-w-0">
-                        <p
-                            className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
-                            title={brand.name}
-                        >
-                            {brand.name}
-                        </p>
+                        <div className="flex items-start justify-between gap-2">
+                            <p
+                                className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
+                                title={brand.name}
+                            >
+                                {brand.name}
+                            </p>
+                            {isLockedByOtherDevice ? (
+                                <span className="shrink-0 rounded-full border border-amber-300/35 bg-amber-500/10 px-1.5 py-[1px] text-[9px] font-semibold text-amber-100/90 whitespace-nowrap leading-none">
+                                    {text('brand_used_by_another_user')}
+                                </span>
+                            ) : null}
+                        </div>
                         <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
                             /{brand.slug}
                         </p>
@@ -659,10 +754,12 @@ function SortableBrandRow({
     iconUrl,
     summary,
     isActive,
+    isLockedByOtherDevice,
     isBusy,
     isDragging,
     showDragIndicator,
     onBlockedAction,
+    onLockedAction,
     onSelect,
     onOpenLightbox,
     clampCount,
@@ -675,10 +772,12 @@ function SortableBrandRow({
     iconUrl: string | undefined;
     summary: { total: number; active: number; green: number; yellow: number; red: number };
     isActive: boolean;
+    isLockedByOtherDevice: boolean;
     isBusy: boolean;
     isDragging: boolean;
     showDragIndicator: boolean;
     onBlockedAction: () => void;
+    onLockedAction: () => void;
     onSelect: () => void;
     onOpenLightbox: () => void;
     clampCount: (n: number) => string;
@@ -687,7 +786,14 @@ function SortableBrandRow({
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { attributes, listeners, setNodeRef, style } = useSortableTile(brand.id, isBusy);
+    const isLocked = isLockedByOtherDevice;
+    const { attributes, listeners, setNodeRef, style } = useSortableTile(brand.id, isBusy || isLocked);
+    const rowStateClass = isLocked
+        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55 cursor-not-allowed'
+        : isActive
+          ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
+          : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
+
     return (
         <button
             ref={(el) => {
@@ -698,6 +804,10 @@ function SortableBrandRow({
             {...attributes}
             {...listeners}
             onClick={() => {
+                if (isLocked) {
+                    onLockedAction();
+                    return;
+                }
                 if (isBusy) {
                     onBlockedAction();
                     return;
@@ -705,11 +815,9 @@ function SortableBrandRow({
                 if (isDragging) return;
                 onSelect();
             }}
-            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 cursor-grab active:cursor-grabbing ${
-                isActive
-                    ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
-                    : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70'
-            }`}
+            className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 ${
+                isLocked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'
+            } ${rowStateClass}`}
         >
             <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -728,6 +836,8 @@ function SortableBrandRow({
                                 src={iconUrl}
                                 alt={text('icon_reference')}
                                 className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
+                                loading="lazy"
+                                decoding="async"
                                 onClick={(event) => {
                                     event.stopPropagation();
                                     if (isDragging) return;
@@ -739,12 +849,19 @@ function SortableBrandRow({
                         )}
                     </div>
                     <div className="min-w-0">
-                        <p
-                            className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
-                            title={brand.name}
-                        >
-                            {brand.name}
-                        </p>
+                        <div className="flex items-start justify-between gap-2">
+                            <p
+                                className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
+                                title={brand.name}
+                            >
+                                {brand.name}
+                            </p>
+                            {isLocked ? (
+                                <span className="shrink-0 rounded-full border border-amber-300/35 bg-amber-500/10 px-1.5 py-[1px] text-[9px] font-semibold text-amber-100/90 whitespace-nowrap leading-none">
+                                    {text('brand_used_by_another_user')}
+                                </span>
+                            ) : null}
+                        </div>
                         <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
                             /{brand.slug}
                         </p>

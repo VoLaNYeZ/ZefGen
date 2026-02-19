@@ -127,9 +127,6 @@ export function ConnectorVariablesSecretsPanel(props: {
     }, [resolvedCompanyName, resolvedAppStoreName, resolvedAccountEmail, text]);
 
     const generateBlocked = missingGenerateInputs.length > 0;
-    const generateButtonTitle = generateBlocked
-        ? String(text('connector_generate_blocked_missing') || '').replace('{items}', missingGenerateInputs.join(', '))
-        : text('connector_generate_links_hint');
 
     const legalLinks = React.useMemo(
         () =>
@@ -155,6 +152,21 @@ export function ConnectorVariablesSecretsPanel(props: {
             ] as const,
         [text]
     );
+
+    const hasGeneratedLegalLinks = React.useMemo(
+        () =>
+            legalLinks.some((link) => {
+                const rawUrl = String((connectorForm.variables as any)?.[link.key] ?? '').trim();
+                return isUsableLegalUrl(rawUrl);
+            }),
+        [connectorForm.variables, legalLinks]
+    );
+    const generateButtonLabelKey: TranslationKey = hasGeneratedLegalLinks
+        ? 'connector_regenerate_links'
+        : 'connector_generate_links';
+    const generateButtonTitle = generateBlocked
+        ? String(text('connector_generate_blocked_missing') || '').replace('{items}', missingGenerateInputs.join(', '))
+        : text('connector_generate_links_hint');
 
     const compactVariables = React.useMemo(
         () => DEFAULT_VARIABLES.filter((f) => !WIDE_VARIABLE_KEYS.has(f.key)),
@@ -255,14 +267,6 @@ export function ConnectorVariablesSecretsPanel(props: {
                     <p className="mt-3 text-sm text-indigo-200/60">{text('connector_config_subtitle')}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={connectorForm.refresh}
-                        disabled={!isEnabled || connectorForm.loading}
-                        className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 hover:border-indigo-400/40 disabled:opacity-60"
-                    >
-                        {connectorForm.loading ? text('loading') : text('refresh')}
-                    </button>
                     <span title={generateButtonTitle} className="inline-flex">
                         <button
                             type="button"
@@ -277,7 +281,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             title={generateButtonTitle}
                             className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
                         >
-                            {connectorForm.generateLinksBusy ? text('loading') : text('connector_generate_links')}
+                            {connectorForm.generateLinksBusy ? text('loading') : text(generateButtonLabelKey)}
                         </button>
                     </span>
                     <button
