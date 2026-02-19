@@ -2,12 +2,20 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Menu, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Session } from '@supabase/supabase-js';
 import { t, TranslationKey } from '../../i18n';
-import { EDIT_FONTS, MAX_SCREENSHOT_REFS } from '../../constants/zefgen';
+import {
+    EDIT_FONTS,
+    MAX_SCREENSHOT_REFS,
+    WORKSPACE_COLLAB_ENABLED,
+    WORKSPACE_COLLAB_POLL_MS,
+    WORKSPACE_COLLAB_TTL_SECONDS,
+    WORKSPACE_LOCK_ENFORCEMENT_ENABLED,
+} from '../../constants/zefgen';
 import { syncAutoGrowTextarea } from '../../utils/dom';
 import { useRouteSync } from '../../hooks/use-route-sync';
 import { useSlotMappings } from '../../hooks/use-slot-mappings';
 import { useAppFolderLayout } from '../../hooks/use-app-folder-layout';
 import { useAppPillPan } from '../../hooks/use-app-pill-pan';
+import { useWorkspaceCollaboration } from '../../hooks/use-workspace-collaboration';
 import { useBrands } from '../../hooks/use-brands';
 import { useApps } from '../../hooks/use-apps';
 import { useAppstoreAccounts } from '../../hooks/use-appstore-accounts';
@@ -38,6 +46,7 @@ import { ConnectorClientSpecPanel } from './ConnectorClientSpecPanel';
 import { ConnectorVariablesSecretsPanel } from './ConnectorVariablesSecretsPanel';
 import { IntegrationModulePanel } from './IntegrationModulePanel';
 import { AutoReleaseModulePanel } from './AutoReleaseModulePanel';
+import { AppStoreLinkRow } from './AppStoreLinkRow';
 import { StepBlock } from './StepBlock';
 import { AccountsPage } from './AccountsPage';
 import { IdeasPage } from './IdeasPage';
@@ -76,6 +85,7 @@ export function AppShell({ session }: AppShellProps) {
     const [dataError, setDataError] = useState<string | null>(null);
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
+    const [collabWarning, setCollabWarning] = useState<string | null>(null);
     const [logoVariantIndex, setLogoVariantIndex] = useState(() => {
         const bag = [0, 1, 2, 3, 4, 4, 4, 5]; // Slight bias towards BreathingText.
         return bag[Math.floor(Math.random() * bag.length)] ?? 0;
@@ -113,6 +123,21 @@ export function AppShell({ session }: AppShellProps) {
             setActionError((prev) => (prev === message ? null : prev));
         }, 6000);
     }, []);
+
+    const showCollabWarning = useCallback((message: string) => {
+        setCollabWarning(message);
+        setTimeout(() => {
+            setCollabWarning((prev) => (prev === message ? null : prev));
+        }, 6000);
+    }, []);
+
+    const reportCollabWarning = useCallback(() => {
+        showCollabWarning(text('collab_sync_offline'));
+    }, [showCollabWarning, text]);
+
+    const reportLockedBrandWarning = useCallback(() => {
+        showCollabWarning(text('brand_locked_open_blocked'));
+    }, [showCollabWarning, text]);
 
     useEffect(() => {
         try {
@@ -152,6 +177,27 @@ export function AppShell({ session }: AppShellProps) {
     );
 
     const {
+        activeSessionCount,
+        activeSessionCountries,
+        lockedBrandIdSet,
+        lockConflictBrandId,
+        tryClaimBrand,
+        releaseCurrentBrand,
+    } = useWorkspaceCollaboration({
+        session,
+        activePage,
+        selectedBrandId,
+        enabled: WORKSPACE_COLLAB_ENABLED,
+        pollMs: WORKSPACE_COLLAB_POLL_MS,
+        ttlSeconds: WORKSPACE_COLLAB_TTL_SECONDS,
+        onSoftWarning: reportCollabWarning,
+    });
+    const sidebarLockedBrandIdSet = useMemo(
+        () => (WORKSPACE_LOCK_ENFORCEMENT_ENABLED ? lockedBrandIdSet : new Set<string>()),
+        [lockedBrandIdSet]
+    );
+
+    const {
         apps,
         loading: appsLoading,
         refresh: refreshApps,
@@ -177,6 +223,7 @@ export function AppShell({ session }: AppShellProps) {
         handleDeleteApp,
         handleBanApp,
         handleUnbanApp,
+        patchApp,
         reorderBrandApps,
         setAppForm,
         setAppFormOpen,
@@ -777,6 +824,41 @@ export function AppShell({ session }: AppShellProps) {
         },
     });
 
+    useEffect(() => {
+        if (!WORKSPACE_COLLAB_ENABLED || !WORKSPACE_LOCK_ENFORCEMENT_ENABLED) return;
+        if (activePage !== 'workspace') return;
+        if (!selectedBrandId) return;
+
+        const conflictOnSelectedBrand =
+            (lockConflictBrandId && lockConflictBrandId === selectedBrandId) ||
+            lockedBrandIdSet.has(selectedBrandId);
+        if (!conflictOnSelectedBrand) return;
+
+        const fallbackBrand = brands.find((brand) => !lockedBrandIdSet.has(brand.id)) || null;
+        if (!fallbackBrand) {
+            setSelectedBrandId(null);
+            setSelectedAppId(null);
+            window.history.replaceState({}, '', '/');
+            return;
+        }
+
+        if (fallbackBrand.id === selectedBrandId) return;
+
+        const fallbackApp = orderedApps.find((app) => app.brand_id === fallbackBrand.id) || null;
+        setSelectedBrandId(fallbackBrand.id);
+        setSelectedAppId(fallbackApp?.id ?? null);
+        window.history.replaceState({}, '', buildRoute(fallbackBrand, fallbackApp));
+    }, [
+        activePage,
+        selectedBrandId,
+        lockConflictBrandId,
+        lockedBrandIdSet,
+        brands,
+        orderedApps,
+        setSelectedBrandId,
+        setSelectedAppId,
+    ]);
+
     const handleRetry = () => {
         setDataError(null);
         refreshBrands();
@@ -819,21 +901,35 @@ export function AppShell({ session }: AppShellProps) {
 
     const openWorkspaceForApp = useCallback(
         (appId: string) => {
-            if (activePage === 'accounts' && accountsHasUnsavedChanges) {
-                reportActionError(text('accounts_unsaved_block'));
-                return;
-            }
-            const app = apps.find((a) => a.id === appId) || null;
-            if (!app) return;
-            const brand = brands.find((b) => b.id === app.brand_id) || null;
-            if (!brand) return;
+            void (async () => {
+                if (activePage === 'accounts' && accountsHasUnsavedChanges) {
+                    reportActionError(text('accounts_unsaved_block'));
+                    return;
+                }
+                const app = apps.find((a) => a.id === appId) || null;
+                if (!app) return;
+                const brand = brands.find((b) => b.id === app.brand_id) || null;
+                if (!brand) return;
 
-            setAccountsFocusAppId(null);
-            setActivePage('workspace');
-            setSelectedBrandId(brand.id);
-            setSelectedAppId(app.id);
-            window.history.pushState({}, '', buildRoute(brand, app));
-            if (window.innerWidth < 768) setIsSidebarOpen(false);
+                if (WORKSPACE_COLLAB_ENABLED && WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
+                    if (lockedBrandIdSet.has(brand.id)) {
+                        return;
+                    }
+                    const claim = await tryClaimBrand(brand.id);
+                    if (!claim.ok) {
+                        return;
+                    }
+                } else if (WORKSPACE_COLLAB_ENABLED) {
+                    void tryClaimBrand(brand.id);
+                }
+
+                setAccountsFocusAppId(null);
+                setActivePage('workspace');
+                setSelectedBrandId(brand.id);
+                setSelectedAppId(app.id);
+                window.history.pushState({}, '', buildRoute(brand, app));
+                if (window.innerWidth < 768) setIsSidebarOpen(false);
+            })();
         },
         [
             activePage,
@@ -842,6 +938,8 @@ export function AppShell({ session }: AppShellProps) {
             text,
             apps,
             brands,
+            lockedBrandIdSet,
+            tryClaimBrand,
             setActivePage,
             setSelectedBrandId,
             setSelectedAppId,
@@ -907,20 +1005,49 @@ export function AppShell({ session }: AppShellProps) {
 
     const selectBrandFromSidebar = useCallback(
         (brandId: string | null) => {
-            if (activePage === 'accounts' && accountsHasUnsavedChanges) {
-                reportActionError(text('accounts_unsaved_block'));
-                return;
-            }
-            setAccountsFocusAppId(null);
-            if (activePage !== 'workspace') {
-                const brand = brands.find((b) => b.id === brandId) || null;
-                const route = brand ? `/${brand.slug}` : '/';
-                window.history.pushState({}, '', route);
-            }
-            setActivePage('workspace');
-            setSelectedBrandId(brandId);
+            void (async () => {
+                if (activePage === 'accounts' && accountsHasUnsavedChanges) {
+                    reportActionError(text('accounts_unsaved_block'));
+                    return;
+                }
+
+                if (WORKSPACE_COLLAB_ENABLED) {
+                    if (brandId) {
+                        if (WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
+                            if (lockedBrandIdSet.has(brandId)) {
+                                return;
+                            }
+                            void tryClaimBrand(brandId);
+                        } else {
+                            void tryClaimBrand(brandId);
+                        }
+                    } else {
+                        void releaseCurrentBrand();
+                    }
+                }
+
+                setAccountsFocusAppId(null);
+                if (activePage !== 'workspace') {
+                    const brand = brands.find((b) => b.id === brandId) || null;
+                    const route = brand ? `/${brand.slug}` : '/';
+                    window.history.pushState({}, '', route);
+                }
+                setActivePage('workspace');
+                setSelectedBrandId(brandId);
+            })();
         },
-        [activePage, accountsHasUnsavedChanges, reportActionError, text, brands, setSelectedBrandId, setActivePage]
+        [
+            activePage,
+            accountsHasUnsavedChanges,
+            reportActionError,
+            text,
+            brands,
+            lockedBrandIdSet,
+            tryClaimBrand,
+            releaseCurrentBrand,
+            setSelectedBrandId,
+            setActivePage,
+        ]
     );
 
     const openLightbox = (
@@ -1179,7 +1306,7 @@ export function AppShell({ session }: AppShellProps) {
                 />
             )}
 
-                <Sidebar
+            <Sidebar
                 isSidebarOpen={isSidebarOpen}
                 setIsSidebarOpen={setIsSidebarOpen}
                 activePage={activePage}
@@ -1193,12 +1320,15 @@ export function AppShell({ session }: AppShellProps) {
                 lang={lang}
                 setLang={setLang}
                 sessionEmail={session.user.email ?? ''}
-                    brands={brands}
-                    brandAppSummaryByBrandId={brandAppSummaryByBrandId}
-                    selectedBrandId={selectedBrandId}
-                    brandIconUrls={brandIconUrls}
-                    brandFormOpen={brandFormOpen}
-                    brandForm={brandForm}
+                brands={brands}
+                brandAppSummaryByBrandId={brandAppSummaryByBrandId}
+                selectedBrandId={selectedBrandId}
+                activeSessionCount={activeSessionCount}
+                activeSessionCountries={activeSessionCountries}
+                lockedBrandIdSet={sidebarLockedBrandIdSet}
+                brandIconUrls={brandIconUrls}
+                brandFormOpen={brandFormOpen}
+                brandForm={brandForm}
                 brandFormError={brandFormError}
                 brandFormLoading={brandFormLoading}
                 editingBrandId={editingBrandId}
@@ -1212,6 +1342,7 @@ export function AppShell({ session }: AppShellProps) {
                 setBrandForm={setBrandForm}
                 closeBrandForm={closeBrandForm}
                 setSelectedBrandId={selectBrandFromSidebar}
+                onLockedBrandAction={reportLockedBrandWarning}
                 openLightbox={openLightbox}
                 handleLogout={handleLogout}
                 text={text}
@@ -1607,6 +1738,25 @@ export function AppShell({ session }: AppShellProps) {
                                                         </div>
                                                     ) : (
                                                         <div className="space-y-0">
+                                                            {!assetsCollapsed && selectedApp ? (
+                                                                <>
+                                                                    <AppStoreLinkRow
+                                                                        selectedApp={selectedApp}
+                                                                        targetCountries={selectedBrand?.target_countries || []}
+                                                                        onSaveCanonicalUrl={async (canonicalUrl) => {
+                                                                            const next = await patchApp(selectedApp.id, {
+                                                                                appstore_url: canonicalUrl,
+                                                                            });
+                                                                            if (!next) {
+                                                                                throw new Error(text('upload_failed'));
+                                                                            }
+                                                                        }}
+                                                                        text={text}
+                                                                        reportError={reportActionError}
+                                                                    />
+                                                                    <div className="my-4 h-px bg-indigo-900/30" aria-hidden="true" />
+                                                                </>
+                                                            ) : null}
                                                             {!assetsCollapsed && (
                                                                 <StepBlock step={1} done={step1Done}>
                                                                     <IconGenerationModule {...generationModuleProps} />
@@ -1766,6 +1916,11 @@ export function AppShell({ session }: AppShellProps) {
                         onMarkCompleted={() => handleMarkAsCompleted({ pruneUnpicked: true })}
                         text={text}
                     />
+                </div>
+            )}
+            {collabWarning && (
+                <div className="pointer-events-none fixed bottom-4 right-4 z-50 max-w-xs rounded-xl border border-amber-400/40 bg-slate-900/95 px-3 py-2 text-xs text-amber-100 shadow-lg">
+                    {collabWarning}
                 </div>
             )}
             <Lightbox lightbox={lightbox} onClose={closeLightbox} closeLabel={text('close')} />

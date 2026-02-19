@@ -6,6 +6,8 @@ Screenshot sets + export picks/completion state are stored in Supabase (`app_scr
 Brand release planning metadata is stored in Supabase on `brands` (`target_countries`, `keywords`, `release_strategy_notes`, `release_strategy_updated_at`).
 Brand ordering is stored in Supabase on `brands.order_index` (drag-and-drop reorder in Sidebar edit mode).
 Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/accounts` screen (pooled rows, optional 1-per-app assignment).
+Canonical App Store links are stored on `apps.appstore_url` and edited from the workspace App Store row.
+Workspace collaboration presence + brand locks are stored in Supabase (`workspace_sessions`) and mediated via `/api/workspace-sessions`.
 
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
@@ -41,8 +43,8 @@ Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/acco
 - `contexts/` - Reserved for future React contexts (currently empty).
 
 ## components/app Breakdown
-- `components/app/AppShell.tsx` - Main authenticated UI state + orchestration.
-- `components/app/Sidebar.tsx` - Brand list, brand form, and global controls.
+- `components/app/AppShell.tsx` - Main authenticated UI state + orchestration (including collaboration hook wiring and lock-aware brand selection/fallback).
+- `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices.
 - `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes).
 - `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand.
 - `components/app/CountryMultiSelect.tsx` - Multi-select dropdown used for Target countries.
@@ -53,6 +55,7 @@ Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/acco
 - `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots).
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
+- `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries).
 - `components/app/ConnectorClientSpecPanel.tsx` - Idea picker placeholder + client spec editor (Step 2).
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
@@ -115,6 +118,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-connector-config-form.ts` - Loads/saves Connector app config + secret metadata (used by the Step 2/3 panels).
 - `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app.
+- `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, and lock conflict state.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
 - `hooks/use-slot-mappings.ts` - Slot mapping persistence.
 - `hooks/use-app-folder-layout.ts` - Gooey layout measurements + refs.
@@ -143,6 +147,17 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
 - `data/appstore-accounts.ts` - App Store accounts pool CRUD (`appstore_accounts`).
 
+## api Breakdown
+- `api/workspace-sessions.ts` - Collaboration endpoint for `snapshot | heartbeat | claim_brand | release_brand`.
+  - Presence snapshot is computed from table rows (`workspace_sessions`) using a 180s recency window (`last_seen_at`).
+  - `active_session_count` is unique per `client_device_id` (deduped devices, not raw tab/session rows).
+  - Brand locks remain strict on active lease (`expires_at > now()`) with 30s TTL.
+  - Retention cleanup is best-effort per request: deletes caller-owned rows older than 48h past expiry.
+- `api/provider-status.ts` - Environment/provider diagnostics endpoint.
+- `api/generate-screenshot.ts` - Server-side screenshot generation proxy.
+- `api/create-github-repo.ts` - GitHub repository creation endpoint.
+- `api/delete-github-repo.ts` - GitHub repository deletion endpoint.
+
 ## utils Breakdown
 - `utils/slug.ts` - Slug creation helpers.
 - `utils/routes.ts` - Route build/parse helpers.
@@ -150,6 +165,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `utils/images.ts` - Image validation, loading, resizing, and rendering.
 - `utils/dom.ts` - Auto-grow textarea sync.
 - `utils/download.ts` - Download trigger helper.
+- `utils/appstore.ts` - App Store URL normalization and geo-link helpers.
 - `utils/retry.ts` - Retry helper for async actions.
 - `utils/runner-log.ts` - Best-effort parser that compacts Runner log lines into a user-friendly status view.
 
@@ -193,6 +209,25 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - The Runner log output is compacted by default (product-grade).
   - Debug enable verbose logs (local only): `localStorage.setItem('zefgen.debug.runnerVerbose', '1'); location.reload();`
   - Debug disable: `localStorage.removeItem('zefgen.debug.runnerVerbose'); location.reload();`
+
+## Workspace Collaboration (Brand Locks + Presence)
+- Base migration: `supabase/migrations/2026-02-18_workspace_sessions_brand_lock.sql`
+  - Table: `public.workspace_sessions`
+  - RPCs: `workspace_claim_brand_lock`, `workspace_heartbeat_session`, `workspace_release_brand_lock`, `workspace_snapshot`
+- Follow-up migration: `supabase/migrations/2026-02-18_workspace_sessions_lock_preserve_conflict.sql`
+  - Preserves existing lock on blocked switch and adds `session_id_collision` handling.
+- Presence-window migration: `supabase/migrations/2026-02-18_workspace_presence_window.sql`
+  - Keeps lock enforcement strict while widening snapshot presence recency semantics.
+- Current runtime path:
+  - API snapshot reads table rows directly and normalizes payload shape.
+  - Lock actions prefer RPC; API has table-based fallback paths for resilience.
+  - Client hook (`hooks/use-workspace-collaboration.ts`) uses persistent `client_device_id` (localStorage) and per-load `client_session_id` (runtime), polls every 10s, and triggers immediate refresh on focus/visibility/online.
+
+## App Store URL (Workspace Surface)
+- Migration: `supabase/migrations/2026-02-18_apps_appstore_url.sql`
+  - Adds `public.apps.appstore_url`.
+- UI: `components/app/AppStoreLinkRow.tsx` (shown in workspace when an app is selected).
+- Utilities: `utils/appstore.ts` for canonicalization and geo-friendly URL helpers.
 
 ## Legal Links Generation (Step 3 Setup data)
 - Trigger UI: `Generate privacies` button in `components/app/ConnectorVariablesSecretsPanel.tsx`.
@@ -263,6 +298,6 @@ Data flow: UI component → hook → data layer → Supabase.
 
 ## Local Dev Notes
 - `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
-- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `create-github-repo`, `delete-github-repo`) so you can iterate without `vercel dev`.
+- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `create-github-repo`, `delete-github-repo`, `workspace-sessions`) so you can iterate without `vercel dev`.
 - The local middleware also exposes `GET /api/provider-status` for quick env diagnostics.
 - To run the full Vercel routing layer locally (for `/api/*` + rewrites), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.

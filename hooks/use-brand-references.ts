@@ -104,10 +104,9 @@ export const useBrandReferences = ({
 
         let isMounted = true;
         const loadUrls = async () => {
+            const scopedRefs = selectedBrandReferences.filter((ref) => ref.image_path);
             const entries = await Promise.all(
-                brandReferences
-                    .filter((ref) => ref.image_path)
-                    .map(async (ref) => {
+                scopedRefs.map(async (ref) => {
                         try {
                             const url = await getSignedUrl(BRAND_BUCKET, ref.image_path);
                             return [ref.id, url] as const;
@@ -120,7 +119,11 @@ export const useBrandReferences = ({
 
             if (!isMounted) return;
             setBrandRefUrls((prev) => {
-                const nextUrls = { ...prev };
+                const nextUrls: Record<string, string> = {};
+                scopedRefs.forEach((ref) => {
+                    const prevUrl = prev[ref.id];
+                    if (prevUrl) nextUrls[ref.id] = prevUrl;
+                });
                 entries.forEach(([id, url]) => {
                     if (url) nextUrls[id] = url;
                 });
@@ -132,7 +135,7 @@ export const useBrandReferences = ({
         return () => {
             isMounted = false;
         };
-    }, [sessionUserId, brandReferences, getSignedUrl, reportError]);
+    }, [sessionUserId, selectedBrandReferences, getSignedUrl, reportError]);
 
     useEffect(() => {
         if (!sessionUserId) {

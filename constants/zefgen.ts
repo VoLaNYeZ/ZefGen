@@ -6,6 +6,10 @@ export const AUTO_GROW_MULTIPLIER = 5;
 export const BRAND_BUCKET = 'brand-references';
 export const APP_SCREENSHOT_BUCKET = 'app-screenshots';
 export const GENERATED_BUCKET = 'generated-assets';
+export const WORKSPACE_COLLAB_ENABLED = true;
+export const WORKSPACE_LOCK_ENFORCEMENT_ENABLED = true;
+export const WORKSPACE_COLLAB_POLL_MS = 10_000;
+export const WORKSPACE_COLLAB_TTL_SECONDS = 30;
 
 export const SCREENSHOT_SIZES = {
     '6.5': { width: 1242, height: 2688 },

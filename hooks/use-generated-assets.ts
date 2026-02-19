@@ -1106,10 +1106,9 @@ export const useGeneratedAssets = ({
 
         let isMounted = true;
         const loadUrls = async () => {
+            const scopedAssets = selectedGeneratedAssets.filter((asset) => asset.image_path);
             const entries = await Promise.all(
-                generatedAssets
-                    .filter((asset) => asset.image_path)
-                    .map(async (asset) => {
+                scopedAssets.map(async (asset) => {
                         try {
                             const url = await getSignedUrl(GENERATED_BUCKET, asset.image_path);
                             let previewUrl = '';
@@ -1138,14 +1137,22 @@ export const useGeneratedAssets = ({
 
             if (!isMounted) return;
             setGeneratedUrls((prev) => {
-                const nextUrls = { ...prev };
+                const nextUrls: Record<string, string> = {};
+                scopedAssets.forEach((asset) => {
+                    const prevUrl = prev[asset.id];
+                    if (prevUrl) nextUrls[asset.id] = prevUrl;
+                });
                 entries.forEach(([id, url]) => {
                     if (url) nextUrls[id] = url;
                 });
                 return nextUrls;
             });
             setGeneratedPreviewUrls((prev) => {
-                const nextUrls = { ...prev };
+                const nextUrls: Record<string, string> = {};
+                scopedAssets.forEach((asset) => {
+                    const prevUrl = prev[asset.id];
+                    if (prevUrl) nextUrls[asset.id] = prevUrl;
+                });
                 entries.forEach(([id, _url, previewUrl]) => {
                     if (previewUrl) nextUrls[id] = previewUrl;
                 });
@@ -1157,7 +1164,7 @@ export const useGeneratedAssets = ({
         return () => {
             isMounted = false;
         };
-    }, [session?.user.id, generatedAssets, getSignedUrl, reportError]);
+    }, [session?.user.id, selectedGeneratedAssets, getSignedUrl, reportError]);
 
     const resolveGeneratedUrl = async (asset: GeneratedAsset) =>
         generatedUrls[asset.id] ?? (await getSignedUrl(GENERATED_BUCKET, asset.image_path));

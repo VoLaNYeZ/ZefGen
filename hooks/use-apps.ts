@@ -6,6 +6,38 @@ import { MAX_ACTIVE_APPS } from '../constants/zefgen';
 import { createApp, deleteApp, fetchApps, updateApp, updateAppOrder } from '../data/apps';
 import { makeUniqueSlug, slugify } from '../utils/slug';
 
+const LAST_APP_BY_BRAND_STORAGE_KEY = 'zefgen.lastAppByBrand';
+
+const readLastAppByBrand = (): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = window.localStorage.getItem(LAST_APP_BY_BRAND_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return {};
+        const result: Record<string, string> = {};
+        Object.entries(parsed as Record<string, unknown>).forEach(([brandId, appId]) => {
+            const normalizedBrandId = String(brandId || '').trim();
+            const normalizedAppId = String(appId || '').trim();
+            if (normalizedBrandId && normalizedAppId) {
+                result[normalizedBrandId] = normalizedAppId;
+            }
+        });
+        return result;
+    } catch {
+        return {};
+    }
+};
+
+const writeLastAppByBrand = (map: Record<string, string>) => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.setItem(LAST_APP_BY_BRAND_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+        // ignore write failures
+    }
+};
+
 type Params = {
     session: Session | null;
     selectedBrand: Brand | null;
@@ -36,6 +68,7 @@ export const useApps = ({
     const [appFormLoading, setAppFormLoading] = useState(false);
     const [editingAppId, setEditingAppId] = useState<string | null>(null);
     const [isBannedView, setIsBannedView] = useState(false);
+    const lastAppIdByBrandRef = useRef<Record<string, string>>({});
 
     const refresh = useCallback(async () => {
         if (!session) {
@@ -69,6 +102,10 @@ export const useApps = ({
         if (lastUserIdRef.current === session.user.id && apps.length) return;
         refresh();
     }, [session, apps.length, refresh]);
+
+    useEffect(() => {
+        lastAppIdByBrandRef.current = readLastAppByBrand();
+    }, []);
 
     const orderedApps = useMemo(() => {
         if (!apps.length) return apps;
@@ -165,10 +202,28 @@ export const useApps = ({
         }
 
         const hasSelected = visibleApps.some((app) => app.id === selectedAppId);
-        if (!hasSelected) {
-            setSelectedAppId(visibleApps[0]?.id ?? null);
+        if (hasSelected) return;
+
+        const rememberedAppId = lastAppIdByBrandRef.current[selectedBrandId];
+        if (rememberedAppId && visibleApps.some((app) => app.id === rememberedAppId)) {
+            setSelectedAppId(rememberedAppId);
+            return;
         }
+
+        setSelectedAppId(visibleApps[0]?.id ?? null);
     }, [selectedBrandId, visibleApps, selectedAppId, isBannedView, bannedApps.length, setSelectedAppId]);
+
+    useEffect(() => {
+        if (!selectedBrandId || !selectedAppId) return;
+        const selectedApp = apps.find((app) => app.id === selectedAppId);
+        if (!selectedApp || selectedApp.brand_id !== selectedBrandId) return;
+        if (lastAppIdByBrandRef.current[selectedBrandId] === selectedAppId) return;
+        lastAppIdByBrandRef.current = {
+            ...lastAppIdByBrandRef.current,
+            [selectedBrandId]: selectedAppId,
+        };
+        writeLastAppByBrand(lastAppIdByBrandRef.current);
+    }, [selectedBrandId, selectedAppId, apps]);
 
     const appAliasPreview = slugify(appForm.alias || appForm.name || '');
     const isEditingBanned = Boolean(editingAppId && bannedAppIdSet.has(editingAppId));
@@ -318,6 +373,36 @@ export const useApps = ({
         }
     };
 
+    const patchApp = useCallback(
+        async (appId: string, patch: Partial<AppItem>): Promise<AppItem | null> => {
+            if (!session) return null;
+            setAppFormError(null);
+            const { data, error } = await updateApp({
+                id: appId,
+                userId: session.user.id,
+                patch,
+            });
+            if (error) {
+                setAppFormError(error.message);
+                onDataError?.(error.message);
+                return null;
+            }
+            if (!data) return null;
+            setApps((prev) =>
+                prev.map((app) =>
+                    app.id === appId
+                        ? { ...app, ...data, is_banned: data.is_banned ?? app.is_banned ?? false }
+                        : app
+                )
+            );
+            return {
+                ...data,
+                is_banned: data.is_banned ?? false,
+            };
+        },
+        [onDataError, session]
+    );
+
     const reorderBrandApps = async (sourceId: string, targetId: string) => {
         if (!selectedBrandId || sourceId === targetId) return;
         const brandApps = orderedApps.filter((app) => app.brand_id === selectedBrandId);
@@ -378,6 +463,7 @@ export const useApps = ({
         handleDeleteApp,
         handleBanApp,
         handleUnbanApp,
+        patchApp,
         reorderBrandApps,
         setAppForm,
         setAppFormOpen,
