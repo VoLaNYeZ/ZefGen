@@ -20,6 +20,7 @@ export type AppItem = {
     github_repo_full_name?: string | null;
     github_repo_created_at?: string | null;
     github_repo_updated_at?: string | null;
+    appstore_url?: string | null;
     order_index?: number | null;
     is_banned?: boolean | null;
     user_id?: string;
@@ -162,6 +163,26 @@ export type BrandFormState = {
 export type AppFormState = {
     name: string;
     alias: string;
+};
+
+export type WorkspaceSessionSnapshot = {
+    active_session_count: number;
+    active_session_countries: string[];
+    locked_brand_ids_by_other_devices: string[];
+};
+
+export type BrandLockReason =
+    | 'brand_required'
+    | 'locked_by_other_device'
+    | 'session_id_collision'
+    | 'unauthorized'
+    | 'disabled'
+    | 'unavailable'
+    | (string & {});
+
+export type BrandLockResult = {
+    ok: boolean;
+    reason: BrandLockReason | null;
 };
 
 // Client-side generation provider selector (internal; no DB impact).

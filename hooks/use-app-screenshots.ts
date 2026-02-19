@@ -93,10 +93,9 @@ export const useAppScreenshots = ({
 
         let isMounted = true;
         const loadUrls = async () => {
+            const scopedShots = selectedAppScreenshots.filter((shot) => shot.image_path);
             const entries = await Promise.all(
-                appScreenshots
-                    .filter((shot) => shot.image_path)
-                    .map(async (shot) => {
+                scopedShots.map(async (shot) => {
                         try {
                             const url = await getSignedUrl(APP_SCREENSHOT_BUCKET, shot.image_path);
                             return [shot.id, url] as const;
@@ -109,7 +108,11 @@ export const useAppScreenshots = ({
 
             if (!isMounted) return;
             setAppScreenshotUrls((prev) => {
-                const nextUrls = { ...prev };
+                const nextUrls: Record<string, string> = {};
+                scopedShots.forEach((shot) => {
+                    const prevUrl = prev[shot.id];
+                    if (prevUrl) nextUrls[shot.id] = prevUrl;
+                });
                 entries.forEach(([id, url]) => {
                     if (url) nextUrls[id] = url;
                 });
@@ -121,7 +124,7 @@ export const useAppScreenshots = ({
         return () => {
             isMounted = false;
         };
-    }, [sessionUserId, appScreenshots, getSignedUrl, reportError]);
+    }, [sessionUserId, selectedAppScreenshots, getSignedUrl, reportError]);
 
     const normalizeScreenshotFiles = (files: File[]) =>
         [...files].sort((a, b) =>

@@ -94,6 +94,7 @@ export default defineConfig(({ mode }) => {
       wire('/api/create-github-repo', './api/create-github-repo');
       wire('/api/delete-github-repo', './api/delete-github-repo');
       wire('/api/provider-status', './api/provider-status');
+      wire('/api/workspace-sessions', './api/workspace-sessions');
     },
   });
 
