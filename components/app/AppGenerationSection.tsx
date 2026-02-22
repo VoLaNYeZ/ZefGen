@@ -101,6 +101,9 @@ type AppGenerationSectionProps = {
     handleDownloadGeneratedAsset: (asset: GeneratedAsset, filename: string) => void;
     handleDownloadAllScreenshots: () => void;
     handleDeleteGeneratedAsset: (asset: GeneratedAsset) => void;
+    getIconSystemPrompt: () => { defaultPrompt: string; effectivePrompt: string; isOverridden: boolean };
+    setIconSystemPromptOverride: (value: string) => void;
+    resetIconSystemPromptOverride: () => void;
     getSystemPromptForSlot: (
         slotIndex: number,
         mode: 'generate' | 'enhance'
@@ -194,6 +197,9 @@ export const AppGenerationSection = ({
     handleDownloadGeneratedAsset,
     handleDownloadAllScreenshots,
     handleDeleteGeneratedAsset,
+    getIconSystemPrompt,
+    setIconSystemPromptOverride,
+    resetIconSystemPromptOverride,
     getSystemPromptForSlot,
     setSystemPromptOverride,
     resetSystemPromptOverride,
@@ -216,8 +222,10 @@ export const AppGenerationSection = ({
     const [iconPrimaryTabBySlotIndex, setIconPrimaryTabBySlotIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
     const [iconSelectedAssetIdByKey, setIconSelectedAssetIdByKey] = React.useState<Record<string, string>>({});
     const [iconEnhancePromptBySlotIndex, setIconEnhancePromptBySlotIndex] = React.useState<Record<number, string>>({});
+    const [iconSystemPromptOpen, setIconSystemPromptOpen] = React.useState(false);
     const [systemPromptOpenBySlotIndex, setSystemPromptOpenBySlotIndex] = React.useState<Record<number, boolean>>({});
     const [brokenPreviewByAssetId, setBrokenPreviewByAssetId] = React.useState<Record<string, boolean>>({});
+    const iconSystemPromptTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
     const systemPromptTextareaRefBySlotIndex = React.useRef<Record<number, HTMLTextAreaElement | null>>({});
     const dragRef = React.useRef<{
         slotIndex: number;
@@ -249,6 +257,13 @@ export const AppGenerationSection = ({
             if (el) syncUnlimitedTextarea(el);
         }
     }, [systemPromptOpenBySlotIndex, syncUnlimitedTextarea]);
+
+    React.useEffect(() => {
+        if (!iconSystemPromptOpen) return;
+        if (iconSystemPromptTextareaRef.current) {
+            syncUnlimitedTextarea(iconSystemPromptTextareaRef.current);
+        }
+    }, [iconSystemPromptOpen, syncUnlimitedTextarea]);
 
     const showHeader = mode === 'all';
     const showIcon = mode === 'all' || mode === 'icon';
@@ -290,6 +305,65 @@ export const AppGenerationSection = ({
                             disabled={!brandIconReference}
                             className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                         />
+
+                        {(() => {
+                            const sys = getIconSystemPrompt();
+                            return (
+                                <div className="rounded-lg border border-indigo-500/15 bg-slate-950/40">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIconSystemPromptOpen((prev) => !prev)}
+                                        className="w-full px-2 py-1.5 flex items-center justify-between gap-2 text-left"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[9px] font-semibold tracking-[0.12em] text-indigo-200/50">
+                                                {text('system_prompt_label')}
+                                            </span>
+                                            {sys.isOverridden && (
+                                                <span
+                                                    className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-300/80"
+                                                    title="Customized"
+                                                />
+                                            )}
+                                        </div>
+                                        <span className="text-indigo-200/50">
+                                            {iconSystemPromptOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                        </span>
+                                    </button>
+
+                                    {iconSystemPromptOpen && (
+                                        <div className="border-t border-indigo-500/10 p-2 space-y-1.5">
+                                            <div className="flex items-center justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={resetIconSystemPromptOverride}
+                                                    disabled={!selectedApp || !sys.isOverridden}
+                                                    className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                        selectedApp && sys.isOverridden
+                                                            ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
+                                                            : 'border-white/10 text-indigo-200/30'
+                                                    }`}
+                                                >
+                                                    {text('reset_to_default')}
+                                                </button>
+                                            </div>
+                                            <textarea
+                                                value={sys.effectivePrompt}
+                                                onChange={(event) => setIconSystemPromptOverride(event.target.value)}
+                                                onInput={(event) => syncUnlimitedTextarea(event.currentTarget)}
+                                                rows={1}
+                                                ref={(el) => {
+                                                    iconSystemPromptTextareaRef.current = el;
+                                                    if (el) syncUnlimitedTextarea(el);
+                                                }}
+                                                disabled={!selectedApp}
+                                                className="w-full rounded-md border border-indigo-500/15 bg-slate-950/60 px-2 py-1 text-[10px] leading-snug text-indigo-50/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="flex items-center gap-2">
@@ -518,6 +592,7 @@ export const AppGenerationSection = ({
                                                 rows={2}
                                                 className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                             />
+                                            <p className="text-[10px] text-indigo-200/55">{text('icon_enhance_chain_hint')}</p>
                                             <button
                                                 type="button"
                                                 onClick={() => {

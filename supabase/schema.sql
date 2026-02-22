@@ -75,6 +75,29 @@ create unique index if not exists appstore_accounts_app_id_unique
 create index if not exists appstore_accounts_user_id_idx on public.appstore_accounts (user_id);
 create index if not exists appstore_accounts_user_geo_idx on public.appstore_accounts (user_id, geo);
 
+-- Fixed Apple non-game category dictionary for Ideas workflow. (2026-02-22)
+create table if not exists public.app_idea_categories (
+    id uuid primary key default gen_random_uuid(),
+    slug text not null unique,
+    name text not null unique,
+    order_index integer not null default 0,
+    created_at timestamptz not null default now()
+);
+
+-- User-level idea pool for Step 2 client spec picker. (2026-02-22)
+create table if not exists public.app_ideas (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users(id) on delete cascade,
+    category_id uuid not null references public.app_idea_categories(id) on delete restrict,
+    description text not null default '',
+    updated_at timestamptz not null default now(),
+    created_at timestamptz not null default now()
+);
+
+create index if not exists app_ideas_user_id_idx on public.app_ideas (user_id);
+create index if not exists app_ideas_user_category_idx on public.app_ideas (user_id, category_id);
+create index if not exists app_ideas_user_created_idx on public.app_ideas (user_id, created_at);
+
 create table if not exists public.brand_references (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
@@ -192,6 +215,8 @@ create index if not exists app_export_status_brand_id_idx on public.app_export_s
 alter table public.brands enable row level security;
 alter table public.apps enable row level security;
 alter table public.appstore_accounts enable row level security;
+alter table public.app_idea_categories enable row level security;
+alter table public.app_ideas enable row level security;
 alter table public.brand_references enable row level security;
 alter table public.app_screenshot_prompts enable row level security;
 alter table public.app_screenshots enable row level security;
@@ -226,6 +251,49 @@ create policy "appstore_accounts_update_own" on public.appstore_accounts
     for update using (auth.uid() = user_id);
 create policy "appstore_accounts_delete_own" on public.appstore_accounts
     for delete using (auth.uid() = user_id);
+
+create policy "app_idea_categories_select_authenticated" on public.app_idea_categories
+    for select using (true);
+
+create policy "app_ideas_select_own" on public.app_ideas
+    for select using (auth.uid() = user_id);
+create policy "app_ideas_insert_own" on public.app_ideas
+    for insert with check (auth.uid() = user_id);
+create policy "app_ideas_update_own" on public.app_ideas
+    for update using (auth.uid() = user_id);
+create policy "app_ideas_delete_own" on public.app_ideas
+    for delete using (auth.uid() = user_id);
+
+insert into public.app_idea_categories (slug, name, order_index)
+values
+    ('books', 'Books', 1),
+    ('business', 'Business', 2),
+    ('developer-tools', 'Developer Tools', 3),
+    ('education', 'Education', 4),
+    ('entertainment', 'Entertainment', 5),
+    ('finance', 'Finance', 6),
+    ('food-drink', 'Food & Drink', 7),
+    ('graphics-design', 'Graphics & Design', 8),
+    ('health-fitness', 'Health & Fitness', 9),
+    ('lifestyle', 'Lifestyle', 10),
+    ('kids', 'Kids', 11),
+    ('magazines-newspapers', 'Magazines & Newspapers', 12),
+    ('medical', 'Medical', 13),
+    ('music', 'Music', 14),
+    ('navigation', 'Navigation', 15),
+    ('news', 'News', 16),
+    ('photo-video', 'Photo & Video', 17),
+    ('productivity', 'Productivity', 18),
+    ('reference', 'Reference', 19),
+    ('safari-extensions', 'Safari Extensions', 20),
+    ('shopping', 'Shopping', 21),
+    ('social-networking', 'Social Networking', 22),
+    ('sports', 'Sports', 23),
+    ('travel', 'Travel', 24),
+    ('utilities', 'Utilities', 25),
+    ('weather', 'Weather', 26),
+    ('stickers', 'Stickers', 27)
+on conflict (slug) do nothing;
 
 create policy "brand_refs_select_own" on public.brand_references
     for select using (auth.uid() = user_id);
@@ -307,6 +375,7 @@ create table if not exists public.connector_app_configs (
     user_id uuid not null references auth.users(id) on delete cascade,
     project_kind text not null default 'ios' check (project_kind in ('ios', 'web', 'other')),
     project_brief text not null default '',
+    idea_id uuid references public.app_ideas(id) on delete set null,
     variables jsonb not null default '{}'::jsonb,
     verify_command text,
     updated_at timestamptz not null default now(),
@@ -314,6 +383,7 @@ create table if not exists public.connector_app_configs (
 );
 
 create index if not exists connector_app_configs_user_id_idx on public.connector_app_configs (user_id);
+create index if not exists connector_app_configs_idea_id_idx on public.connector_app_configs (idea_id);
 
 alter table public.connector_app_configs enable row level security;
 
@@ -946,6 +1016,8 @@ grant insert, update, delete on public.connector_app_secrets to authenticated;
 grant select, insert, update, delete on public.connector_jobs to authenticated;
 grant select, insert, update, delete on public.connector_job_messages to authenticated;
 grant select, insert, update, delete on public.appstore_accounts to authenticated;
+grant select on public.app_idea_categories to authenticated;
+grant select, insert, update, delete on public.app_ideas to authenticated;
 grant select, insert, update, delete on public.workspace_sessions to authenticated;
 grant execute on function public.workspace_claim_brand_lock(text, text, uuid, text, integer) to authenticated;
 grant execute on function public.workspace_heartbeat_session(text, text, uuid, text, integer) to authenticated;

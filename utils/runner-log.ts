@@ -74,7 +74,7 @@ export function parseRunnerLog(messages: RunnerLogMessage[]): RunnerCompactState
         }
 
         if (/Cloning repo\.\.\./i.test(line)) {
-            addEvent('info', 'Cloning repo...', atMs);
+            addEvent('info', 'Cloning repo.', atMs);
             continue;
         }
 
@@ -165,4 +165,3 @@ export function humanizeStage(stage: string | null | undefined) {
 
     return s.replace(/_/g, ' ');
 }
-
