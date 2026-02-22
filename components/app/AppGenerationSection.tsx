@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Download, Trash2, ChevronDown, ChevronRight, Upload, ImagePlus } from 'lucide-react';
 import type {
     AppItem,
     AppScreenshot,
@@ -55,6 +55,7 @@ type AppGenerationSectionProps = {
     setGenerationCount: (value: number) => void;
     generationSize: '6.5' | '6.9';
     setGenerationSize: (value: '6.5' | '6.9') => void;
+    iconUploading: boolean;
     iconGenerating: boolean;
     iconSlotGenerating: number | null;
     enhanceIconSlotGenerating: number | null;
@@ -93,6 +94,7 @@ type AppGenerationSectionProps = {
     addLayer: (assetId: string) => void;
     removeLayer: (assetId: string, layerId: string) => void;
     handleSaveEdit: (assetId: string) => void;
+    handleUploadCustomIconFiles: (files: File[]) => Promise<void>;
     handleGenerateIcon: () => void;
     handleEnhanceIconSlot: (payload: { slotIndex: number; base: { kind: 'icon' | 'icon_enhanced'; assetId: string }; enhancePrompt: string }) => void;
     handleGenerateAllScreenshots: () => void;
@@ -151,6 +153,7 @@ export const AppGenerationSection = ({
     setGenerationCount,
     generationSize,
     setGenerationSize,
+    iconUploading,
     iconGenerating,
     iconSlotGenerating,
     enhanceIconSlotGenerating,
@@ -189,6 +192,7 @@ export const AppGenerationSection = ({
     addLayer,
     removeLayer,
     handleSaveEdit,
+    handleUploadCustomIconFiles,
     handleGenerateIcon,
     handleEnhanceIconSlot,
     handleGenerateAllScreenshots,
@@ -225,6 +229,8 @@ export const AppGenerationSection = ({
     const [iconSystemPromptOpen, setIconSystemPromptOpen] = React.useState(false);
     const [systemPromptOpenBySlotIndex, setSystemPromptOpenBySlotIndex] = React.useState<Record<number, boolean>>({});
     const [brokenPreviewByAssetId, setBrokenPreviewByAssetId] = React.useState<Record<string, boolean>>({});
+    const [isIconDropActive, setIsIconDropActive] = React.useState(false);
+    const iconUploadInputRef = React.useRef<HTMLInputElement | null>(null);
     const iconSystemPromptTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
     const systemPromptTextareaRefBySlotIndex = React.useRef<Record<number, HTMLTextAreaElement | null>>({});
     const dragRef = React.useRef<{
@@ -246,6 +252,42 @@ export const AppGenerationSection = ({
         el.style.overflowY = 'hidden';
         el.style.resize = 'none';
         el.style.height = `${Math.max(0, el.scrollHeight)}px`;
+    }, []);
+
+    const onIconUploadInputChange = React.useCallback(
+        async (event: React.ChangeEvent<HTMLInputElement>) => {
+            const files = event.target.files ? Array.from(event.target.files) : [];
+            event.target.value = '';
+            if (!files.length) return;
+            await handleUploadCustomIconFiles(files);
+        },
+        [handleUploadCustomIconFiles]
+    );
+    const canUploadCustomIcons = Boolean(selectedApp) && !iconUploading && !iconGenerating;
+    const onIconDrop = React.useCallback(
+        async (event: React.DragEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            setIsIconDropActive(false);
+            if (!canUploadCustomIcons) return;
+            const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
+            if (!files.length) return;
+            await handleUploadCustomIconFiles(files);
+        },
+        [canUploadCustomIcons, handleUploadCustomIconFiles]
+    );
+    const onIconDragOver = React.useCallback(
+        (event: React.DragEvent<HTMLDivElement>) => {
+            if (!canUploadCustomIcons) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            setIsIconDropActive(true);
+        },
+        [canUploadCustomIcons]
+    );
+    const onIconDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
+        const next = event.relatedTarget as Node | null;
+        if (next && event.currentTarget.contains(next)) return;
+        setIsIconDropActive(false);
     }, []);
 
     React.useEffect(() => {
@@ -293,123 +335,125 @@ export const AppGenerationSection = ({
                         </div>
                     </div>
 
-                    <div className="max-w-[520px] space-y-2">
-                        <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
-                        <textarea
-                            value={brandIconReference?.prompt ?? ''}
-                            onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
-                            onInput={handleAutoGrowInput}
-                            onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
-                            placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
-                            rows={3}
-                            disabled={!brandIconReference}
-                            className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
-                        />
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                        <div className="space-y-4">
+                            <div className="max-w-[520px] space-y-2">
+                                <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
+                                <textarea
+                                    value={brandIconReference?.prompt ?? ''}
+                                    onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
+                                    onInput={handleAutoGrowInput}
+                                    onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
+                                    placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
+                                    rows={3}
+                                    disabled={!brandIconReference}
+                                    className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                />
 
-                        {(() => {
-                            const sys = getIconSystemPrompt();
-                            return (
-                                <div className="rounded-lg border border-indigo-500/15 bg-slate-950/40">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIconSystemPromptOpen((prev) => !prev)}
-                                        className="w-full px-2 py-1.5 flex items-center justify-between gap-2 text-left"
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[9px] font-semibold tracking-[0.12em] text-indigo-200/50">
-                                                {text('system_prompt_label')}
-                                            </span>
-                                            {sys.isOverridden && (
-                                                <span
-                                                    className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-300/80"
-                                                    title="Customized"
-                                                />
+                                {(() => {
+                                    const sys = getIconSystemPrompt();
+                                    return (
+                                        <div className="rounded-lg border border-indigo-500/15 bg-slate-950/40">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIconSystemPromptOpen((prev) => !prev)}
+                                                className="w-full px-2 py-1.5 flex items-center justify-between gap-2 text-left"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[9px] font-semibold tracking-[0.12em] text-indigo-200/50">
+                                                        {text('system_prompt_label')}
+                                                    </span>
+                                                    {sys.isOverridden && (
+                                                        <span
+                                                            className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-300/80"
+                                                            title="Customized"
+                                                        />
+                                                    )}
+                                                </div>
+                                                <span className="text-indigo-200/50">
+                                                    {iconSystemPromptOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                </span>
+                                            </button>
+
+                                            {iconSystemPromptOpen && (
+                                                <div className="border-t border-indigo-500/10 p-2 space-y-1.5">
+                                                    <div className="flex items-center justify-end">
+                                                        <button
+                                                            type="button"
+                                                            onClick={resetIconSystemPromptOverride}
+                                                            disabled={!selectedApp || !sys.isOverridden}
+                                                            className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                selectedApp && sys.isOverridden
+                                                                    ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
+                                                                    : 'border-white/10 text-indigo-200/30'
+                                                            }`}
+                                                        >
+                                                            {text('reset_to_default')}
+                                                        </button>
+                                                    </div>
+                                                    <textarea
+                                                        value={sys.effectivePrompt}
+                                                        onChange={(event) => setIconSystemPromptOverride(event.target.value)}
+                                                        onInput={(event) => syncUnlimitedTextarea(event.currentTarget)}
+                                                        rows={1}
+                                                        ref={(el) => {
+                                                            iconSystemPromptTextareaRef.current = el;
+                                                            if (el) syncUnlimitedTextarea(el);
+                                                        }}
+                                                        disabled={!selectedApp}
+                                                        className="w-full rounded-md border border-indigo-500/15 bg-slate-950/60 px-2 py-1 text-[10px] leading-snug text-indigo-50/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                                    />
+                                                </div>
                                             )}
                                         </div>
-                                        <span className="text-indigo-200/50">
-                                            {iconSystemPromptOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                        </span>
+                                    );
+                                })()}
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('provider')}</span>
+                                        <select
+                                            value={iconProviderId}
+                                            onChange={(event) => setIconProviderId(event.target.value as ScreenshotProviderId)}
+                                            className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            disabled={!selectedApp || iconGenerating}
+                                        >
+                                            <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
+                                            <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
+                                            <option value="openai:gpt-image-1.5">{text('provider_openai_gpt_image_15')}</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_variations')}</span>
+                                        <select
+                                            value={iconVariationsCount}
+                                            onChange={(event) => setIconVariationsCount(Number(event.target.value))}
+                                            className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            disabled={!selectedApp || iconGenerating}
+                                        >
+                                            {[1, 2, 3].map((v) => (
+                                                <option key={v} value={v}>
+                                                    {v}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleGenerateIcon}
+                                        disabled={!canGenerateIcon || iconGenerating || iconUploading}
+                                        className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
+                                            canGenerateIcon
+                                                ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
+                                                : 'border-white/10 text-indigo-200/40'
+                                        }`}
+                                    >
+                                        {iconGenerating ? text('generating') : text('generate_icon')}
                                     </button>
-
-                                    {iconSystemPromptOpen && (
-                                        <div className="border-t border-indigo-500/10 p-2 space-y-1.5">
-                                            <div className="flex items-center justify-end">
-                                                <button
-                                                    type="button"
-                                                    onClick={resetIconSystemPromptOverride}
-                                                    disabled={!selectedApp || !sys.isOverridden}
-                                                    className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                                                        selectedApp && sys.isOverridden
-                                                            ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
-                                                            : 'border-white/10 text-indigo-200/30'
-                                                    }`}
-                                                >
-                                                    {text('reset_to_default')}
-                                                </button>
-                                            </div>
-                                            <textarea
-                                                value={sys.effectivePrompt}
-                                                onChange={(event) => setIconSystemPromptOverride(event.target.value)}
-                                                onInput={(event) => syncUnlimitedTextarea(event.currentTarget)}
-                                                rows={1}
-                                                ref={(el) => {
-                                                    iconSystemPromptTextareaRef.current = el;
-                                                    if (el) syncUnlimitedTextarea(el);
-                                                }}
-                                                disabled={!selectedApp}
-                                                className="w-full rounded-md border border-indigo-500/15 bg-slate-950/60 px-2 py-1 text-[10px] leading-snug text-indigo-50/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
-                                            />
-                                        </div>
-                                    )}
                                 </div>
-                            );
-                        })()}
-
-                        <div className="flex flex-wrap items-center gap-2">
-                            <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('provider')}</span>
-                                <select
-                                    value={iconProviderId}
-                                    onChange={(event) => setIconProviderId(event.target.value as ScreenshotProviderId)}
-                                    className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                    disabled={!selectedApp || iconGenerating}
-                                >
-                                    <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
-                                    <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
-                                    <option value="openai:gpt-image-1.5">{text('provider_openai_gpt_image_15')}</option>
-                                </select>
                             </div>
-
-                            <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_variations')}</span>
-                                <select
-                                    value={iconVariationsCount}
-                                    onChange={(event) => setIconVariationsCount(Number(event.target.value))}
-                                    className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                    disabled={!selectedApp || iconGenerating}
-                                >
-                                    {[1, 2, 3].map((v) => (
-                                        <option key={v} value={v}>
-                                            {v}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={handleGenerateIcon}
-                                disabled={!canGenerateIcon || iconGenerating}
-                                className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
-                                    canGenerateIcon
-                                        ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
-                                        : 'border-white/10 text-indigo-200/40'
-                                }`}
-                            >
-                                {iconGenerating ? text('generating') : text('generate_icon')}
-                            </button>
-                        </div>
-                    </div>
 
                     {(() => {
                         const iconSlotIndices = Array.from(
@@ -686,8 +730,43 @@ export const AppGenerationSection = ({
                                 {text('no_generated_icons')}
                             </div>
                         );
-	                    })()}
-	                </div>
+                    })()}
+                        </div>
+                        <div>
+                            <div
+                                onDragOver={onIconDragOver}
+                                onDragLeave={onIconDragLeave}
+                                onDrop={(event) => void onIconDrop(event)}
+                                className={`flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-4 text-center transition ${
+                                    isIconDropActive
+                                        ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
+                                        : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
+                                } ${!canUploadCustomIcons ? 'opacity-60 pointer-events-none' : ''}`}
+                            >
+                                <ImagePlus size={22} />
+                                <div className="text-xs font-semibold">{text('drop_icons_title')}</div>
+                                <div className="text-[10px] text-indigo-200/60">{text('icon_upload_limit_short')}</div>
+                                <label
+                                    htmlFor="icon-custom-upload"
+                                    className="ui-btn-fit inline-flex cursor-pointer items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/30"
+                                >
+                                    <Upload size={14} />
+                                    {iconUploading ? text('uploading') : text('upload_icon')}
+                                </label>
+                                <input
+                                    id="icon-custom-upload"
+                                    ref={iconUploadInputRef}
+                                    type="file"
+                                    accept="image/png,image/jpeg"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(event) => void onIconUploadInputChange(event)}
+                                    disabled={!canUploadCustomIcons}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 )}
 
                 {showPrompts && (
