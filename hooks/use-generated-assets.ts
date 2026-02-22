@@ -226,6 +226,7 @@ export const useGeneratedAssets = ({
     const [systemPromptOverridesByKey, setSystemPromptOverridesByKey] = useState<
         Record<string, { generate?: string; enhance?: string }>
     >({});
+    const [iconSystemPromptOverrideByAppId, setIconSystemPromptOverrideByAppId] = useState<Record<string, string>>({});
     const slotHeadlineHistoryRef = useRef<
         Record<
             string,
@@ -790,6 +791,11 @@ export const useGeneratedAssets = ({
         []
     );
 
+    const getIconSystemPromptStorageKey = useCallback(
+        (appId: string) => `zefgen.iconSystemPrompt.${appId}`,
+        []
+    );
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
         if (!selectedApp?.id || !activeScreenshotSetId) return;
@@ -843,6 +849,23 @@ export const useGeneratedAssets = ({
         setSlotPromptBySlotKey((prev) => ({ ...prev, ...next }));
     }, [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSlotPromptStorageKey]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!selectedApp?.id) return;
+        const appId = selectedApp.id;
+        const lsKey = getIconSystemPromptStorageKey(appId);
+        const raw = window.localStorage.getItem(lsKey);
+        setIconSystemPromptOverrideByAppId((prev) => {
+            const next = { ...prev };
+            if (typeof raw === 'string' && raw.length) {
+                next[appId] = raw;
+            } else {
+                delete next[appId];
+            }
+            return next;
+        });
+    }, [selectedApp?.id, getIconSystemPromptStorageKey]);
+
     const buildDefaultSystemPrompt = useCallback(
         (payload: {
             providerId: ScreenshotProviderId;
@@ -885,6 +908,66 @@ export const useGeneratedAssets = ({
         },
         []
     );
+
+    const buildDefaultIconSystemPrompt = useCallback(() => {
+        return [
+            `Keep all symbols that distinguish this emblem.`,
+            `Preserve the core motif, silhouette, and unique signifiers from the icon reference.`,
+            `Do not replace the emblem with a different concept or symbol.`,
+        ].join(' ');
+    }, []);
+
+    const getIconSystemPrompt = useCallback(() => {
+        const defaultPrompt = buildDefaultIconSystemPrompt();
+        const appId = selectedApp?.id;
+        const override = appId ? iconSystemPromptOverrideByAppId[appId] : undefined;
+        const effectivePrompt = typeof override === 'string' && override.length ? override : defaultPrompt;
+        return {
+            defaultPrompt,
+            effectivePrompt,
+            isOverridden: Boolean(typeof override === 'string' && override.length),
+        };
+    }, [buildDefaultIconSystemPrompt, iconSystemPromptOverrideByAppId, selectedApp?.id]);
+
+    const setIconSystemPromptOverride = useCallback(
+        (value: string) => {
+            if (!selectedApp?.id) return;
+            const appId = selectedApp.id;
+            const normalized = String(value ?? '');
+            setIconSystemPromptOverrideByAppId((prev) => {
+                const next = { ...prev };
+                if (normalized.length) {
+                    next[appId] = normalized;
+                } else {
+                    delete next[appId];
+                }
+                return next;
+            });
+            if (typeof window !== 'undefined') {
+                const lsKey = getIconSystemPromptStorageKey(appId);
+                if (normalized.length) {
+                    window.localStorage.setItem(lsKey, normalized);
+                } else {
+                    window.localStorage.removeItem(lsKey);
+                }
+            }
+        },
+        [selectedApp?.id, getIconSystemPromptStorageKey]
+    );
+
+    const resetIconSystemPromptOverride = useCallback(() => {
+        if (!selectedApp?.id) return;
+        const appId = selectedApp.id;
+        setIconSystemPromptOverrideByAppId((prev) => {
+            const next = { ...prev };
+            delete next[appId];
+            return next;
+        });
+        if (typeof window !== 'undefined') {
+            const lsKey = getIconSystemPromptStorageKey(appId);
+            window.localStorage.removeItem(lsKey);
+        }
+    }, [selectedApp?.id, getIconSystemPromptStorageKey]);
 
     const getSystemPromptForSlot = useCallback(
         (slotIndex: number, mode: SystemPromptMode) => {
@@ -1743,6 +1826,7 @@ export const useGeneratedAssets = ({
             const iconUrl =
                 brandRefUrls[brandIconReference.id] ??
                 (await getSignedUrl(BRAND_BUCKET, brandIconReference.image_path));
+            const { effectivePrompt: iconSystemPrompt } = getIconSystemPrompt();
 
             const basePrompt = [
                 `Create an App Store-ready iOS app icon (ready to submit).`,
@@ -1754,7 +1838,9 @@ export const useGeneratedAssets = ({
                 `Output must be a single square image at EXACTLY 1024x1024 pixels.`,
             ].join(' ');
             const userPrompt = String(brandIconReference.prompt ?? '').trim();
-            const prompt = userPrompt ? `${basePrompt}\n\n${userPrompt}` : basePrompt;
+            const prompt = [iconSystemPrompt, basePrompt, userPrompt ? userPrompt : null]
+                .filter((value): value is string => typeof value === 'string' && value.length > 0)
+                .join('\n\n');
 
             const existingIconLike = selectedGeneratedAssets.filter(
                 (asset) =>
@@ -1919,6 +2005,7 @@ export const useGeneratedAssets = ({
             const nextVersion = existingEnhanced
                 ? Math.max(...existingEnhanced.versions.map((item) => item.version_index ?? 1)) + 1
                 : 1;
+            const { effectivePrompt: iconSystemPrompt } = getIconSystemPrompt();
 
             const enhanceBasePrompt = [
                 `Enhance image 1 into an App Store-ready iOS app icon (ready to submit).`,
@@ -1930,7 +2017,9 @@ export const useGeneratedAssets = ({
                 `Keep it crisp, clean, and high quality (no blur, no artifacts).`,
             ].join(' ');
             const extra = String(enhancePrompt || '').trim();
-            const prompt = extra ? `${enhanceBasePrompt}\n\n${extra}` : enhanceBasePrompt;
+            const prompt = [iconSystemPrompt, enhanceBasePrompt, extra ? extra : null]
+                .filter((value): value is string => typeof value === 'string' && value.length > 0)
+                .join('\n\n');
 
             const result = await requestGeneratedScreenshot({
                 providerId: iconProviderId,
@@ -3011,6 +3100,9 @@ export const useGeneratedAssets = ({
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
         handleDeleteGeneratedAsset,
+        getIconSystemPrompt,
+        setIconSystemPromptOverride,
+        resetIconSystemPromptOverride,
         getSystemPromptForSlot,
         setSystemPromptOverride,
         resetSystemPromptOverride,

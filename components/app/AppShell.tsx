@@ -19,6 +19,7 @@ import { useWorkspaceCollaboration } from '../../hooks/use-workspace-collaborati
 import { useBrands } from '../../hooks/use-brands';
 import { useApps } from '../../hooks/use-apps';
 import { useAppstoreAccounts } from '../../hooks/use-appstore-accounts';
+import { useAppIdeas } from '../../hooks/use-app-ideas';
 import { useBrandReferences } from '../../hooks/use-brand-references';
 import { useAppScreenshots } from '../../hooks/use-app-screenshots';
 import { useGeneratedAssets } from '../../hooks/use-generated-assets';
@@ -261,7 +262,20 @@ export function AppShell({ session }: AppShellProps) {
         if (!selectedApp) return null;
         return appstoreAccounts.find((a) => a.app_id === selectedApp.id) || null;
     }, [appstoreAccounts, selectedApp]);
-    const [ideaMode, setIdeaMode] = useState<'autonmode'>('autonmode');
+
+    const {
+        categories: appIdeaCategories,
+        ideas: appIdeas,
+        loading: appIdeasLoading,
+        error: appIdeasError,
+        refresh: refreshAppIdeas,
+        createIdea: createAppIdea,
+        updateIdea: updateAppIdea,
+        deleteIdea: deleteAppIdea,
+    } = useAppIdeas({
+        session,
+        onDataError: setDataError,
+    });
 
     const brandAppSummaryByBrandId = useMemo(() => {
         const byBrand: Record<
@@ -523,6 +537,9 @@ export function AppShell({ session }: AppShellProps) {
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
         handleDeleteGeneratedAsset,
+        getIconSystemPrompt,
+        setIconSystemPromptOverride,
+        resetIconSystemPromptOverride,
         getSystemPromptForSlot,
         setSystemPromptOverride,
         resetSystemPromptOverride,
@@ -864,6 +881,7 @@ export function AppShell({ session }: AppShellProps) {
         refreshBrands();
         refreshApps();
         refreshAppstoreAccounts();
+        refreshAppIdeas();
         refreshBrandReferences();
         refreshAppScreenshots();
         refreshGeneratedAssets();
@@ -1227,6 +1245,9 @@ export function AppShell({ session }: AppShellProps) {
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
         handleDeleteGeneratedAsset,
+        getIconSystemPrompt,
+        setIconSystemPromptOverride,
+        resetIconSystemPromptOverride,
         getSystemPromptForSlot,
         setSystemPromptOverride,
         resetSystemPromptOverride,
@@ -1767,8 +1788,9 @@ export function AppShell({ session }: AppShellProps) {
                                                                 <ConnectorClientSpecPanel
                                                                     connectorForm={connectorForm}
                                                                     isEnabled={connectorEnabled}
-                                                                    ideaMode={ideaMode}
-                                                                    setIdeaMode={setIdeaMode}
+                                                                    ideas={appIdeas}
+                                                                    ideaCategories={appIdeaCategories}
+                                                                    onOpenIdeas={openIdeas}
                                                                     text={text}
                                                                 />
                                                             </StepBlock>
@@ -1889,7 +1911,18 @@ export function AppShell({ session }: AppShellProps) {
                                     text={text}
                                 />
                             ) : activePage === 'ideas' ? (
-                                <IdeasPage text={text} />
+                                <IdeasPage
+                                    ideas={appIdeas}
+                                    categories={appIdeaCategories}
+                                    loading={appIdeasLoading}
+                                    error={appIdeasError}
+                                    refresh={refreshAppIdeas}
+                                    createIdea={createAppIdea}
+                                    updateIdea={updateAppIdea}
+                                    deleteIdea={deleteAppIdea}
+                                    reportError={reportActionError}
+                                    text={text}
+                                />
                             ) : null}
                         </div>
                     </div>

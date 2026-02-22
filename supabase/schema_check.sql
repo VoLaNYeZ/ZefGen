@@ -10,10 +10,13 @@ select 'pgcrypto' as extension, exists(
 select 'brands' as table, to_regclass('public.brands') is not null as exists
 union all select 'apps', to_regclass('public.apps') is not null
 union all select 'appstore_accounts', to_regclass('public.appstore_accounts') is not null
+union all select 'app_idea_categories', to_regclass('public.app_idea_categories') is not null
+union all select 'app_ideas', to_regclass('public.app_ideas') is not null
 union all select 'brand_references', to_regclass('public.brand_references') is not null
 union all select 'app_screenshot_prompts', to_regclass('public.app_screenshot_prompts') is not null
 union all select 'app_screenshots', to_regclass('public.app_screenshots') is not null
 union all select 'app_generated_assets', to_regclass('public.app_generated_assets') is not null
+union all select 'connector_app_configs', to_regclass('public.connector_app_configs') is not null
 union all select 'connector_legal_links', to_regclass('public.connector_legal_links') is not null;
 
 -- 3) Required columns (sample critical columns)
@@ -41,6 +44,14 @@ union all select 'appstore_accounts.notes', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'appstore_accounts' and column_name = 'notes'
 )
+union all select 'app_idea_categories.name', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'app_idea_categories' and column_name = 'name'
+)
+union all select 'app_ideas.category_id', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'app_ideas' and column_name = 'category_id'
+)
 union all select 'brand_references.kind', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'brand_references' and column_name = 'kind'
@@ -56,6 +67,10 @@ union all select 'app_generated_assets.edit_state', exists(
 union all select 'connector_legal_links.fingerprint', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'connector_legal_links' and column_name = 'fingerprint'
+)
+union all select 'connector_app_configs.idea_id', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'connector_app_configs' and column_name = 'idea_id'
 );
 
 -- 4) Index existence
@@ -67,6 +82,9 @@ union all select 'apps_brand_id_idx', to_regclass('public.apps_brand_id_idx') is
 union all select 'appstore_accounts_user_id_idx', to_regclass('public.appstore_accounts_user_id_idx') is not null
 union all select 'appstore_accounts_user_geo_idx', to_regclass('public.appstore_accounts_user_geo_idx') is not null
 union all select 'appstore_accounts_app_id_unique', to_regclass('public.appstore_accounts_app_id_unique') is not null
+union all select 'app_ideas_user_id_idx', to_regclass('public.app_ideas_user_id_idx') is not null
+union all select 'app_ideas_user_category_idx', to_regclass('public.app_ideas_user_category_idx') is not null
+union all select 'app_ideas_user_created_idx', to_regclass('public.app_ideas_user_created_idx') is not null
 union all select 'brand_references_user_id_idx', to_regclass('public.brand_references_user_id_idx') is not null
 union all select 'brand_references_brand_id_idx', to_regclass('public.brand_references_brand_id_idx') is not null
 union all select 'brand_references_one_icon_per_brand', to_regclass('public.brand_references_one_icon_per_brand') is not null
@@ -81,6 +99,7 @@ union all select 'app_generated_assets_user_id_idx', to_regclass('public.app_gen
 union all select 'app_generated_assets_brand_id_idx', to_regclass('public.app_generated_assets_brand_id_idx') is not null
 union all select 'app_generated_assets_app_id_idx', to_regclass('public.app_generated_assets_app_id_idx') is not null
 union all select 'app_generated_assets_slot_idx', to_regclass('public.app_generated_assets_slot_idx') is not null
+union all select 'connector_app_configs_idea_id_idx', to_regclass('public.connector_app_configs_idea_id_idx') is not null
 union all select 'connector_legal_links_user_app_created_idx', to_regclass('public.connector_legal_links_user_app_created_idx') is not null
 union all select 'connector_legal_links_app_fingerprint_created_idx', to_regclass('public.connector_legal_links_app_fingerprint_created_idx') is not null;
 
@@ -97,6 +116,14 @@ select 'appstore_accounts', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relname = 'appstore_accounts'
 union all
+select 'app_idea_categories', c.relrowsecurity
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'app_idea_categories'
+union all
+select 'app_ideas', c.relrowsecurity
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'app_ideas'
+union all
 select 'brand_references', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relname = 'brand_references'
@@ -112,6 +139,10 @@ union all
 select 'app_generated_assets', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relname = 'app_generated_assets'
+union all
+select 'connector_app_configs', c.relrowsecurity
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'connector_app_configs'
 union all
 select 'connector_legal_links', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -165,6 +196,26 @@ union all select 'appstore_accounts_update_own', exists(
 union all select 'appstore_accounts_delete_own', exists(
     select 1 from pg_policies
     where schemaname = 'public' and tablename = 'appstore_accounts' and policyname = 'appstore_accounts_delete_own'
+)
+union all select 'app_idea_categories_select_authenticated', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_idea_categories' and policyname = 'app_idea_categories_select_authenticated'
+)
+union all select 'app_ideas_select_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_ideas' and policyname = 'app_ideas_select_own'
+)
+union all select 'app_ideas_insert_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_ideas' and policyname = 'app_ideas_insert_own'
+)
+union all select 'app_ideas_update_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_ideas' and policyname = 'app_ideas_update_own'
+)
+union all select 'app_ideas_delete_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_ideas' and policyname = 'app_ideas_delete_own'
 )
 union all select 'appstore_accounts_used_before_blocks', exists(
     select 1 from pg_constraint

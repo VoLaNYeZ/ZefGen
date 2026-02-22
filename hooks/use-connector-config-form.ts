@@ -78,10 +78,12 @@ export const useConnectorConfigForm = (payload: {
     const [error, setError] = React.useState<string | null>(null);
 
     const [projectBrief, setProjectBrief] = React.useState('');
+    const [ideaId, setIdeaId] = React.useState<string | null>(null);
     const [variables, setVariables] = React.useState<Record<string, any>>({});
     const [secretMetas, setSecretMetas] = React.useState<any[]>([]);
     const autosaveTimerRef = React.useRef<number | null>(null);
     const lastSavedVariablesHashRef = React.useRef<string>('');
+    const lastSavedProjectBriefRef = React.useRef<string>('');
     const autosaveFailureCountRef = React.useRef(0);
     const autosaveBlockedUntilRef = React.useRef(0);
     const pendingLegalLinksConfirmRef = React.useRef<{ appId: string; jobId: string } | null>(null);
@@ -144,9 +146,11 @@ export const useConnectorConfigForm = (payload: {
         setGenerateLinksBusy(false);
         setError(null);
         setProjectBrief('');
+        setIdeaId(null);
         setVariables({});
         setSecretMetas([]);
         lastSavedVariablesHashRef.current = hashVariables({});
+        lastSavedProjectBriefRef.current = '';
     }, [clearAutosaveTimer, resetAutosaveBackoff, selectedApp?.id, session?.user?.id]);
 
     const refresh = React.useCallback(async () => {
@@ -161,7 +165,10 @@ export const useConnectorConfigForm = (payload: {
             if (!isCurrentRequestContext(requestContext)) return;
 
             if (cfg.data) {
-                setProjectBrief(String((cfg.data as any).project_brief || ''));
+                const normalizedBrief = String((cfg.data as any).project_brief || '');
+                setProjectBrief(normalizedBrief);
+                lastSavedProjectBriefRef.current = normalizedBrief;
+                setIdeaId(String((cfg.data as any).idea_id || '').trim() || null);
                 const normalizedVars = normalizeVariables((cfg.data as any).variables || {});
                 setVariables(normalizedVars);
                 lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
@@ -174,6 +181,7 @@ export const useConnectorConfigForm = (payload: {
                     patch: {
                         project_kind: 'ios',
                         project_brief: '',
+                        idea_id: null,
                         variables: {
                             privacy_policy_url: 'https://google.com',
                             terms_of_use_url: 'https://google.com',
@@ -184,7 +192,10 @@ export const useConnectorConfigForm = (payload: {
                 });
                 if (created.error) throw created.error;
                 if (!isCurrentRequestContext(requestContext)) return;
-                setProjectBrief(String((created.data as any)?.project_brief || ''));
+                const normalizedBrief = String((created.data as any)?.project_brief || '');
+                setProjectBrief(normalizedBrief);
+                lastSavedProjectBriefRef.current = normalizedBrief;
+                setIdeaId(String((created.data as any)?.idea_id || '').trim() || null);
                 const normalizedVars = normalizeVariables((created.data as any)?.variables || {});
                 setVariables(normalizedVars);
                 lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
@@ -219,7 +230,10 @@ export const useConnectorConfigForm = (payload: {
     }, [refresh]);
 
     const savePatch = React.useCallback(
-        async (patch: { project_brief?: string; variables?: Record<string, any> }, options?: SavePatchOptions) => {
+        async (
+            patch: { project_brief?: string; idea_id?: string | null; variables?: Record<string, any> },
+            options?: SavePatchOptions
+        ) => {
             if (!session || !selectedApp) return false;
             const source = options?.source || 'manual';
             const shouldReport = options?.reportError !== false;
@@ -233,6 +247,12 @@ export const useConnectorConfigForm = (payload: {
 
             try {
                 const patchVariables = patch.variables ? normalizeVariables(patch.variables) : undefined;
+                const patchProjectBrief = Object.prototype.hasOwnProperty.call(patch, 'project_brief')
+                    ? String(patch.project_brief ?? '')
+                    : undefined;
+                const patchIdeaId = Object.prototype.hasOwnProperty.call(patch, 'idea_id')
+                    ? (String(patch.idea_id || '').trim() || null)
+                    : undefined;
                 const resp = await upsertConnectorAppConfig({
                     userId: session.user.id,
                     appId: selectedApp.id,
@@ -240,6 +260,8 @@ export const useConnectorConfigForm = (payload: {
                         // UI invariant: always iOS for now.
                         project_kind: 'ios',
                         ...patch,
+                        ...(patchIdeaId !== undefined ? { idea_id: patchIdeaId } : {}),
+                        ...(typeof patchProjectBrief === 'string' ? { project_brief: patchProjectBrief } : {}),
                         ...(patchVariables ? { variables: patchVariables } : {}),
                     } as any,
                 });
@@ -249,7 +271,16 @@ export const useConnectorConfigForm = (payload: {
                 // Keep local state in sync with the canonical row.
                 if (resp.data) {
                     if (typeof (resp.data as any).project_brief === 'string') {
-                        setProjectBrief(String((resp.data as any).project_brief || ''));
+                        const normalizedBrief = String((resp.data as any).project_brief || '');
+                        setProjectBrief(normalizedBrief);
+                        lastSavedProjectBriefRef.current = normalizedBrief;
+                    } else if (typeof patchProjectBrief === 'string') {
+                        lastSavedProjectBriefRef.current = patchProjectBrief;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(resp.data as any, 'idea_id')) {
+                        setIdeaId(String((resp.data as any).idea_id || '').trim() || null);
+                    } else if (patchIdeaId !== undefined) {
+                        setIdeaId(patchIdeaId);
                     }
                     if ((resp.data as any).variables) {
                         const normalizedVars = normalizeVariables((resp.data as any).variables || {});
@@ -258,8 +289,16 @@ export const useConnectorConfigForm = (payload: {
                     } else if (patchVariables) {
                         lastSavedVariablesHashRef.current = hashVariables(patchVariables);
                     }
-                } else if (patchVariables) {
-                    lastSavedVariablesHashRef.current = hashVariables(patchVariables);
+                } else {
+                    if (typeof patchProjectBrief === 'string') {
+                        lastSavedProjectBriefRef.current = patchProjectBrief;
+                    }
+                    if (patchIdeaId !== undefined) {
+                        setIdeaId(patchIdeaId);
+                    }
+                    if (patchVariables) {
+                        lastSavedVariablesHashRef.current = hashVariables(patchVariables);
+                    }
                 }
 
                 resetAutosaveBackoff();
@@ -303,7 +342,10 @@ export const useConnectorConfigForm = (payload: {
 
         const normalizedVars = normalizeVariables(variables);
         const currentHash = hashVariables(normalizedVars);
-        if (currentHash === lastSavedVariablesHashRef.current) return;
+        const currentProjectBrief = String(projectBrief || '');
+        const variablesChanged = currentHash !== lastSavedVariablesHashRef.current;
+        const projectBriefChanged = currentProjectBrief !== lastSavedProjectBriefRef.current;
+        if (!variablesChanged && !projectBriefChanged) return;
 
         clearAutosaveTimer();
 
@@ -311,8 +353,11 @@ export const useConnectorConfigForm = (payload: {
         const blockedMs = Math.max(0, autosaveBlockedUntilRef.current - now);
         const delayMs = Math.max(AUTOSAVE_BASE_DELAY_MS, blockedMs);
         autosaveTimerRef.current = window.setTimeout(() => {
+            const autosavePatch: { project_brief?: string; variables?: Record<string, any> } = {};
+            if (variablesChanged) autosavePatch.variables = normalizedVars;
+            if (projectBriefChanged) autosavePatch.project_brief = currentProjectBrief;
             void savePatch(
-                { variables: normalizedVars },
+                autosavePatch,
                 {
                     source: 'autosave',
                 }
@@ -331,6 +376,7 @@ export const useConnectorConfigForm = (payload: {
         secretBusy,
         selectedApp?.id,
         session?.user?.id,
+        projectBrief,
         variables,
     ]);
 
@@ -642,6 +688,8 @@ export const useConnectorConfigForm = (payload: {
         error,
         projectBrief,
         setProjectBrief,
+        ideaId,
+        setIdeaId,
         variables,
         setVariables,
         setVariable,

@@ -7,6 +7,7 @@ export type ConnectorAppConfig = {
     user_id: string;
     project_kind: ConnectorProjectKind;
     project_brief: string;
+    idea_id: string | null;
     variables: Record<string, any>;
     verify_command: string | null;
     updated_at?: string;
@@ -41,4 +42,3 @@ export const upsertConnectorAppConfig = async (payload: {
         .select()
         .single();
 };
-
