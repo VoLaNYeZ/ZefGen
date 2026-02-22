@@ -156,6 +156,23 @@ export type AppstoreAccount = {
     created_at?: string;
 };
 
+export type AppIdeaCategory = {
+    id: string;
+    slug: string;
+    name: string;
+    order_index: number;
+    created_at?: string;
+};
+
+export type AppIdea = {
+    id: string;
+    user_id?: string;
+    category_id: string;
+    description: string;
+    updated_at?: string;
+    created_at?: string;
+};
+
 export type BrandFormState = {
     name: string;
 };

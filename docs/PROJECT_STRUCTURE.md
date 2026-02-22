@@ -6,6 +6,7 @@ Screenshot sets + export picks/completion state are stored in Supabase (`app_scr
 Brand release planning metadata is stored in Supabase on `brands` (`target_countries`, `keywords`, `release_strategy_notes`, `release_strategy_updated_at`).
 Brand ordering is stored in Supabase on `brands.order_index` (drag-and-drop reorder in Sidebar edit mode).
 Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/accounts` screen (pooled rows, optional 1-per-app assignment).
+Ideas are stored in Supabase (`app_ideas`) with fixed categories in `app_idea_categories`; selected idea per app is persisted on `connector_app_configs.idea_id`.
 Canonical App Store links are stored on `apps.appstore_url` and edited from the workspace App Store row.
 Workspace collaboration presence + brand locks are stored in Supabase (`workspace_sessions`) and mediated via `/api/workspace-sessions`.
 
@@ -56,10 +57,10 @@ Workspace collaboration presence + brand locks are stored in Supabase (`workspac
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
 - `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries).
-- `components/app/ConnectorClientSpecPanel.tsx` - Idea picker placeholder + client spec editor (Step 2).
+- `components/app/ConnectorClientSpecPanel.tsx` - Step 2 idea picker (category + idea dropdowns) + client spec editor.
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
-- `components/app/IdeasPage.tsx` - Ideas stub screen (`/ideas`) (coming soon).
+- `components/app/IdeasPage.tsx` - Ideas pool UI (`/ideas`): category + description rows with per-row save/delete.
 - `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5).
 - `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6).
 - `components/app/AutoReleaseModulePanel.tsx` - Auto-release / Fastlane placeholder (Step 7).
@@ -115,7 +116,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-generated-assets.ts` - Generation actions, downloads, and edit state.
 - `hooks/use-generation-jobs.ts` - In-memory job tracking for long-running operations (generation, ZIP).
 - `hooks/use-app-screenshot-prompts.ts` - Screenshot prompt persistence in Supabase.
-- `hooks/use-connector-config-form.ts` - Loads/saves Connector app config + secret metadata (used by the Step 2/3 panels).
+- `hooks/use-connector-config-form.ts` - Loads/saves Connector app config (+ selected `idea_id`) and secret metadata (used by Step 2/3 panels).
+- `hooks/use-app-ideas.ts` - Ideas/categories pool list + CRUD for `/ideas`.
 - `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app.
 - `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, and lock conflict state.
@@ -141,6 +143,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/export-status.ts` - Completion status queries and writes (`app_export_status`).
 - `data/app-screenshot-prompts.ts` - Screenshot prompt upserts/deletes.
 - `data/connector-app-config.ts` - Connector non-secret app config (`connector_app_configs`).
+- `data/app-ideas.ts` - Ideas/categories CRUD (`app_ideas`, `app_idea_categories`).
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
 - `data/connector-legal-links.ts` - Legal links precheck/fingerprint + Edge Function invoke (`generate-legal-links`).
 - `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.

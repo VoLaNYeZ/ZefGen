@@ -160,7 +160,7 @@ export function ConnectorRunnerPanel(props: {
             if (ev.level === 'success') lines.push({ level: 'success', text: `OK: ${ev.text}` });
             else if (ev.level === 'error') lines.push({ level: 'error', text: `ERR: ${ev.text}` });
             else if (ev.level === 'warn') lines.push({ level: 'warn', text: `WARN: ${ev.text}` });
-            else lines.push({ level: 'info', text: `... ${ev.text}` });
+            else lines.push({ level: 'info', text: ev.text });
         }
 
         if (runnerState.pushedUrl && !lines.some((l) => l.text.includes(runnerState.pushedUrl || ''))) {
