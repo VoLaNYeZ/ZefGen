@@ -494,6 +494,7 @@ export function AppShell({ session }: AppShellProps) {
         enhancedIconSlots,
         generatedScreenshotSlots,
         enhancedScreenshotSlots,
+        iconUploading,
         iconGenerating,
         iconSlotGenerating,
         enhanceIconSlotGenerating,
@@ -529,6 +530,7 @@ export function AppShell({ session }: AppShellProps) {
         addLayer,
         removeLayer,
         handleSaveEdit,
+        handleUploadCustomIconFiles,
         handleGenerateIcon,
         handleEnhanceIconSlot,
         handleGenerateSlot,
@@ -1094,6 +1096,7 @@ export function AppShell({ session }: AppShellProps) {
     const isTabMotionDisabled = isAppReorderMode || isAppPillPanning || Boolean(draggingAppId);
     const isBusyForUnload =
         hasRunningJobs ||
+        iconUploading ||
         iconGenerating ||
         screenshotsGenerating ||
         slotGenerating !== null ||
@@ -1199,6 +1202,7 @@ export function AppShell({ session }: AppShellProps) {
         setGenerationCount,
         generationSize,
         setGenerationSize,
+        iconUploading,
         iconGenerating,
         iconSlotGenerating,
         enhanceIconSlotGenerating,
@@ -1237,6 +1241,7 @@ export function AppShell({ session }: AppShellProps) {
         addLayer,
         removeLayer,
         handleSaveEdit,
+        handleUploadCustomIconFiles,
         handleGenerateIcon,
         handleEnhanceIconSlot,
         handleGenerateAllScreenshots,
