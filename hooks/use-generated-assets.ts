@@ -26,6 +26,8 @@ import { createId } from '../utils/id';
 import {
     base64ToBlob,
     createPreviewJpeg,
+    isFileTooLarge,
+    isValidImageType,
     renderBlobToJpeg,
     renderBlobToJpegAutoFit,
     renderImageUrlWithLayersToJpeg,
@@ -123,6 +125,7 @@ export const useGeneratedAssets = ({
     const [inflightScreenshotPreviewByKey, setInflightScreenshotPreviewByKey] = useState<Record<string, string>>({});
 
     const [iconGenerating, setIconGenerating] = useState(false);
+    const [iconUploading, setIconUploading] = useState(false);
     const [iconSlotGenerating, setIconSlotGenerating] = useState<number | null>(null);
     const [enhanceIconSlotGenerating, setEnhanceIconSlotGenerating] = useState<number | null>(null);
     const [screenshotsGenerating, setScreenshotsGenerating] = useState(false);
@@ -1813,6 +1816,92 @@ export const useGeneratedAssets = ({
         }
     };
 
+    const getMaxIconSlotIndex = useCallback(() => {
+        const iconLike = selectedGeneratedAssets.filter(
+            (asset) =>
+                (asset.kind === 'icon' || asset.kind === 'icon_enhanced') &&
+                asset.slot_index !== null
+        );
+        if (!iconLike.length) return 0;
+        return Math.max(...iconLike.map((asset) => asset.slot_index ?? 0));
+    }, [selectedGeneratedAssets]);
+
+    const handleUploadCustomIconFiles = useCallback(
+        async (files: File[]) => {
+            if (!session || !selectedBrand || !selectedApp) return;
+            if (!files.length) return;
+
+            const ordered = [...files].sort((a, b) =>
+                a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+            );
+
+            setIconUploading(true);
+            let nextSlotIndex = getMaxIconSlotIndex() + 1;
+
+            try {
+                for (const file of ordered) {
+                    if (!isValidImageType(file)) {
+                        reportError(text('invalid_file_type'));
+                        continue;
+                    }
+                    if (isFileTooLarge(file)) {
+                        reportError(text('file_too_large'));
+                        continue;
+                    }
+
+                    try {
+                        const jpgFile = await renderBlobToJpeg(file, 1024, 1024, 'contain');
+                        const version = 1;
+                        const path = `${session.user.id}/apps/${selectedApp.id}/generated/icons/slot-${nextSlotIndex}/v${version}-${createId()}.jpg`;
+
+                        const { error: uploadError } = await uploadGeneratedAsset({
+                            path,
+                            file: jpgFile,
+                            contentType: 'image/jpeg',
+                        });
+                        if (uploadError) throw uploadError;
+
+                        const previewPath = path.replace(/\.jpg$/i, '-preview.jpg');
+                        try {
+                            const previewFile = await createPreviewJpeg(jpgFile, 256, 0.82);
+                            const { error: previewUploadError } = await uploadGeneratedAsset({
+                                path: previewPath,
+                                file: previewFile,
+                                contentType: 'image/jpeg',
+                            });
+                            if (previewUploadError) throw previewUploadError;
+                        } catch (error: any) {
+                            reportError(error?.message ? `Preview upload failed: ${error.message}` : 'Preview upload failed.');
+                        }
+
+                        const { data, error } = await createGeneratedAsset({
+                            app_id: selectedApp.id,
+                            brand_id: selectedBrand.id,
+                            user_id: session.user.id,
+                            kind: 'icon',
+                            slot_index: nextSlotIndex,
+                            version_index: version,
+                            image_path: path,
+                            size_label: '1024',
+                            width: 1024,
+                            height: 1024,
+                            status: 'ready',
+                            edit_state: null,
+                        });
+                        if (error) throw error;
+                        if (data) setGeneratedAssets((prev) => [...prev, data]);
+                        nextSlotIndex += 1;
+                    } catch (error: any) {
+                        reportError(error?.message || text('upload_failed'));
+                    }
+                }
+            } finally {
+                setIconUploading(false);
+            }
+        },
+        [session, selectedBrand, selectedApp, getMaxIconSlotIndex, reportError, text]
+    );
+
     const handleGenerateIcon = async () => {
         if (!session || !selectedBrand || !selectedApp) return;
         if (!brandIconReference) {
@@ -3057,6 +3146,7 @@ export const useGeneratedAssets = ({
         enhancedIconSlots,
         generatedScreenshotSlots,
         enhancedScreenshotSlots,
+        iconUploading,
         iconGenerating,
         iconSlotGenerating,
         enhanceIconSlotGenerating,
@@ -3092,6 +3182,7 @@ export const useGeneratedAssets = ({
         addLayer,
         removeLayer,
         handleSaveEdit,
+        handleUploadCustomIconFiles,
         handleGenerateIcon,
         handleEnhanceIconSlot,
         handleGenerateSlot,
