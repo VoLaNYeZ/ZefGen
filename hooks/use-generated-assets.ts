@@ -60,6 +60,16 @@ type IconKind = 'icon' | 'icon_enhanced';
 type SystemPromptMode = 'generate' | 'enhance';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 
+const compareAssetsByVersion = (a: GeneratedAsset, b: GeneratedAsset) => {
+    const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
+    if (versionDiff !== 0) return versionDiff;
+
+    const timeDiff = new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    if (timeDiff !== 0) return timeDiff;
+
+    return String(a.id).localeCompare(String(b.id));
+};
+
 type Params = {
     session: Session | null;
     selectedBrand: Brand | null;
@@ -447,7 +457,7 @@ export const useGeneratedAssets = ({
         return Array.from(slotMap.entries())
             .map(([slotIndex, versions]) => ({
                 slotIndex,
-                versions: versions.sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1)),
+                versions: versions.sort(compareAssetsByVersion),
             }))
             .sort((a, b) => b.slotIndex - a.slotIndex);
     }, [selectedGeneratedAssets]);
@@ -671,7 +681,7 @@ export const useGeneratedAssets = ({
         return Array.from(slotMap.entries())
             .map(([slotIndex, versions]) => ({
                 slotIndex,
-                versions: versions.sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1)),
+                versions: versions.sort(compareAssetsByVersion),
             }))
             .sort((a, b) => b.slotIndex - a.slotIndex);
     }, [selectedGeneratedAssets]);
@@ -704,7 +714,7 @@ export const useGeneratedAssets = ({
         return Array.from(slotMap.entries())
             .map(([slotIndex, versions]) => ({
                 slotIndex,
-                versions: versions.sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1)),
+                versions: versions.sort(compareAssetsByVersion),
             }))
             .sort((a, b) => a.slotIndex - b.slotIndex);
     }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text]);
@@ -737,7 +747,7 @@ export const useGeneratedAssets = ({
         return Array.from(slotMap.entries())
             .map(([slotIndex, versions]) => ({
                 slotIndex,
-                versions: versions.sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1)),
+                versions: versions.sort(compareAssetsByVersion),
             }))
             .sort((a, b) => a.slotIndex - b.slotIndex);
     }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text]);
@@ -882,10 +892,14 @@ export const useGeneratedAssets = ({
             // We already send width/height as parameters to the generation endpoint.
             const common = [
                 `Goal: an iOS App Store screenshot ready to upload to App Store Connect.`,
-                `Image 1 is the layout source of truth: preserve the UI exactly (same scale, positions, spacing, and readability).`,
-                `If the iOS status bar exists in image 1, keep it exactly as-is (do not remove or rewrite).`,
-                `Image 2 is style only: use it for colors/lighting/background mood, but do not change the UI geometry from image 1.`,
-                `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the UI upward to fill it.`,
+                `Image 1 is the composition source of truth: preserve its framing, crop, perspective, and overall scene ratio.`,
+                `Image 2 is the app-content source of truth: preserve the app UI from image 2 (same on-screen structure, readability, and key details).`,
+                `Absolute priority: keep the SAME app from image 2. Do not redesign it, do not replace screens, and do not swap it to a different app concept.`,
+                `Never copy UI, text, icons, navigation, or screen content from image 1.`,
+                `If image 1 conflicts with image 2, image 2 wins for all app interface elements.`,
+                `If the iOS status bar exists in image 2, keep it exactly as-is (do not remove or rewrite).`,
+                `Blend image 2 UI naturally into image 1 composition (for example: inside the phone/mockup/surface defined by image 1).`,
+                `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the main composition upward to fill it.`,
                 `No device frames/mockups/hands/bezels/floating phones.`,
                 `No added text anywhere: no headlines, captions, badges, stickers, labels, logos, watermarks, or any extra UI.`,
                 `Never print any resolution/metadata text anywhere.`,
@@ -900,9 +914,13 @@ export const useGeneratedAssets = ({
             // enhance
             return [
                 `Goal: enhance image 1 into an iOS App Store screenshot ready to upload.`,
-                `Preserve image 1 layout exactly: same UI scale, same composition, same spacing, same content.`,
-                `If the iOS status bar exists in image 1, keep it exactly as-is.`,
-                `Image 2 is style only: colors/lighting/background mood; do not change UI geometry.`,
+                `Image 1 defines composition and scene framing; preserve its crop/perspective.`,
+                `Image 2 defines app UI content; preserve UI structure/readability and key on-screen details.`,
+                `Absolute priority: keep the SAME app from image 2. Do not redesign it, do not replace screens, and do not swap it to a different app concept.`,
+                `Never copy UI, text, icons, navigation, or screen content from image 1.`,
+                `If image 1 conflicts with image 2, image 2 wins for all app interface elements.`,
+                `If the iOS status bar exists in image 2, keep it exactly as-is.`,
+                `Blend image 2 content into image 1 composition without adding unrelated elements.`,
                 `Keep the top header band empty (do not move/enlarge the UI upward).`,
                 `No added text, logos, or watermarks. Never print resolution/metadata text.`,
                 `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
@@ -1284,7 +1302,13 @@ export const useGeneratedAssets = ({
         return versions.reduce((prev, current) => {
             const prevIndex = prev.version_index ?? 1;
             const currentIndex = current.version_index ?? 1;
-            return currentIndex > prevIndex ? current : prev;
+            if (currentIndex !== prevIndex) return currentIndex > prevIndex ? current : prev;
+
+            const prevTime = new Date(prev.created_at || 0).getTime();
+            const currentTime = new Date(current.created_at || 0).getTime();
+            if (currentTime !== prevTime) return currentTime > prevTime ? current : prev;
+
+            return String(current.id) > String(prev.id) ? current : prev;
         }, versions[0]);
     };
 
@@ -1318,7 +1342,7 @@ export const useGeneratedAssets = ({
             for (const [slot, versions] of map.entries()) {
                 map.set(
                     slot,
-                    [...versions].sort((a, b) => (a.version_index ?? 1) - (b.version_index ?? 1))
+                    [...versions].sort(compareAssetsByVersion)
                 );
             }
             return map;
@@ -2335,7 +2359,7 @@ export const useGeneratedAssets = ({
             (await getSignedUrl(APP_SCREENSHOT_BUCKET, sourceShot.image_path));
 
         const noReferenceClause =
-            `No style reference is provided. Ignore image 2 and invent the background/style per the prompt while preserving image 1 layout.`;
+            `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
 
         let brandRefImageUrl = simulatorImageUrl;
         let userPrompt = '';
@@ -2374,8 +2398,10 @@ export const useGeneratedAssets = ({
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
             .join('\n\n');
 
-        const image1 = simulatorImageUrl;
-        const image2 = brandRefImageUrl;
+        // For screenshot generation, reference should drive composition/ratio (image 1),
+        // while simulator should drive app UI content (image 2).
+        const image1 = brandRefId ? brandRefImageUrl : simulatorImageUrl;
+        const image2 = brandRefId ? simulatorImageUrl : brandRefImageUrl;
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
@@ -2518,7 +2544,7 @@ export const useGeneratedAssets = ({
         const baseImageUrl = await resolveGeneratedUrl(baseAsset);
 
         const noReferenceClause =
-            `No style reference is provided. Ignore image 2 and invent the background/style per the prompt while preserving image 1 layout.`;
+            `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
 
         let brandRefImageUrl = baseImageUrl;
         if (brandRefId) {
@@ -2541,11 +2567,16 @@ export const useGeneratedAssets = ({
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
             .join('\n\n');
 
+        // For screenshot enhance, keep the same image contract as generation:
+        // image 1 = composition reference, image 2 = app UI source.
+        const image1 = brandRefId ? brandRefImageUrl : baseImageUrl;
+        const image2 = brandRefId ? baseImageUrl : brandRefImageUrl;
+
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
             prompt,
-            simulatorImageUrl: baseImageUrl,
-            brandRefImageUrl,
+            simulatorImageUrl: image1,
+            brandRefImageUrl: image2,
             width: size.width,
             height: size.height,
             signal: ctx?.signal,
