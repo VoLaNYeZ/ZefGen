@@ -1,6 +1,6 @@
 export const MAX_FILE_MB = 10;
 export const MAX_SCREENSHOT_REFS = 6;
-export const MAX_SCREENSHOT_VERSIONS = 3;
+export const MAX_SCREENSHOT_VERSIONS = 8;
 export const MAX_ACTIVE_APPS = 7;
 export const AUTO_GROW_MULTIPLIER = 5;
 export const BRAND_BUCKET = 'brand-references';

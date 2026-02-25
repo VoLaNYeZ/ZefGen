@@ -11,6 +11,7 @@ import type {
     ScreenshotProviderId,
     TextLayer,
 } from '../../types/zefgen';
+import { MAX_SCREENSHOT_VERSIONS } from '../../constants/zefgen';
 import { TranslationKey } from '../../i18n';
 import { EditPanel } from './EditPanel';
 import { TextLayersCanvasOverlay } from './TextLayersCanvasOverlay';
@@ -468,7 +469,11 @@ export const AppGenerationSection = ({
                             return versions.reduce((prev, current) => {
                                 const prevIndex = prev.version_index ?? 1;
                                 const currentIndex = current.version_index ?? 1;
-                                return currentIndex > prevIndex ? current : prev;
+                                if (currentIndex !== prevIndex) return currentIndex > prevIndex ? current : prev;
+                                const prevTime = new Date(prev.created_at || 0).getTime();
+                                const currentTime = new Date(current.created_at || 0).getTime();
+                                if (currentTime !== prevTime) return currentTime > prevTime ? current : prev;
+                                return String(current.id) > String(prev.id) ? current : prev;
                             }, versions[0]);
                         };
 
@@ -906,14 +911,16 @@ export const AppGenerationSection = ({
                         {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
                             const mapping = getSlotMapping(slotIndex);
                             const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
-                            const atLimit = versions.length >= 3;
+                            const atLimit = versions.length >= MAX_SCREENSHOT_VERSIONS;
                             const promptRefId = mapping.brandRefId;
 
                             return (
                                 <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-2.5 space-y-2">
                                     <div className="flex items-center justify-between">
                                         <p className="text-[11px] font-semibold text-white">{text('slot')} {slotIndex}</p>
-                                        <span className="text-[10px] text-indigo-200/50">{versions.length}/3</span>
+                                        <span className="text-[10px] text-indigo-200/50">
+                                            {versions.length}/{MAX_SCREENSHOT_VERSIONS}
+                                        </span>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-2">
@@ -1095,7 +1102,11 @@ export const AppGenerationSection = ({
                                 return versions.reduce((prev, current) => {
                                     const prevIndex = prev.version_index ?? 1;
                                     const currentIndex = current.version_index ?? 1;
-                                    return currentIndex > prevIndex ? current : prev;
+                                    if (currentIndex !== prevIndex) return currentIndex > prevIndex ? current : prev;
+                                    const prevTime = new Date(prev.created_at || 0).getTime();
+                                    const currentTime = new Date(current.created_at || 0).getTime();
+                                    if (currentTime !== prevTime) return currentTime > prevTime ? current : prev;
+                                    return String(current.id) > String(prev.id) ? current : prev;
                                 }, versions[0]);
                             };
 
@@ -1112,14 +1123,33 @@ export const AppGenerationSection = ({
                             const selectedEnhanced = selectForTab('enhanced');
                             const selectedAsset = primaryTab === 'generated' ? selectedGenerated : selectedEnhanced;
                             const activeVersions = primaryTab === 'generated' ? genVersions : enhVersions;
-                            const activeByVersionIndex = new Map(activeVersions.map((a) => [a.version_index ?? 1, a]));
+                            const orderedActiveVersions = [...activeVersions].sort((a, b) => {
+                                const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
+                                if (versionDiff !== 0) return versionDiff;
+                                const timeDiff =
+                                    new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                                if (timeDiff !== 0) return timeDiff;
+                                return String(a.id).localeCompare(String(b.id));
+                            });
+                            const labelByAssetId = (() => {
+                                const labels = new Map<string, string>();
+                                const duplicateCounter = new Map<number, number>();
+                                for (const asset of orderedActiveVersions) {
+                                    const version = asset.version_index ?? 1;
+                                    const seen = (duplicateCounter.get(version) ?? 0) + 1;
+                                    duplicateCounter.set(version, seen);
+                                    const suffix = seen > 1 ? String.fromCharCode(96 + Math.min(seen, 26)) : '';
+                                    labels.set(asset.id, `v${version}${suffix}`);
+                                }
+                                return labels;
+                            })();
 
                             const headlineText = slotHeadlineBySlotIndex[slotIndex] ?? '';
                             const headlinePos = slotHeadlinePosBySlotIndex[slotIndex] ?? { x: 50, y: 12 };
                             const enhancePrompt = enhancePromptBySlotIndex[slotIndex] ?? '';
 
                             const baseForEnhance = selectedEnhanced ?? selectedGenerated;
-                            const enhancedAtLimit = enhVersions.length >= 3;
+                            const enhancedAtLimit = enhVersions.length >= MAX_SCREENSHOT_VERSIONS;
                             const canEnhance = Boolean(selectedApp && baseForEnhance && !enhancedAtLimit);
                             const isPicked = Boolean(selectedAsset && pickedScreenshotAssetIdBySlotIndex[slotIndex] === selectedAsset.id);
 
@@ -1150,8 +1180,8 @@ export const AppGenerationSection = ({
                                             <p className="ui-btn-fit-ellipsis text-sm font-semibold text-white">{text('slot')} {slotIndex}</p>
                                             <p className="ui-btn-fit-ellipsis text-[11px] text-indigo-200/50">
                                                 {primaryTab === 'generated'
-                                                    ? `${text('tab_generated')} ${genVersions.length}/3`
-                                                    : `${text('tab_enhanced')} ${enhVersions.length}/3`}
+                                                    ? `${text('tab_generated')} ${genVersions.length}/${MAX_SCREENSHOT_VERSIONS}`
+                                                    : `${text('tab_enhanced')} ${enhVersions.length}/${MAX_SCREENSHOT_VERSIONS}`}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
@@ -1181,25 +1211,21 @@ export const AppGenerationSection = ({
                                     </div>
 
                                     <div className="flex items-center gap-1">
-                                        {[1, 2, 3].map((v) => {
-                                            const asset = activeByVersionIndex.get(v) ?? null;
-                                            const isSelected = Boolean(asset && selectedAsset?.id === asset.id);
+                                        {orderedActiveVersions.map((asset) => {
+                                            const isSelected = selectedAsset?.id === asset.id;
                                             const key = `${slotIndex}:${primaryTab}`;
                                             return (
                                                 <button
-                                                    key={v}
+                                                    key={asset.id}
                                                     type="button"
-                                                    disabled={!asset}
-                                                    onClick={() => asset && setSlotSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
+                                                    onClick={() => setSlotSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
                                                     className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                                        !asset
-                                                            ? 'border-white/10 text-indigo-200/30'
-                                                            : isSelected
-                                                                ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
-                                                                : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                        isSelected
+                                                            ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                            : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
                                                     }`}
                                                 >
-                                                    v{v}
+                                                    {labelByAssetId.get(asset.id) ?? `v${asset.version_index ?? 1}`}
                                                 </button>
                                             );
                                         })}
