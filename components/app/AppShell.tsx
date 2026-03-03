@@ -9,6 +9,7 @@ import {
     WORKSPACE_COLLAB_POLL_MS,
     WORKSPACE_COLLAB_TTL_SECONDS,
     WORKSPACE_LOCK_ENFORCEMENT_ENABLED,
+    WORKSPACE_SOFT_LOCK_VIEW_MODE_ENABLED,
 } from '../../constants/zefgen';
 import { syncAutoGrowTextarea } from '../../utils/dom';
 import { useRouteSync } from '../../hooks/use-route-sync';
@@ -25,6 +26,7 @@ import { useAppScreenshots } from '../../hooks/use-app-screenshots';
 import { useGeneratedAssets } from '../../hooks/use-generated-assets';
 import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
 import { signOut } from '../../data/auth';
+import { moveAppToBrand } from '../../data/apps';
 import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../../data/app-indicators';
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
@@ -51,10 +53,12 @@ import { AppStoreLinkRow } from './AppStoreLinkRow';
 import { StepBlock } from './StepBlock';
 import { AccountsPage } from './AccountsPage';
 import { IdeasPage } from './IdeasPage';
-import type { TextLayer } from '../../types/zefgen';
+import type { GeneratedAsset, TextLayer } from '../../types/zefgen';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppPage } from '../../utils/routes';
 import { buildAccountsRoute, buildIdeasRoute, buildRoute, parseRoute } from '../../utils/routes';
+import { makeUniqueAlias, slugify } from '../../utils/slug';
+import { isNoBrand } from '../../utils/no-brand';
 
 type AppShellProps = {
     session: Session;
@@ -87,6 +91,7 @@ export function AppShell({ session }: AppShellProps) {
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
     const [collabWarning, setCollabWarning] = useState<string | null>(null);
+    const [aliasNotice, setAliasNotice] = useState<string | null>(null);
     const [logoVariantIndex, setLogoVariantIndex] = useState(() => {
         const bag = [0, 1, 2, 3, 4, 4, 4, 5]; // Slight bias towards BreathingText.
         return bag[Math.floor(Math.random() * bag.length)] ?? 0;
@@ -97,6 +102,7 @@ export function AppShell({ session }: AppShellProps) {
     const stickyHeaderRef = useRef<HTMLDivElement>(null);
     const deliverablesRailRef = useRef<HTMLDivElement>(null);
     const deliverablesAnchorRef = useRef<HTMLDivElement>(null);
+    const wasCurrentBrandReadOnlyRef = useRef(false);
     const [deliverablesRailStyle, setDeliverablesRailStyle] = useState<{ top: number; left: number; opacity: number }>({
         top: 96,
         left: 16,
@@ -117,6 +123,11 @@ export function AppShell({ session }: AppShellProps) {
     } | null>(null);
     const [appScreenshotSetCountByAppId, setAppScreenshotSetCountByAppId] = useState<Record<string, number>>({});
     const [appCompletedByAppId, setAppCompletedByAppId] = useState<Record<string, boolean>>({});
+    const [heartbeatBrandId, setHeartbeatBrandId] = useState<string | null>(null);
+    const [isClaimingEditLock, setIsClaimingEditLock] = useState(false);
+    const [noBrandIconPromptDraft, setNoBrandIconPromptDraft] = useState('');
+    const [moveTargetBrandId, setMoveTargetBrandId] = useState<string>('');
+    const [moveToBrandLoading, setMoveToBrandLoading] = useState(false);
 
     const reportActionError = useCallback((message: string) => {
         setActionError(message);
@@ -132,12 +143,23 @@ export function AppShell({ session }: AppShellProps) {
         }, 6000);
     }, []);
 
+    const showAliasNotice = useCallback((message: string) => {
+        setAliasNotice(message);
+        setTimeout(() => {
+            setAliasNotice((prev) => (prev === message ? null : prev));
+        }, 6000);
+    }, []);
+
     const reportCollabWarning = useCallback(() => {
         showCollabWarning(text('collab_sync_offline'));
     }, [showCollabWarning, text]);
 
     const reportLockedBrandWarning = useCallback(() => {
-        showCollabWarning(text('brand_locked_open_blocked'));
+        showCollabWarning(text('brand_under_work_readonly'));
+    }, [showCollabWarning, text]);
+
+    const reportReadOnlyBlocked = useCallback(() => {
+        showCollabWarning(text('brand_readonly_write_blocked'));
     }, [showCollabWarning, text]);
 
     useEffect(() => {
@@ -176,6 +198,7 @@ export function AppShell({ session }: AppShellProps) {
         () => brands.find((brand) => brand.id === selectedBrandId) || null,
         [brands, selectedBrandId]
     );
+    const isNoBrandMode = isNoBrand(selectedBrand);
 
     const {
         activeSessionCount,
@@ -184,10 +207,12 @@ export function AppShell({ session }: AppShellProps) {
         lockConflictBrandId,
         tryClaimBrand,
         releaseCurrentBrand,
+        refreshSnapshot,
     } = useWorkspaceCollaboration({
         session,
         activePage,
         selectedBrandId,
+        heartbeatBrandId,
         enabled: WORKSPACE_COLLAB_ENABLED,
         pollMs: WORKSPACE_COLLAB_POLL_MS,
         ttlSeconds: WORKSPACE_COLLAB_TTL_SECONDS,
@@ -196,6 +221,17 @@ export function AppShell({ session }: AppShellProps) {
     const sidebarLockedBrandIdSet = useMemo(
         () => (WORKSPACE_LOCK_ENFORCEMENT_ENABLED ? lockedBrandIdSet : new Set<string>()),
         [lockedBrandIdSet]
+    );
+    const softLockViewModeEnabled =
+        WORKSPACE_SOFT_LOCK_VIEW_MODE_ENABLED && WORKSPACE_COLLAB_ENABLED && WORKSPACE_LOCK_ENFORCEMENT_ENABLED;
+    const isCurrentBrandBusyByOtherDevice = Boolean(
+        activePage === 'workspace' && selectedBrandId && sidebarLockedBrandIdSet.has(selectedBrandId)
+    );
+    const isCurrentBrandReadOnly = Boolean(
+        softLockViewModeEnabled &&
+            activePage === 'workspace' &&
+            selectedBrandId &&
+            (isCurrentBrandBusyByOtherDevice || lockConflictBrandId === selectedBrandId)
     );
 
     const {
@@ -238,12 +274,45 @@ export function AppShell({ session }: AppShellProps) {
         setSelectedAppId,
         text,
         onDataError: setDataError,
+        onAliasAutoApplied: ({ from, to }) => {
+            const message = String(text('alias_auto_applied') || '')
+                .replace('{from}', from)
+                .replace('{to}', to);
+            showAliasNotice(message);
+        },
     });
 
     const selectedApp = useMemo(
         () => apps.find((app) => app.id === selectedAppId) || null,
         [apps, selectedAppId]
     );
+    const regularBrands = useMemo(
+        () => brands.filter((brand) => !isNoBrand(brand)),
+        [brands]
+    );
+
+    useEffect(() => {
+        if (!selectedApp || !isNoBrandMode) {
+            setNoBrandIconPromptDraft('');
+            return;
+        }
+        setNoBrandIconPromptDraft(String(selectedApp.icon_prompt || ''));
+    }, [selectedApp?.id, selectedApp?.icon_prompt, isNoBrandMode]);
+
+    useEffect(() => {
+        if (!selectedApp || !isNoBrandMode) {
+            setMoveTargetBrandId('');
+            return;
+        }
+        if (!regularBrands.length) {
+            setMoveTargetBrandId('');
+            return;
+        }
+        setMoveTargetBrandId((prev) => {
+            if (prev && regularBrands.some((brand) => brand.id === prev)) return prev;
+            return regularBrands[0]!.id;
+        });
+    }, [selectedApp?.id, isNoBrandMode, regularBrands]);
 
     const {
         accounts: appstoreAccounts,
@@ -739,6 +808,7 @@ export function AppShell({ session }: AppShellProps) {
         visibleApps,
         isBannedView,
         showBannedToggle,
+        isAppFormOpen: appFormOpen,
     });
 
     useEffect(() => {
@@ -844,7 +914,27 @@ export function AppShell({ session }: AppShellProps) {
     });
 
     useEffect(() => {
+        if (!WORKSPACE_COLLAB_ENABLED) {
+            setHeartbeatBrandId(null);
+            return;
+        }
+        if (activePage !== 'workspace' || !selectedBrandId || isCurrentBrandReadOnly) {
+            setHeartbeatBrandId(null);
+            return;
+        }
+        setHeartbeatBrandId(selectedBrandId);
+    }, [activePage, selectedBrandId, isCurrentBrandReadOnly]);
+
+    useEffect(() => {
+        if (isCurrentBrandReadOnly && !wasCurrentBrandReadOnlyRef.current) {
+            reportLockedBrandWarning();
+        }
+        wasCurrentBrandReadOnlyRef.current = isCurrentBrandReadOnly;
+    }, [isCurrentBrandReadOnly, reportLockedBrandWarning]);
+
+    useEffect(() => {
         if (!WORKSPACE_COLLAB_ENABLED || !WORKSPACE_LOCK_ENFORCEMENT_ENABLED) return;
+        if (softLockViewModeEnabled) return;
         if (activePage !== 'workspace') return;
         if (!selectedBrandId) return;
 
@@ -876,6 +966,7 @@ export function AppShell({ session }: AppShellProps) {
         orderedApps,
         setSelectedBrandId,
         setSelectedAppId,
+        softLockViewModeEnabled,
     ]);
 
     const handleRetry = () => {
@@ -892,7 +983,7 @@ export function AppShell({ session }: AppShellProps) {
     useEffect(() => {
         const elements = document.querySelectorAll<HTMLTextAreaElement>('.auto-grow');
         elements.forEach((element) => syncAutoGrowTextarea(element));
-    }, [brandIconReference?.prompt, brandScreenshotReferences, promptsByRefId]);
+    }, [brandIconReference?.prompt, noBrandIconPromptDraft, brandScreenshotReferences, promptsByRefId]);
 
     const handleLogout = async () => {
         await signOut();
@@ -932,12 +1023,25 @@ export function AppShell({ session }: AppShellProps) {
                 if (!brand) return;
 
                 if (WORKSPACE_COLLAB_ENABLED && WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
-                    if (lockedBrandIdSet.has(brand.id)) {
-                        return;
-                    }
-                    const claim = await tryClaimBrand(brand.id);
-                    if (!claim.ok) {
-                        return;
+                    const brandBusyByOtherDevice = lockedBrandIdSet.has(brand.id);
+                    if (brandBusyByOtherDevice) {
+                        if (!softLockViewModeEnabled) {
+                            reportLockedBrandWarning();
+                            return;
+                        }
+                        void releaseCurrentBrand();
+                    } else {
+                        const claim = await tryClaimBrand(brand.id);
+                        if (!claim.ok) {
+                            if (softLockViewModeEnabled && claim.reason === 'locked_by_other_device') {
+                                void releaseCurrentBrand();
+                            } else {
+                                if (claim.reason === 'locked_by_other_device') {
+                                    reportLockedBrandWarning();
+                                }
+                                return;
+                            }
+                        }
                     }
                 } else if (WORKSPACE_COLLAB_ENABLED) {
                     void tryClaimBrand(brand.id);
@@ -960,6 +1064,9 @@ export function AppShell({ session }: AppShellProps) {
             brands,
             lockedBrandIdSet,
             tryClaimBrand,
+            softLockViewModeEnabled,
+            reportLockedBrandWarning,
+            releaseCurrentBrand,
             setActivePage,
             setSelectedBrandId,
             setSelectedAppId,
@@ -1034,10 +1141,26 @@ export function AppShell({ session }: AppShellProps) {
                 if (WORKSPACE_COLLAB_ENABLED) {
                     if (brandId) {
                         if (WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
-                            if (lockedBrandIdSet.has(brandId)) {
-                                return;
+                            const brandBusyByOtherDevice = lockedBrandIdSet.has(brandId);
+                            if (brandBusyByOtherDevice) {
+                                if (!softLockViewModeEnabled) {
+                                    reportLockedBrandWarning();
+                                    return;
+                                }
+                                void releaseCurrentBrand();
+                            } else {
+                                const claim = await tryClaimBrand(brandId);
+                                if (!claim.ok) {
+                                    if (softLockViewModeEnabled && claim.reason === 'locked_by_other_device') {
+                                        void releaseCurrentBrand();
+                                    } else {
+                                        if (claim.reason === 'locked_by_other_device') {
+                                            reportLockedBrandWarning();
+                                        }
+                                        return;
+                                    }
+                                }
                             }
-                            void tryClaimBrand(brandId);
                         } else {
                             void tryClaimBrand(brandId);
                         }
@@ -1065,6 +1188,8 @@ export function AppShell({ session }: AppShellProps) {
             lockedBrandIdSet,
             tryClaimBrand,
             releaseCurrentBrand,
+            softLockViewModeEnabled,
+            reportLockedBrandWarning,
             setSelectedBrandId,
             setActivePage,
         ]
@@ -1093,6 +1218,166 @@ export function AppShell({ session }: AppShellProps) {
         syncAutoGrowTextarea(event.currentTarget);
     };
 
+    const handleNoBrandIconPromptChange = useCallback((value: string) => {
+        setNoBrandIconPromptDraft(value);
+    }, []);
+
+    const handleNoBrandIconPromptSave = useCallback(
+        async (value: string) => {
+            if (!selectedApp || !isNoBrandMode) return;
+            const nextValue = String(value || '');
+            const currentValue = String(selectedApp.icon_prompt || '');
+            if (nextValue === currentValue) return;
+            const patched = await patchApp(selectedApp.id, { icon_prompt: nextValue });
+            if (!patched) return;
+            setNoBrandIconPromptDraft(String(patched.icon_prompt || nextValue));
+        },
+        [selectedApp, isNoBrandMode, patchApp]
+    );
+
+    const handleMoveNoBrandAppToBrand = useCallback(() => {
+        void (async () => {
+            if (!session || !selectedApp || !selectedBrand || !isNoBrandMode) return;
+            if (isCurrentBrandReadOnly) {
+                reportReadOnlyBlocked();
+                return;
+            }
+
+            const targetBrand = regularBrands.find((brand) => brand.id === moveTargetBrandId) || null;
+            if (!targetBrand) {
+                reportActionError(text('no_brand_move_select_target'));
+                return;
+            }
+
+            setMoveToBrandLoading(true);
+            try {
+                if (WORKSPACE_COLLAB_ENABLED && WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
+                    const brandBusyByOtherDevice = lockedBrandIdSet.has(targetBrand.id);
+                    if (brandBusyByOtherDevice) {
+                        reportLockedBrandWarning();
+                        return;
+                    }
+                    const claim = await tryClaimBrand(targetBrand.id);
+                    if (!claim.ok) {
+                        if (claim.reason === 'locked_by_other_device') {
+                            reportLockedBrandWarning();
+                            return;
+                        }
+                        reportActionError(text('brand_start_editing_failed'));
+                        return;
+                    }
+                } else if (WORKSPACE_COLLAB_ENABLED) {
+                    void tryClaimBrand(targetBrand.id);
+                }
+
+                const existingAliases = apps
+                    .filter((app) => app.id !== selectedApp.id)
+                    .map((app) => slugify(String(app.alias || '').trim()))
+                    .filter(Boolean);
+                const currentAliasRaw = String(selectedApp.alias || '').trim();
+                const currentAlias = slugify(currentAliasRaw);
+                const aliasBase = currentAlias || slugify(String(selectedApp.name || 'app'));
+                const resolvedAlias = makeUniqueAlias(aliasBase, existingAliases);
+
+                const { data, error } = await moveAppToBrand({
+                    appId: selectedApp.id,
+                    toBrandId: targetBrand.id,
+                    newAlias: resolvedAlias !== currentAlias ? resolvedAlias : null,
+                });
+                if (error) throw error;
+
+                const movedApp = (data || {
+                    ...selectedApp,
+                    brand_id: targetBrand.id,
+                    alias: resolvedAlias,
+                }) as any;
+
+                if (resolvedAlias !== currentAlias) {
+                    const message = String(text('alias_auto_applied') || '')
+                        .replace('{from}', currentAliasRaw || aliasBase)
+                        .replace('{to}', String(movedApp.alias || resolvedAlias));
+                    showAliasNotice(message);
+                }
+
+                await Promise.allSettled([
+                    refreshApps(),
+                    refreshAppScreenshots(),
+                    refreshGeneratedAssets(),
+                ]);
+
+                setActivePage('workspace');
+                setSelectedBrandId(targetBrand.id);
+                setSelectedAppId(selectedApp.id);
+                window.history.pushState({}, '', buildRoute(targetBrand, movedApp));
+            } catch (error: any) {
+                reportActionError(String(error?.message || text('upload_failed')));
+            } finally {
+                setMoveToBrandLoading(false);
+            }
+        })();
+    }, [
+        session,
+        selectedApp,
+        selectedBrand,
+        isNoBrandMode,
+        isCurrentBrandReadOnly,
+        reportReadOnlyBlocked,
+        showAliasNotice,
+        regularBrands,
+        moveTargetBrandId,
+        reportActionError,
+        text,
+        lockedBrandIdSet,
+        reportLockedBrandWarning,
+        tryClaimBrand,
+        apps,
+        refreshApps,
+        refreshAppScreenshots,
+        refreshGeneratedAssets,
+        setActivePage,
+        setSelectedBrandId,
+        setSelectedAppId,
+    ]);
+
+    const runWriteAction = useCallback(
+        async (action: () => void | Promise<void>) => {
+            if (isCurrentBrandReadOnly) {
+                reportReadOnlyBlocked();
+                return;
+            }
+            await action();
+        },
+        [isCurrentBrandReadOnly, reportReadOnlyBlocked]
+    );
+
+    const handleStartEditing = useCallback(() => {
+        if (!softLockViewModeEnabled || !selectedBrandId || isClaimingEditLock) return;
+        setIsClaimingEditLock(true);
+        void (async () => {
+            try {
+                const result = await tryClaimBrand(selectedBrandId);
+                if (!result.ok) {
+                    showCollabWarning(text('brand_start_editing_failed'));
+                    return;
+                }
+                setHeartbeatBrandId(selectedBrandId);
+                await refreshSnapshot().catch(() => {});
+            } catch {
+                showCollabWarning(text('brand_start_editing_failed'));
+            } finally {
+                setIsClaimingEditLock(false);
+            }
+        })();
+    }, [
+        softLockViewModeEnabled,
+        selectedBrandId,
+        isClaimingEditLock,
+        tryClaimBrand,
+        refreshSnapshot,
+        showCollabWarning,
+        text,
+    ]);
+
     const isTabMotionDisabled = isAppReorderMode || isAppPillPanning || Boolean(draggingAppId);
     const isBusyForUnload =
         hasRunningJobs ||
@@ -1104,9 +1389,18 @@ export function AppShell({ session }: AppShellProps) {
         iconSlotGenerating !== null ||
         enhanceIconSlotGenerating !== null ||
         accountsHasUnsavedChanges;
-    const isBrandEditing = Boolean(selectedBrand && brandFormOpen && editingBrandId === selectedBrand.id);
+    const isBrandEditing = Boolean(
+        selectedBrand &&
+            !isNoBrandMode &&
+            brandFormOpen &&
+            editingBrandId === selectedBrand.id
+    );
     const selectedBrandSummary = selectedBrand ? brandAppSummaryByBrandId[selectedBrand.id] : null;
-    const hasBrandIcon = Boolean(brandIconReference && brandRefUrls[brandIconReference.id]);
+    const hasBrandIcon = Boolean(
+        !isNoBrandMode &&
+            brandIconReference &&
+            brandRefUrls[brandIconReference.id]
+    );
     const connectorEnabled = Boolean(selectedApp);
 
     const step1Done = connectorEnabled && Boolean(pickedIconAssetId);
@@ -1188,8 +1482,8 @@ export function AppShell({ session }: AppShellProps) {
         screenshotSets,
         activeScreenshotSetId,
         setActiveScreenshotSetId,
-        handleAddScreenshotSet,
-        handleDeleteScreenshotSet,
+        handleAddScreenshotSet: () => runWriteAction(handleAddScreenshotSet),
+        handleDeleteScreenshotSet: (setId: string) => runWriteAction(() => handleDeleteScreenshotSet(setId)),
         assetExportStatus: exportStatus,
         generatedIconSlots,
         enhancedIconSlots,
@@ -1240,33 +1534,52 @@ export function AppShell({ session }: AppShellProps) {
         updateLayer,
         addLayer,
         removeLayer,
-        handleSaveEdit,
-        handleUploadCustomIconFiles,
-        handleGenerateIcon,
-        handleEnhanceIconSlot,
-        handleGenerateAllScreenshots,
-        handleGenerateSlot,
-        handleEnhanceSlot,
+        handleSaveEdit: (assetId: string) => runWriteAction(() => handleSaveEdit(assetId)),
+        handleUploadCustomIconFiles: async (files: File[]) => {
+            if (isCurrentBrandReadOnly) {
+                reportReadOnlyBlocked();
+                return;
+            }
+            await handleUploadCustomIconFiles(files);
+        },
+        handleGenerateIcon: () => runWriteAction(handleGenerateIcon),
+        handleEnhanceIconSlot: (payload: { slotIndex: number; base: { kind: 'icon' | 'icon_enhanced'; assetId: string }; enhancePrompt: string }) =>
+            runWriteAction(() => handleEnhanceIconSlot(payload)),
+        handleGenerateAllScreenshots: () => runWriteAction(handleGenerateAllScreenshots),
+        handleGenerateSlot: (slotIndex: number) => runWriteAction(() => handleGenerateSlot(slotIndex)),
+        handleEnhanceSlot: (payload: { slotIndex: number; base: { kind: 'screenshot' | 'screenshot_enhanced'; assetId: string }; enhancePrompt: string }) =>
+            runWriteAction(() => handleEnhanceSlot(payload)),
         handleDownloadGeneratedAsset,
         handleDownloadAllScreenshots,
-        handleDeleteGeneratedAsset,
+        handleDeleteGeneratedAsset: (asset: GeneratedAsset) =>
+            runWriteAction(() => handleDeleteGeneratedAsset(asset)),
         getIconSystemPrompt,
-        setIconSystemPromptOverride,
-        resetIconSystemPromptOverride,
+        setIconSystemPromptOverride: (value: string) => runWriteAction(() => setIconSystemPromptOverride(value)),
+        resetIconSystemPromptOverride: () => runWriteAction(resetIconSystemPromptOverride),
         getSystemPromptForSlot,
-        setSystemPromptOverride,
-        resetSystemPromptOverride,
+        setSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance', value: string) =>
+            runWriteAction(() => setSystemPromptOverride(slotIndex, mode, value)),
+        resetSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance') =>
+            runWriteAction(() => resetSystemPromptOverride(slotIndex, mode)),
         pickedIconAssetId,
         pickedScreenshotAssetIdBySlotIndex,
-        handlePickIcon,
-        handlePickScreenshot,
-        handleMarkAsCompleted,
+        handlePickIcon: (assetId: string) => runWriteAction(() => handlePickIcon(assetId)),
+        handlePickScreenshot: (payload: { screenshotSetId: string; slotIndex: number; assetId: string }) =>
+            runWriteAction(() => handlePickScreenshot(payload)),
+        handleMarkAsCompleted: (opts?: { pruneUnpicked?: boolean }) => runWriteAction(() => handleMarkAsCompleted(opts)),
         handleBrandPromptChange,
-        handleBrandPromptSave,
+        handleBrandPromptSave: (refId: string, value: string) =>
+            runWriteAction(() => handleBrandPromptSave(refId, value)),
+        isNoBrandMode,
+        noBrandIconPromptValue: noBrandIconPromptDraft,
+        handleNoBrandIconPromptChange,
+        handleNoBrandIconPromptSave: (value: string) =>
+            runWriteAction(() => handleNoBrandIconPromptSave(value)),
         handleAutoGrowInput,
         openLightbox,
         text,
         fonts: EDIT_FONTS,
+        isReadOnly: isCurrentBrandReadOnly,
     };
 
     useEffect(() => {
@@ -1304,13 +1617,17 @@ export function AppShell({ session }: AppShellProps) {
 
     const handleCancelQueueJob = useCallback(
         (id: string) => {
+            if (isCurrentBrandReadOnly) {
+                reportReadOnlyBlocked();
+                return;
+            }
             if (id.startsWith('connector:')) {
                 void connectorJobQueue.cancel(id.slice('connector:'.length));
                 return;
             }
             cancelGenerationJob(id);
         },
-        [connectorJobQueue, cancelGenerationJob]
+        [isCurrentBrandReadOnly, reportReadOnlyBlocked, connectorJobQueue, cancelGenerationJob]
     );
 
     
@@ -1362,7 +1679,9 @@ export function AppShell({ session }: AppShellProps) {
                 brandsLoading={brandsLoading}
                 isBusy={false}
                 onBlockedAction={() => reportActionError(text('generation_in_progress'))}
-                reorderBrands={reorderBrands}
+                reorderBrands={(sourceId, targetId) => {
+                    void runWriteAction(() => reorderBrands(sourceId, targetId));
+                }}
                 openBrandForm={openBrandForm}
                 submitBrandForm={submitBrandForm}
                 setBrandForm={setBrandForm}
@@ -1386,10 +1705,18 @@ export function AppShell({ session }: AppShellProps) {
                             <div ref={stickyHeaderRef} className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 bg-slate-950/90 backdrop-blur border-b border-indigo-900/30 flex flex-wrap items-center justify-between gap-4">
                                 <div className="flex flex-wrap items-center gap-4">
                                     <div className="flex flex-col items-center gap-2">
-                                        {isBrandEditing ? (
+                                        {isNoBrandMode ? (
+                                            <div className="flex h-16 w-16 aspect-square items-center justify-center overflow-hidden rounded-[18px] border border-indigo-400/20 bg-slate-800/35 text-xs text-indigo-200/50">
+                                                <span className="text-[10px] font-semibold tracking-[0.1em]">
+                                                    {text('no_brand_short')}
+                                                </span>
+                                            </div>
+                                        ) : isBrandEditing ? (
                                             <label
                                                 htmlFor="brand-icon-upload"
-                                                className={`flex h-16 w-16 aspect-square items-center justify-center overflow-hidden rounded-[18px] text-xs text-indigo-200/70 hover:border-indigo-400/50 cursor-pointer ${
+                                                className={`flex h-16 w-16 aspect-square items-center justify-center overflow-hidden rounded-[18px] text-xs text-indigo-200/70 hover:border-indigo-400/50 ${
+                                                    isCurrentBrandReadOnly ? 'cursor-not-allowed opacity-70 pointer-events-none' : 'cursor-pointer'
+                                                } ${
                                                     hasBrandIcon ? 'border border-transparent bg-slate-900/20' : 'border border-indigo-400/30 bg-slate-800/35'
                                                 }`}
                                                 title={brandIconReference ? text('replace_icon') : text('upload_icon')}
@@ -1427,11 +1754,15 @@ export function AppShell({ session }: AppShellProps) {
                                                 )}
                                             </div>
                                         )}
-                                        {isBrandEditing && (
+                                        {!isNoBrandMode && isBrandEditing && (
                                             <div className="flex items-center gap-2">
                                                 <label
                                                     htmlFor="brand-icon-upload"
-                                                    className="inline-flex items-center gap-1 rounded-full border border-indigo-400/30 px-2.5 py-1 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-400/10 cursor-pointer"
+                                                    className={`inline-flex items-center gap-1 rounded-full border border-indigo-400/30 px-2.5 py-1 text-[10px] font-semibold text-indigo-100 hover:bg-indigo-400/10 ${
+                                                        isCurrentBrandReadOnly
+                                                            ? 'cursor-not-allowed opacity-60 pointer-events-none'
+                                                            : 'cursor-pointer'
+                                                    }`}
                                                 >
                                                     {brandIconUploading ? text('uploading') : brandIconReference ? text('replace_icon') : text('upload_icon')}
                                                 </label>
@@ -1441,7 +1772,8 @@ export function AppShell({ session }: AppShellProps) {
                                                         question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
                                                         confirmLabel={text('delete')}
                                                         cancelLabel={text('cancel')}
-                                                        onConfirm={() => handleDeleteBrandReference(brandIconReference)}
+                                                        disabled={isCurrentBrandReadOnly}
+                                                        onConfirm={() => runWriteAction(() => handleDeleteBrandReference(brandIconReference))}
                                                     >
                                                         <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">
                                                             <Trash2 size={12} />
@@ -1450,14 +1782,16 @@ export function AppShell({ session }: AppShellProps) {
                                                 )}
                                             </div>
                                         )}
-                                        <input
-                                            id="brand-icon-upload"
-                                            type="file"
-                                            accept="image/png,image/jpeg"
-                                            className="hidden"
-                                            onChange={handleBrandIconUpload}
-                                            disabled={!selectedBrand || !isBrandEditing || brandIconUploading}
-                                        />
+                                        {!isNoBrandMode && (
+                                            <input
+                                                id="brand-icon-upload"
+                                                type="file"
+                                                accept="image/png,image/jpeg"
+                                                className="hidden"
+                                                onChange={handleBrandIconUpload}
+                                                disabled={!selectedBrand || !isBrandEditing || brandIconUploading || isCurrentBrandReadOnly}
+                                            />
+                                        )}
                                     </div>
                                     <div>
                                         <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_label')}</p>
@@ -1501,13 +1835,13 @@ export function AppShell({ session }: AppShellProps) {
                                             </div>
                                         </div>
                                     ) : null}
-                                    {selectedBrand && (
+                                    {selectedBrand && !isNoBrandMode && (
                                         <>
                                             {isBrandEditing ? (
                                                 <>
                                                     <button
-                                                        onClick={() => submitBrandForm()}
-                                                        disabled={brandFormLoading}
+                                                        onClick={() => runWriteAction(() => submitBrandForm())}
+                                                        disabled={brandFormLoading || isCurrentBrandReadOnly}
                                                         className={`inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-400/10 ${
                                                             brandFormLoading ? 'opacity-70 pointer-events-none' : ''
                                                         }`}
@@ -1527,8 +1861,11 @@ export function AppShell({ session }: AppShellProps) {
                                                 </>
                                             ) : (
                                                 <button
-                                                    onClick={() => openBrandForm(selectedBrand)}
-                                                    className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-400/10"
+                                                    onClick={() =>
+                                                        isCurrentBrandReadOnly ? reportReadOnlyBlocked() : openBrandForm(selectedBrand)
+                                                    }
+                                                    disabled={isCurrentBrandReadOnly}
+                                                    className="inline-flex items-center gap-2 rounded-full border border-indigo-400/40 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-400/10 disabled:opacity-60"
                                                 >
                                                     <Pencil size={14} />
                                                     {text('edit_brand')}
@@ -1566,6 +1903,26 @@ export function AppShell({ session }: AppShellProps) {
                                 </div>
                             )}
 
+                            {activePage === 'workspace' && selectedBrand && isCurrentBrandReadOnly && (
+                                <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100 flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3">
+                                        <AlertTriangle size={18} />
+                                        <div>
+                                            <p className="font-semibold">{text('action_error_title')}</p>
+                                            <p className="text-xs text-amber-100/70">{text('brand_under_work_readonly')}</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleStartEditing}
+                                        disabled={isClaimingEditLock}
+                                        className="shrink-0 inline-flex items-center gap-2 rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-50 hover:bg-amber-500/20 disabled:opacity-60"
+                                    >
+                                        {isClaimingEditLock ? text('saving') : text('brand_start_editing')}
+                                    </button>
+                                </div>
+                            )}
+
                             {activePage === 'workspace' && !dataLoading && !brands.length && (
                                 <div className="rounded-[32px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_20px_50px_-40px_rgba(15,23,42,0.8)] p-10 text-center">
                                     <p className="text-lg font-semibold text-white">{text('create_first_brand')}</p>
@@ -1585,29 +1942,47 @@ export function AppShell({ session }: AppShellProps) {
                             {activePage === 'workspace' && selectedBrand && (
                                 <>
                                 <div className="space-y-6">
-                                    <BrandReleaseInfoPanel
-                                        selectedBrand={selectedBrand}
-                                        patchBrand={patchBrand}
-                                        reportError={reportActionError}
-                                        text={text}
-                                    />
-                                    <BrandReferencesPanel
-                                        key={selectedBrand.id}
-                                        brandId={selectedBrand.id}
-                                        brandScreenshotReferences={brandScreenshotReferences}
-                                        brandRefUrls={brandRefUrls}
-                                        handleReorderBrandReference={handleReorderBrandReference}
-                                        handleDeleteBrandReference={handleDeleteBrandReference}
-                                        handleBrandReferenceDragOver={handleBrandReferenceDragOver}
-                                        handleBrandReferenceDragLeave={handleBrandReferenceDragLeave}
-                                        handleBrandReferenceDrop={handleBrandReferenceDrop}
-                                        handleBrandScreenshotUpload={handleBrandScreenshotUpload}
-                                        isBrandRefDropActive={isBrandRefDropActive}
-                                        brandScreenshotsUploading={brandScreenshotsUploading}
-                                        maxScreenshotRefs={MAX_SCREENSHOT_REFS}
-                                        openLightbox={openLightbox}
-                                        text={text}
-                                    />
+                                    {!isNoBrandMode && (
+                                        <>
+                                            <BrandReleaseInfoPanel
+                                                selectedBrand={selectedBrand}
+                                                patchBrand={async (brandId, patch) => {
+                                                    if (isCurrentBrandReadOnly) {
+                                                        reportReadOnlyBlocked();
+                                                        return;
+                                                    }
+                                                    await patchBrand(brandId, patch);
+                                                }}
+                                                reportError={reportActionError}
+                                                text={text}
+                                                isReadOnly={isCurrentBrandReadOnly}
+                                            />
+                                            <BrandReferencesPanel
+                                                key={selectedBrand.id}
+                                                brandId={selectedBrand.id}
+                                                brandScreenshotReferences={brandScreenshotReferences}
+                                                brandRefUrls={brandRefUrls}
+                                                handleReorderBrandReference={(fromIndex, toIndex) =>
+                                                    runWriteAction(() => handleReorderBrandReference(fromIndex, toIndex))
+                                                }
+                                                handleDeleteBrandReference={(ref) =>
+                                                    runWriteAction(() => handleDeleteBrandReference(ref))
+                                                }
+                                                handleBrandReferenceDragOver={handleBrandReferenceDragOver}
+                                                handleBrandReferenceDragLeave={handleBrandReferenceDragLeave}
+                                                handleBrandReferenceDrop={(event) => runWriteAction(() => handleBrandReferenceDrop(event))}
+                                                handleBrandScreenshotUpload={(event) =>
+                                                    runWriteAction(() => handleBrandScreenshotUpload(event))
+                                                }
+                                                isBrandRefDropActive={isBrandRefDropActive}
+                                                brandScreenshotsUploading={brandScreenshotsUploading}
+                                                maxScreenshotRefs={MAX_SCREENSHOT_REFS}
+                                                openLightbox={openLightbox}
+                                                text={text}
+                                                isReadOnly={isCurrentBrandReadOnly}
+                                            />
+                                        </>
+                                    )}
 
                                     <div className="space-y-6">
                                         <AppFolder
@@ -1661,10 +2036,17 @@ export function AppShell({ session }: AppShellProps) {
                                                                 {selectedApp && (
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => openAppForm(selectedApp)}
+                                                                        onClick={() => {
+                                                                            if (isCurrentBrandReadOnly) {
+                                                                                reportReadOnlyBlocked();
+                                                                                return;
+                                                                            }
+                                                                            openAppForm(selectedApp);
+                                                                        }}
                                                                         onDoubleClick={() => {
                                                                             closeAppForm();
                                                                         }}
+                                                                        disabled={isCurrentBrandReadOnly}
                                                                         className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                                                                     >
                                                                         <Pencil size={11} />
@@ -1672,10 +2054,16 @@ export function AppShell({ session }: AppShellProps) {
                                                                     </button>
                                                                 )}
                                                                 <button
-                                                                    onClick={() => openAppForm()}
-                                                                    disabled={!canAddApp}
+                                                                    onClick={() => {
+                                                                        if (isCurrentBrandReadOnly) {
+                                                                            reportReadOnlyBlocked();
+                                                                            return;
+                                                                        }
+                                                                        openAppForm();
+                                                                    }}
+                                                                    disabled={!canAddApp || isCurrentBrandReadOnly}
                                                                     className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold border ${
-                                                                        canAddApp
+                                                                        canAddApp && !isCurrentBrandReadOnly
                                                                             ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                                                                             : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
                                                                     }`}
@@ -1700,7 +2088,9 @@ export function AppShell({ session }: AppShellProps) {
                                                         setDraggingAppId={setDraggingAppId}
                                                         dragOverAppId={dragOverAppId}
                                                         setDragOverAppId={setDragOverAppId}
-                                                        reorderBrandApps={reorderBrandApps}
+                                                        reorderBrandApps={(sourceId, targetId) => {
+                                                            void runWriteAction(() => reorderBrandApps(sourceId, targetId));
+                                                        }}
                                                         appActivePillRef={appActivePillRef}
                                                         appPillScrollRef={appPillScrollRef}
                                                         appPillRowRef={appPillRowRef}
@@ -1730,11 +2120,18 @@ export function AppShell({ session }: AppShellProps) {
                                                     selectedBrandName={selectedBrand?.name}
                                                     appAliasPreview={appAliasPreview}
                                                     aliasPlaceholder={newAppAliasPlaceholder}
-                                                    onSubmit={submitAppForm}
                                                     onCancel={() => closeAppForm()}
-                                                    onDelete={handleDeleteApp}
-                                                    onBan={handleBanApp}
-                                                    onUnban={handleUnbanApp}
+                                                    onSubmit={(event) => {
+                                                        if (isCurrentBrandReadOnly) {
+                                                            event.preventDefault();
+                                                            reportReadOnlyBlocked();
+                                                            return;
+                                                        }
+                                                        submitAppForm(event);
+                                                    }}
+                                                    onDelete={() => runWriteAction(handleDeleteApp)}
+                                                    onBan={(appId) => runWriteAction(() => handleBanApp(appId))}
+                                                    onUnban={(appId) => runWriteAction(() => handleUnbanApp(appId))}
                                                     text={text}
                                                 />
 
@@ -1750,10 +2147,16 @@ export function AppShell({ session }: AppShellProps) {
                                                             <p className="mt-2 text-sm text-indigo-200/70">{text('ready_for_screenshots_icons')}</p>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => openAppForm()}
-                                                                disabled={!canAddApp}
+                                                                onClick={() => {
+                                                                    if (isCurrentBrandReadOnly) {
+                                                                        reportReadOnlyBlocked();
+                                                                        return;
+                                                                    }
+                                                                    openAppForm();
+                                                                }}
+                                                                disabled={!canAddApp || isCurrentBrandReadOnly}
                                                                 className={`mt-5 inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold border ${
-                                                                    canAddApp
+                                                                    canAddApp && !isCurrentBrandReadOnly
                                                                         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                                                                         : 'border-white/10 text-indigo-200/40 cursor-not-allowed'
                                                                 }`}
@@ -1768,8 +2171,12 @@ export function AppShell({ session }: AppShellProps) {
                                                                 <>
                                                                     <AppStoreLinkRow
                                                                         selectedApp={selectedApp}
-                                                                        targetCountries={selectedBrand?.target_countries || []}
+                                                                        targetCountries={isNoBrandMode ? [] : (selectedBrand?.target_countries || [])}
                                                                         onSaveCanonicalUrl={async (canonicalUrl) => {
+                                                                            if (isCurrentBrandReadOnly) {
+                                                                                reportReadOnlyBlocked();
+                                                                                return;
+                                                                            }
                                                                             const next = await patchApp(selectedApp.id, {
                                                                                 appstore_url: canonicalUrl,
                                                                             });
@@ -1779,6 +2186,7 @@ export function AppShell({ session }: AppShellProps) {
                                                                         }}
                                                                         text={text}
                                                                         reportError={reportActionError}
+                                                                        isReadOnly={isCurrentBrandReadOnly}
                                                                     />
                                                                     <div className="my-4 h-px bg-indigo-900/30" aria-hidden="true" />
                                                                 </>
@@ -1792,7 +2200,7 @@ export function AppShell({ session }: AppShellProps) {
                                                             <StepBlock step={2} done={step2Done}>
                                                                 <ConnectorClientSpecPanel
                                                                     connectorForm={connectorForm}
-                                                                    isEnabled={connectorEnabled}
+                                                                    isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
                                                                     ideas={appIdeas}
                                                                     ideaCategories={appIdeaCategories}
                                                                     onOpenIdeas={openIdeas}
@@ -1803,7 +2211,7 @@ export function AppShell({ session }: AppShellProps) {
                                                             <StepBlock step={3} done={setupStepDone}>
                                                                 <ConnectorVariablesSecretsPanel
                                                                     connectorForm={connectorForm}
-                                                                    isEnabled={connectorEnabled}
+                                                                    isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
                                                                     selectedApp={selectedApp}
                                                                     account={selectedAppstoreAccount}
                                                                     allAccounts={appstoreAccounts}
@@ -1819,9 +2227,10 @@ export function AppShell({ session }: AppShellProps) {
                                                                     githubRepoUrl={githubRepoUrl}
                                                                     isCreatingRepo={isCreatingGithubRepo}
                                                                     isDeletingRepo={isDeletingGithubRepo}
-                                                                    onCreateRepo={handleCreateGithubRepo}
-                                                                    onDeleteRepo={handleDeleteGithubRepo}
+                                                                    onCreateRepo={() => runWriteAction(handleCreateGithubRepo)}
+                                                                    onDeleteRepo={() => runWriteAction(handleDeleteGithubRepo)}
                                                                     text={text}
+                                                                    isReadOnly={isCurrentBrandReadOnly}
                                                                 />
                                                             </StepBlock>
 
@@ -1834,6 +2243,7 @@ export function AppShell({ session }: AppShellProps) {
                                                                     pickedIcon={Boolean(pickedIconAssetId)}
                                                                     text={text}
                                                                     reportError={reportActionError}
+                                                                    isReadOnly={isCurrentBrandReadOnly}
                                                                 />
                                                             </StepBlock>
 
@@ -1866,17 +2276,26 @@ export function AppShell({ session }: AppShellProps) {
                                                                     selectedApp={selectedApp}
                                                                     selectedAppScreenshots={selectedAppScreenshots}
                                                                     appScreenshotUrls={appScreenshotUrls}
-                                                                    handleReorderAppScreenshot={handleReorderAppScreenshot}
-                                                                    handleDeleteAppScreenshot={handleDeleteAppScreenshot}
+                                                                    handleReorderAppScreenshot={(fromIndex, toIndex) =>
+                                                                        runWriteAction(() => handleReorderAppScreenshot(fromIndex, toIndex))
+                                                                    }
+                                                                    handleDeleteAppScreenshot={(shot) =>
+                                                                        runWriteAction(() => handleDeleteAppScreenshot(shot))
+                                                                    }
                                                                     handleScreenshotDragOver={handleScreenshotDragOver}
                                                                     handleScreenshotDragLeave={handleScreenshotDragLeave}
-                                                                    handleScreenshotDrop={handleScreenshotDrop}
-                                                                    handleAppScreenshotsUpload={handleAppScreenshotsUpload}
+                                                                    handleScreenshotDrop={(event) =>
+                                                                        runWriteAction(() => handleScreenshotDrop(event))
+                                                                    }
+                                                                    handleAppScreenshotsUpload={(event) =>
+                                                                        runWriteAction(() => handleAppScreenshotsUpload(event))
+                                                                    }
                                                                     isScreenshotDropActive={isScreenshotDropActive}
                                                                     appScreenshotsUploading={appScreenshotsUploading}
                                                                     canUploadAppScreenshots={canUploadAppScreenshots}
                                                                     openLightbox={openLightbox}
                                                                     text={text}
+                                                                    isReadOnly={isCurrentBrandReadOnly}
                                                                 />
                                                             </StepBlock>
 
@@ -1884,9 +2303,69 @@ export function AppShell({ session }: AppShellProps) {
                                                                 <ScreenshotPromptsModule {...generationModuleProps} />
                                                             </StepBlock>
 
-                                                            <StepBlock step={10} done={step10Done} isLast>
+                                                            <StepBlock step={10} done={step10Done} isLast={!isNoBrandMode}>
                                                                 <GeneratedScreenshotsModule {...generationModuleProps} />
                                                             </StepBlock>
+
+                                                            {isNoBrandMode && selectedApp && (
+                                                                <StepBlock step={11} done={false} isLast>
+                                                                    <section className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4 space-y-4">
+                                                                        <div>
+                                                                            <p className="text-sm font-semibold text-white">
+                                                                                {text('no_brand_step11_title')}
+                                                                            </p>
+                                                                            <p className="text-xs text-indigo-200/60">
+                                                                                {text('no_brand_step11_subtitle')}
+                                                                            </p>
+                                                                        </div>
+                                                                        {regularBrands.length > 0 ? (
+                                                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                                                                                <div className="min-w-0 flex-1">
+                                                                                    <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">
+                                                                                        {text('no_brand_move_target_label')}
+                                                                                    </label>
+                                                                                    <select
+                                                                                        value={moveTargetBrandId}
+                                                                                        onChange={(event) => setMoveTargetBrandId(event.target.value)}
+                                                                                        disabled={moveToBrandLoading || isCurrentBrandReadOnly}
+                                                                                        className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                                                    >
+                                                                                        {regularBrands.map((brand) => (
+                                                                                            <option key={brand.id} value={brand.id}>
+                                                                                                {brand.name}
+                                                                                            </option>
+                                                                                        ))}
+                                                                                    </select>
+                                                                                </div>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => runWriteAction(handleMoveNoBrandAppToBrand)}
+                                                                                    disabled={!moveTargetBrandId || moveToBrandLoading || isCurrentBrandReadOnly}
+                                                                                    className={`inline-flex items-center justify-center rounded-full border px-4 py-2 text-xs font-semibold ${
+                                                                                        moveTargetBrandId && !isCurrentBrandReadOnly
+                                                                                            ? 'border-indigo-400/40 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30'
+                                                                                            : 'border-white/10 text-indigo-200/40'
+                                                                                    }`}
+                                                                                >
+                                                                                    {moveToBrandLoading ? text('saving') : text('no_brand_move_button')}
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="rounded-xl border border-dashed border-indigo-500/30 bg-slate-950/30 px-3 py-3 text-xs text-indigo-200/70">
+                                                                                <p>{text('no_brand_move_no_targets')}</p>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => openBrandForm()}
+                                                                                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-indigo-400/35 bg-indigo-500/15 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/25"
+                                                                                >
+                                                                                    <Plus size={12} />
+                                                                                    {text('new_brand')}
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </section>
+                                                                </StepBlock>
+                                                            )}
                                                         </div>
                                                     )
                                                 }
@@ -1951,7 +2430,7 @@ export function AppShell({ session }: AppShellProps) {
                         unpickedCount={unpickedCount}
                         isAssetsCollapsed={assetsCollapsed}
                         onToggleAssetsCollapsed={toggleAssetsCollapsed}
-                        onMarkCompleted={() => handleMarkAsCompleted({ pruneUnpicked: true })}
+                        onMarkCompleted={() => runWriteAction(() => handleMarkAsCompleted({ pruneUnpicked: true }))}
                         text={text}
                     />
                 </div>
@@ -1959,6 +2438,11 @@ export function AppShell({ session }: AppShellProps) {
             {collabWarning && (
                 <div className="pointer-events-none fixed bottom-4 right-4 z-50 max-w-xs rounded-xl border border-amber-400/40 bg-slate-900/95 px-3 py-2 text-xs text-amber-100 shadow-lg">
                     {collabWarning}
+                </div>
+            )}
+            {aliasNotice && (
+                <div className="pointer-events-none fixed bottom-20 right-4 z-50 max-w-xs rounded-xl border border-indigo-400/35 bg-slate-900/95 px-3 py-2 text-xs text-indigo-100 shadow-lg">
+                    {aliasNotice}
                 </div>
             )}
             <Lightbox lightbox={lightbox} onClose={closeLightbox} closeLabel={text('close')} />

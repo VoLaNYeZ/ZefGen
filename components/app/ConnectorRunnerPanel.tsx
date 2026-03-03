@@ -43,8 +43,9 @@ export function ConnectorRunnerPanel(props: {
     pickedIcon: boolean;
     text: (key: TranslationKey) => string;
     reportError?: (msg: string) => void;
+    isReadOnly?: boolean;
 }) {
-    const { session, selectedApp, githubRepoUrl, connectorForm, pickedIcon, text, reportError } = props;
+    const { session, selectedApp, githubRepoUrl, connectorForm, pickedIcon, text, reportError, isReadOnly = false } = props;
     const [bugReport, setBugReport] = React.useState('');
     const [busy, setBusy] = React.useState(false);
     const [localError, setLocalError] = React.useState<string | null>(null);
@@ -231,6 +232,7 @@ export function ConnectorRunnerPanel(props: {
     }, [generateBlocked, missingGeneratePrereqs, text]);
 
     const runGenerate = async () => {
+        if (isReadOnly) return;
         if (generateBlocked) {
             setLocalError(generateBlockedMessage || String(text('connector_generate_blocked_missing') || 'Cannot generate yet.'));
             return;
@@ -262,6 +264,7 @@ export function ConnectorRunnerPanel(props: {
     };
 
     const runFix = async () => {
+        if (isReadOnly) return;
         setBusy(true);
         setLocalError(null);
         try {
@@ -283,6 +286,7 @@ export function ConnectorRunnerPanel(props: {
         Boolean(String(latestJob?.work_branch || '').trim());
 
     const runContinue = async () => {
+        if (isReadOnly) return;
         if (!latestJob?.id) return;
         setBusy(true);
         setLocalError(null);
@@ -298,6 +302,7 @@ export function ConnectorRunnerPanel(props: {
     };
 
     const cancel = async (jobId: string) => {
+        if (isReadOnly) return;
         setBusy(true);
         setLocalError(null);
         try {
@@ -312,6 +317,7 @@ export function ConnectorRunnerPanel(props: {
     };
 
     const answer = async (questionId: string, content: string) => {
+        if (isReadOnly) return;
         setBusy(true);
         setLocalError(null);
         try {
@@ -360,7 +366,7 @@ export function ConnectorRunnerPanel(props: {
                             <button
                                 type="button"
                                 onClick={runGenerate}
-                                disabled={generateBlocked || busy || !session || !selectedApp}
+                                disabled={isReadOnly || generateBlocked || busy || !session || !selectedApp}
                                 className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                             >
                                 {busy ? <Loader2 className="animate-spin" size={14} /> : null}
@@ -370,7 +376,7 @@ export function ConnectorRunnerPanel(props: {
                                 <button
                                     type="button"
                                     onClick={runContinue}
-                                    disabled={busy || !session || !selectedApp}
+                                    disabled={isReadOnly || busy || !session || !selectedApp}
                                     className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-50/95 hover:border-amber-300/40 hover:bg-amber-500/15 disabled:opacity-60"
                                 >
                                     {busy ? <Loader2 className="animate-spin" size={14} /> : null}
@@ -412,7 +418,7 @@ export function ConnectorRunnerPanel(props: {
                                     <button
                                         type="button"
                                         onClick={() => cancel(String(latestJob.id))}
-                                        disabled={busy}
+                                        disabled={isReadOnly || busy}
                                         className="ui-btn-fit ui-btn-fit-dense inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-200/70 hover:border-rose-400/40 hover:text-white disabled:opacity-60"
                                     >
                                         {text('cancel')}
@@ -465,7 +471,7 @@ export function ConnectorRunnerPanel(props: {
                                         key={q.id}
                                         question={q}
                                         onAnswer={answer}
-                                        disabled={busy}
+                                        disabled={busy || isReadOnly}
                                         text={text}
                                     />
                                 ))}
@@ -486,14 +492,18 @@ export function ConnectorRunnerPanel(props: {
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <input
                                     value={bugReport}
-                                    onChange={(e) => setBugReport(e.target.value)}
+                                    onChange={(e) => {
+                                        if (isReadOnly) return;
+                                        setBugReport(e.target.value);
+                                    }}
                                     className="min-w-[220px] flex-1 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
                                     placeholder={text('connector_fix_placeholder')}
+                                    readOnly={isReadOnly}
                                 />
                                 <button
                                     type="button"
                                     onClick={runFix}
-                                    disabled={busy || !bugReport.trim() || !session || !selectedApp}
+                                    disabled={isReadOnly || busy || !bugReport.trim() || !session || !selectedApp}
                                     className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15 disabled:opacity-60"
                                 >
                                     {busy ? <Loader2 className="animate-spin" size={14} /> : null}
@@ -550,6 +560,7 @@ function QuestionCard(props: {
                             key={opt}
                             type="button"
                             onClick={() => setContent(opt)}
+                            disabled={disabled}
                             className="ui-btn-fit ui-btn-fit-dense rounded-full border border-amber-400/20 bg-black/10 px-3 py-1 text-[11px] font-semibold text-amber-50/90 hover:border-amber-300/40"
                         >
                             {opt}
@@ -562,6 +573,7 @@ function QuestionCard(props: {
                 <input
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
+                    readOnly={disabled}
                     className="min-w-[220px] flex-1 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-[11px] text-amber-50/90 outline-none placeholder:text-amber-50/40 focus:border-amber-300/40"
                     placeholder={text('connector_answer_placeholder')}
                 />

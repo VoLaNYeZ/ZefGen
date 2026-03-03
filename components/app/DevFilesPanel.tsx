@@ -27,8 +27,9 @@ export function DevFilesPanel(props: {
     onCreateRepo: () => void;
     onDeleteRepo: () => void | Promise<void>;
     text: (key: TranslationKey) => string;
+    isReadOnly?: boolean;
 }) {
-    const { selectedApp, githubRepoUrl, isCreatingRepo, isDeletingRepo, onCreateRepo, onDeleteRepo, text } = props;
+    const { selectedApp, githubRepoUrl, isCreatingRepo, isDeletingRepo, onCreateRepo, onDeleteRepo, text, isReadOnly = false } = props;
     const [cloneCopied, setCloneCopied] = React.useState(false);
     const copiedTimerRef = React.useRef<number | null>(null);
 
@@ -107,7 +108,7 @@ export function DevFilesPanel(props: {
                                 question={text('confirm_delete_github_repo')}
                                 confirmLabel={text('delete')}
                                 cancelLabel={text('cancel')}
-                                disabled={isDeletingRepo}
+                                disabled={isDeletingRepo || isReadOnly}
                                 onConfirm={onDeleteRepo}
                                 className="ml-1"
                             >
@@ -139,7 +140,7 @@ export function DevFilesPanel(props: {
                         <button
                             type="button"
                             onClick={onCreateRepo}
-                            disabled={!selectedApp || isCreatingRepo}
+                            disabled={!selectedApp || isCreatingRepo || isReadOnly}
                             className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                         >
                             {isCreatingRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}

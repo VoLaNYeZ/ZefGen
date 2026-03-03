@@ -19,6 +19,7 @@ type Params = {
     visibleApps: AppItem[];
     isBannedView: boolean;
     showBannedToggle: boolean;
+    isAppFormOpen: boolean;
 };
 
 export const useAppFolderLayout = ({
@@ -29,6 +30,7 @@ export const useAppFolderLayout = ({
     visibleApps,
     isBannedView,
     showBannedToggle,
+    isAppFormOpen,
 }: Params) => {
     const appFolderWrapRef = useRef<HTMLDivElement>(null);
     const appPickerRef = useRef<HTMLElement>(null);
@@ -82,9 +84,9 @@ export const useAppFolderLayout = ({
             const activePill = selectedAppId ? appActivePillRef.current : null;
             // Slightly "lift" the gooey folder when a pill is active, but keep empty brands stable.
             // When there are no apps, lifting can cause the tab to overlap the reference modules above.
-            const verticalLift = activePill ? 20 : 0;
+            const verticalLift = activePill && !isAppFormOpen ? 20 : 0;
             const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-            if (activePill) {
+            if (activePill && !isAppFormOpen) {
                 const pillRect = activePill.getBoundingClientRect();
                 tabWidth = pillRect.width;
                 tabHeight = Math.max(rowRect.height - 14, 36);
@@ -96,10 +98,12 @@ export const useAppFolderLayout = ({
                 bodyTop = minBodyTop;
                 bodyHeight = Math.max(0, bodyBottom - bodyTop + bodyTail);
             } else {
-                const fallbackBodyTop = Math.max(bodyTop, minBodyTop);
-                bodyTop = fallbackBodyTop;
-                const overlapPx = clamp(tabHeight * 0.1, 6, 14);
-                tabTop = bodyTop - (tabHeight - overlapPx);
+                // Keep the gooey folder below the entire picker zone when the app form is open.
+                const pickerBottomTop = pickerRect.bottom - wrapRect.top;
+                const fallbackBodyTop = Math.max(bodyTop, minBodyTop, pickerBottomTop);
+                bodyTop = fallbackBodyTop + (isAppFormOpen ? 8 : 0);
+                const tabPeek = isAppFormOpen ? 0 : 6;
+                tabTop = bodyTop - tabPeek;
             }
 
             const minTabLeft = -tabWidth;
@@ -163,7 +167,7 @@ export const useAppFolderLayout = ({
             if (scrollEl) scrollEl.removeEventListener('scroll', update);
             window.removeEventListener('resize', update);
         };
-    }, [enabled, selectedBrandId, selectedAppId, appsLength, visibleApps, isBannedView, showBannedToggle]);
+    }, [enabled, selectedBrandId, selectedAppId, appsLength, visibleApps, isBannedView, showBannedToggle, isAppFormOpen]);
 
     const tabButtonWidth = appFolderLayout.tabWidth > 0 ? appFolderLayout.tabWidth : 120;
     const tabButtonHeight = appFolderLayout.tabHeight > 0 ? appFolderLayout.tabHeight : undefined;

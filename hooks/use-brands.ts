@@ -3,8 +3,9 @@ import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type { Brand, BrandFormState } from '../types/zefgen';
 import { arrayMove } from '@dnd-kit/sortable';
-import { createBrand, fetchBrands, updateBrand } from '../data/brands';
+import { createBrand, ensureNoBrand, fetchBrands, updateBrand } from '../data/brands';
 import { makeUniqueSlug, slugify } from '../utils/slug';
+import { isNoBrand } from '../utils/no-brand';
 
 type Params = {
     session: Session | null;
@@ -28,6 +29,17 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
 
     const brandSlugPreview = useMemo(() => slugify(brandForm.name || ''), [brandForm.name]);
 
+    const sortBrands = useCallback((items: Brand[]) => {
+        return [...items].sort((a, b) => {
+            const ai = Number(a.order_index ?? Number.MAX_SAFE_INTEGER);
+            const bi = Number(b.order_index ?? Number.MAX_SAFE_INTEGER);
+            if (ai !== bi) return ai - bi;
+            const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return at - bt;
+        });
+    }, []);
+
     const refresh = useCallback(async () => {
         if (!session) {
             setBrands([]);
@@ -44,11 +56,21 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             setError(error.message);
             onDataError?.(error.message);
         } else {
-            setBrands(data || []);
+            let nextBrands = sortBrands(data || []);
+            const ensured = await ensureNoBrand({
+                userId: session.user.id,
+                existingBrands: nextBrands,
+            });
+            if (ensured.error) {
+                onDataError?.(ensured.error.message || String(ensured.error));
+            } else if (ensured.data && !nextBrands.some((brand) => brand.id === ensured.data.id)) {
+                nextBrands = sortBrands([...nextBrands, ensured.data]);
+            }
+            setBrands(nextBrands);
             lastUserIdRef.current = session.user.id;
         }
         setLoading(false);
-    }, [session, onDataError]);
+    }, [session, onDataError, sortBrands]);
 
     useEffect(() => {
         if (!session) {
@@ -63,6 +85,7 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
     }, [session, brands.length, refresh]);
 
     const openBrandForm = (brand?: Brand) => {
+        if (isNoBrand(brand)) return;
         if (brand) {
             setEditingBrandId(brand.id);
             setBrandForm({ name: brand.name });
@@ -103,6 +126,12 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         const slug = makeUniqueSlug(baseSlug, existingSlugs);
 
         if (editingBrandId) {
+            const editingBrand = brands.find((brand) => brand.id === editingBrandId) || null;
+            if (isNoBrand(editingBrand)) {
+                setBrandFormLoading(false);
+                setBrandFormError(text('no_brand_edit_forbidden'));
+                return;
+            }
             const original = originalEditingBrandRef.current;
             if (original && original.id === editingBrandId && name === original.name && slug === original.slug) {
                 setBrandFormLoading(false);
@@ -124,8 +153,9 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
                 originalEditingBrandRef.current = { id: data.id, name: data.name, slug: data.slug };
             }
         } else {
+            const regularBrands = brands.filter((brand) => !isNoBrand(brand));
             const nextIndex =
-                brands.reduce((max, b) => Math.max(max, Number(b.order_index ?? -1)), -1) + 1;
+                regularBrands.reduce((max, b) => Math.max(max, Number(b.order_index ?? -1)), -1) + 1;
             const { data, error } = await createBrand({
                 userId: session.user.id,
                 name,
@@ -138,7 +168,7 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
                 return;
             }
             if (data) {
-                setBrands((prev) => [...prev, data]);
+                setBrands((prev) => sortBrands([...prev, data]));
                 setSelectedBrandId(data.id);
             }
         }
@@ -157,24 +187,29 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             });
             if (error) throw error;
             if (data) {
-                setBrands((prev) => prev.map((b) => (b.id === data.id ? data : b)));
+                setBrands((prev) => sortBrands(prev.map((b) => (b.id === data.id ? data : b))));
             }
         },
-        [session]
+        [session, sortBrands]
     );
 
     const reorderBrands = useCallback(
         async (sourceId: string, targetId: string) => {
             if (!session) return;
             if (!sourceId || !targetId || sourceId === targetId) return;
-            const fromIndex = brands.findIndex((b) => b.id === sourceId);
-            const toIndex = brands.findIndex((b) => b.id === targetId);
+            const regularBrands = brands.filter((brand) => !isNoBrand(brand));
+            const fromIndex = regularBrands.findIndex((b) => b.id === sourceId);
+            const toIndex = regularBrands.findIndex((b) => b.id === targetId);
             if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
 
-            const nextBrands = arrayMove(brands, fromIndex, toIndex).map((b, idx) => ({
+            const movedRegularBrands = arrayMove(regularBrands, fromIndex, toIndex).map((b, idx) => ({
                 ...b,
                 order_index: idx,
             }));
+            const noBrand = brands.find((brand) => isNoBrand(brand)) || null;
+            const nextBrands = noBrand
+                ? [...movedRegularBrands, { ...noBrand, order_index: movedRegularBrands.length }]
+                : movedRegularBrands;
 
             setBrands(nextBrands);
 

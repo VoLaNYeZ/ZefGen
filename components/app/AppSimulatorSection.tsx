@@ -24,6 +24,7 @@ type AppSimulatorSectionProps = {
         options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
     ) => void;
     text: (key: TranslationKey) => string;
+    isReadOnly?: boolean;
 };
 
 export const AppSimulatorSection = ({
@@ -41,6 +42,7 @@ export const AppSimulatorSection = ({
     canUploadAppScreenshots,
     openLightbox,
     text,
+    isReadOnly = false,
 }: AppSimulatorSectionProps) => {
     const shotById = React.useMemo(() => {
         const map = new Map<string, AppScreenshot>();
@@ -72,7 +74,10 @@ export const AppSimulatorSection = ({
                         ) : (
                             <SortableGrid
                                 ids={orderedIds}
-                                onCommitMove={({ fromIndex, toIndex }) => handleReorderAppScreenshot(fromIndex, toIndex)}
+                                onCommitMove={({ fromIndex, toIndex }) => {
+                                    if (isReadOnly) return;
+                                    handleReorderAppScreenshot(fromIndex, toIndex);
+                                }}
                                 renderOverlay={(activeId) => {
                                     const shot = shotById.get(activeId);
                                     if (!shot) return null;
@@ -110,6 +115,7 @@ export const AppSimulatorSection = ({
                                                     shot={shot}
                                                     url={appScreenshotUrls[shot.id]}
                                                     onDelete={handleDeleteAppScreenshot}
+                                                    isReadOnly={isReadOnly}
                                                     openLightbox={openLightbox}
                                                     text={text}
                                                 />
@@ -122,14 +128,14 @@ export const AppSimulatorSection = ({
                     </div>
                     <div>
                         <div
-                            onDragOver={handleScreenshotDragOver}
-                            onDragLeave={handleScreenshotDragLeave}
-                            onDrop={handleScreenshotDrop}
+                            onDragOver={isReadOnly ? undefined : handleScreenshotDragOver}
+                            onDragLeave={isReadOnly ? undefined : handleScreenshotDragLeave}
+                            onDrop={isReadOnly ? undefined : handleScreenshotDrop}
                             className={`flex h-full min-h-[260px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-5 text-center transition ${
                                 isScreenshotDropActive
                                     ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
                                     : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
-                            } ${!canUploadAppScreenshots ? 'opacity-60 pointer-events-none' : ''}`}
+                            } ${!canUploadAppScreenshots || isReadOnly ? 'opacity-60 pointer-events-none' : ''}`}
                         >
                             <ImagePlus size={24} />
                             <div className="text-sm font-semibold">{text('drop_screenshots_title')}</div>
@@ -146,7 +152,7 @@ export const AppSimulatorSection = ({
                                 multiple
                                 className="hidden"
                                 onChange={handleAppScreenshotsUpload}
-                                disabled={!canUploadAppScreenshots || appScreenshotsUploading}
+                                disabled={!canUploadAppScreenshots || appScreenshotsUploading || isReadOnly}
                             />
                         </div>
                     </div>
@@ -163,6 +169,7 @@ function SortableSimulatorShotTile({
     shot,
     url,
     onDelete,
+    isReadOnly,
     openLightbox,
     text,
 }: {
@@ -171,6 +178,7 @@ function SortableSimulatorShotTile({
     shot: AppScreenshot;
     url: string | undefined;
     onDelete: (shot: AppScreenshot) => void;
+    isReadOnly: boolean;
     openLightbox: (
         src: string,
         alt: string,
@@ -178,7 +186,7 @@ function SortableSimulatorShotTile({
     ) => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id);
+    const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id, isReadOnly);
 
     return (
         <div
@@ -225,6 +233,7 @@ function SortableSimulatorShotTile({
                     question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
                     confirmLabel={text('delete')}
                     cancelLabel={text('cancel')}
+                    disabled={isReadOnly}
                     onConfirm={() => onDelete(shot)}
                 >
                     <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">

@@ -21,6 +21,7 @@ type Params = {
     session: Session | null;
     activePage: AppPage;
     selectedBrandId: string | null;
+    heartbeatBrandId?: string | null;
     enabled?: boolean;
     pollMs?: number;
     ttlSeconds?: number;
@@ -73,6 +74,7 @@ export const useWorkspaceCollaboration = ({
     session,
     activePage,
     selectedBrandId,
+    heartbeatBrandId,
     enabled = true,
     pollMs = WORKSPACE_COLLAB_POLL_MS,
     ttlSeconds = WORKSPACE_COLLAB_TTL_SECONDS,
@@ -139,8 +141,9 @@ export const useWorkspaceCollaboration = ({
 
     const getHeartbeatBrandId = useCallback(() => {
         if (activePage !== 'workspace') return null;
+        if (heartbeatBrandId !== undefined) return heartbeatBrandId || null;
         return selectedBrandId || null;
-    }, [activePage, selectedBrandId]);
+    }, [activePage, heartbeatBrandId, selectedBrandId]);
 
     const refreshSnapshot = useCallback(
         async (overrides?: { sessionId?: string; deviceId?: string }) => {

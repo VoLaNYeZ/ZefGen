@@ -49,3 +49,19 @@ export const updateAppOrder = async (payload: { id: string; userId: string; orde
         .update({ order_index: payload.orderIndex })
         .eq('id', payload.id)
         .eq('user_id', payload.userId);
+
+export const moveAppToBrand = async (payload: {
+    appId: string;
+    toBrandId: string;
+    newAlias?: string | null;
+}) => {
+    const res = await supabase.rpc('move_app_to_brand', {
+        p_app_id: payload.appId,
+        p_to_brand_id: payload.toBrandId,
+        p_new_alias: payload.newAlias ?? null,
+    });
+    if (Array.isArray(res.data)) {
+        return { ...res, data: (res.data[0] as AppItem | null) ?? null };
+    }
+    return res as typeof res & { data: AppItem | null };
+};

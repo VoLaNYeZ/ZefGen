@@ -26,6 +26,7 @@ const parseEtaMsFromMessage = (message: string | undefined) => {
 
 const fallbackEtaMsForJob = (job: GenerationJob) => {
     if (job.providerId === 'replicate:seedream-4') return 40_000;
+    if (job.providerId === 'replicate:nano-banana-2') return 120_000;
     if (job.providerId === 'replicate:nano-banana-pro') return 120_000;
     if (job.providerId && String(job.providerId).startsWith('openai:')) return 120_000;
     return null;
