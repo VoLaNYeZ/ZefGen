@@ -24,6 +24,7 @@ type BrandReferencesPanelProps = {
         options?: { layers?: any[]; fullSrc?: string; overlayBaseWidth?: number; overlayBaseHeight?: number }
     ) => void;
     text: (key: TranslationKey) => string;
+    isReadOnly?: boolean;
 };
 
 export const BrandReferencesPanel = ({
@@ -41,6 +42,7 @@ export const BrandReferencesPanel = ({
     maxScreenshotRefs,
     openLightbox,
     text,
+    isReadOnly = false,
 }: BrandReferencesPanelProps) => {
     const libraryStorageKey = React.useMemo(() => `zefgen.brandReferenceLibraryCollapsed.${brandId}`, [brandId]);
     const [libraryCollapsedPref, setLibraryCollapsedPref] = React.useState<'0' | '1' | null>(() => {
@@ -151,7 +153,9 @@ export const BrandReferencesPanel = ({
                                     <label
                                         htmlFor="brand-screenshot-upload"
                                         className={`inline-flex items-center gap-2 rounded-full bg-indigo-500/15 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 border border-indigo-400/35 hover:bg-indigo-500/25 cursor-pointer ${
-                                            brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading
+                                            brandScreenshotReferences.length >= maxScreenshotRefs ||
+                                            brandScreenshotsUploading ||
+                                            isReadOnly
                                                 ? 'opacity-60 pointer-events-none'
                                                 : ''
                                         }`}
@@ -170,7 +174,10 @@ export const BrandReferencesPanel = ({
                                 ) : (
                                     <SortableGrid
                                         ids={orderedIds}
-                                        onCommitMove={({ fromIndex, toIndex }) => handleReorderBrandReference(fromIndex, toIndex)}
+                                        onCommitMove={({ fromIndex, toIndex }) => {
+                                            if (isReadOnly) return;
+                                            handleReorderBrandReference(fromIndex, toIndex);
+                                        }}
                                         renderOverlay={(activeId) => {
                                             const ref = refById.get(activeId);
                                             if (!ref) return null;
@@ -208,6 +215,7 @@ export const BrandReferencesPanel = ({
                                                             refItem={ref}
                                                             url={brandRefUrls[ref.id]}
                                                             onDelete={handleDeleteBrandReference}
+                                                            isReadOnly={isReadOnly}
                                                             openLightbox={openLightbox}
                                                             text={text}
                                                         />
@@ -220,14 +228,14 @@ export const BrandReferencesPanel = ({
                             </div>
                             <div>
                                 <div
-                                    onDragOver={handleBrandReferenceDragOver}
-                                    onDragLeave={handleBrandReferenceDragLeave}
-                                    onDrop={handleBrandReferenceDrop}
+                                    onDragOver={isReadOnly ? undefined : handleBrandReferenceDragOver}
+                                    onDragLeave={isReadOnly ? undefined : handleBrandReferenceDragLeave}
+                                    onDrop={isReadOnly ? undefined : handleBrandReferenceDrop}
                                     className={`flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-4 text-center transition ${
                                         isBrandRefDropActive
                                             ? 'border-indigo-400/60 bg-indigo-500/10 text-indigo-100'
                                             : 'border-indigo-900/50 bg-slate-900/30 text-indigo-200/70'
-                                    } ${brandScreenshotReferences.length >= maxScreenshotRefs ? 'opacity-60 pointer-events-none' : ''}`}
+                                    } ${brandScreenshotReferences.length >= maxScreenshotRefs || isReadOnly ? 'opacity-60 pointer-events-none' : ''}`}
                                 >
                                     <ImagePlus size={22} />
                                     <div className="text-xs font-semibold">{text('drop_references_title')}</div>
@@ -245,7 +253,11 @@ export const BrandReferencesPanel = ({
                                         multiple
                                         className="hidden"
                                         onChange={handleBrandScreenshotUpload}
-                                        disabled={brandScreenshotReferences.length >= maxScreenshotRefs || brandScreenshotsUploading}
+                                        disabled={
+                                            brandScreenshotReferences.length >= maxScreenshotRefs ||
+                                            brandScreenshotsUploading ||
+                                            isReadOnly
+                                        }
                                     />
                                 </div>
                             </div>
@@ -264,6 +276,7 @@ function SortableBrandRefTile({
     refItem,
     url,
     onDelete,
+    isReadOnly,
     openLightbox,
     text,
 }: {
@@ -272,6 +285,7 @@ function SortableBrandRefTile({
     refItem: BrandReference;
     url: string | undefined;
     onDelete: (ref: BrandReference) => void;
+    isReadOnly: boolean;
     openLightbox: (
         src: string,
         alt: string,
@@ -279,7 +293,7 @@ function SortableBrandRefTile({
     ) => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id);
+    const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id, isReadOnly);
 
     return (
         <div
@@ -325,6 +339,7 @@ function SortableBrandRefTile({
                     question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
                     confirmLabel={text('delete')}
                     cancelLabel={text('cancel')}
+                    disabled={isReadOnly}
                     onConfirm={() => onDelete(refItem)}
                 >
                     <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-1.5 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">

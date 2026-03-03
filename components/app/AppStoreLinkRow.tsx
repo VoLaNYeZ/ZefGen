@@ -24,8 +24,9 @@ export function AppStoreLinkRow(props: {
     onSaveCanonicalUrl: (canonicalUrl: string) => Promise<void>;
     text: (key: TranslationKey) => string;
     reportError: (message: string) => void;
+    isReadOnly?: boolean;
 }) {
-    const { selectedApp, targetCountries, onSaveCanonicalUrl, text, reportError } = props;
+    const { selectedApp, targetCountries, onSaveCanonicalUrl, text, reportError, isReadOnly = false } = props;
     const storedCanonicalUrl = String(selectedApp?.appstore_url || '').trim();
     const [isEditing, setIsEditing] = React.useState(false);
     const [saving, setSaving] = React.useState(false);
@@ -66,6 +67,7 @@ export function AppStoreLinkRow(props: {
     }, [parsedStored, targetCountries]);
 
     const handleSave = async () => {
+        if (isReadOnly) return;
         if (!selectedApp) return;
         const parsed = parseAppStoreInput(draft);
         if (!parsed) {
@@ -142,15 +144,17 @@ export function AppStoreLinkRow(props: {
                                 <input
                                     value={draft}
                                     onChange={(event) => {
+                                        if (isReadOnly) return;
                                         setDraft(event.target.value);
                                         if (validationError) setValidationError(null);
                                     }}
                                     placeholder={text('appstore_link_placeholder')}
+                                    readOnly={isReadOnly}
                                     className="w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/40 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                 />
                                 <button
                                     type="submit"
-                                    disabled={saving}
+                                    disabled={saving || isReadOnly}
                                     className="inline-flex items-center justify-center gap-1.5 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                                 >
                                     <Save size={13} />
@@ -205,10 +209,12 @@ export function AppStoreLinkRow(props: {
                     <button
                         type="button"
                         onClick={() => {
+                            if (isReadOnly) return;
                             setDraft(storedCanonicalUrl);
                             setValidationError(null);
                             setIsEditing(true);
                         }}
+                        disabled={isReadOnly}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 text-indigo-100/70 hover:border-indigo-400/40 hover:text-white"
                         aria-label={text('edit')}
                         title={text('edit')}

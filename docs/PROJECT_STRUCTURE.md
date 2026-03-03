@@ -9,6 +9,9 @@ Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/acco
 Ideas are stored in Supabase (`app_ideas`) with fixed categories in `app_idea_categories`; selected idea per app is persisted on `connector_app_configs.idea_id`.
 Canonical App Store links are stored on `apps.appstore_url` and edited from the workspace App Store row.
 Workspace collaboration presence + brand locks are stored in Supabase (`workspace_sessions`) and mediated via `/api/workspace-sessions`.
+Hybrid lock UX is enabled by default: busy brands can be opened in view-only mode and require explicit “Start editing” claim before writes.
+`No Brand` is a system-managed workspace bucket (real brand row) rendered as a separate fixed sidebar section above Accounts/Ideas.
+App aliases are globally unique per user (case-insensitive) via `public.apps (user_id, lower(alias))`.
 
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
@@ -44,24 +47,24 @@ Workspace collaboration presence + brand locks are stored in Supabase (`workspac
 - `contexts/` - Reserved for future React contexts (currently empty).
 
 ## components/app Breakdown
-- `components/app/AppShell.tsx` - Main authenticated UI state + orchestration (including collaboration hook wiring and lock-aware brand selection/fallback).
-- `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices.
-- `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes).
-- `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand.
+- `components/app/AppShell.tsx` - Main authenticated UI state + orchestration (including collaboration hook wiring, hybrid soft-lock read-only mode, explicit lock-claim CTA, write guards, and No Brand Step 11 move-to-brand flow).
+- `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices (locked brands remain openable in view mode). Renders No Brand as a dedicated fixed system card (outside reorderable list).
+- `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes) with read-only write guards.
+- `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand (read-only aware for upload/delete/reorder).
 - `components/app/CountryMultiSelect.tsx` - Multi-select dropdown used for Target countries.
 - `components/app/AppFolder.tsx` - App-folder wrapper and gooey layout container.
 - `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
-- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 6 in the AppFolder).
-- `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots).
+- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 6 in the AppFolder), read-only aware.
+- `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots), read-only aware. In No Brand mode icon prompt is app-level (`apps.icon_prompt`) and does not require brand icon reference.
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
-- `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command).
-- `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries).
+- `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command), read-only aware.
+- `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries), read-only aware.
 - `components/app/ConnectorClientSpecPanel.tsx` - Step 2 idea picker (category + idea dropdowns) + client spec editor.
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
 - `components/app/IdeasPage.tsx` - Ideas pool UI (`/ideas`): category + description rows with per-row save/delete.
-- `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5).
+- `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5), read-only aware.
 - `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6).
 - `components/app/AutoReleaseModulePanel.tsx` - Auto-release / Fastlane placeholder (Step 7).
 - `components/app/MatrixTerminal.tsx` - Matrix-themed terminal frame used by the Runner messages panel.
@@ -84,6 +87,7 @@ The App-level workflow inside the gooey folder is ordered as:
 8. Simulator screenshots (`components/app/AppSimulatorSection.tsx`)
 9. Screenshot prompts (`components/app/AppGenerationSection.tsx` via `ScreenshotPromptsModule`)
 10. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
+11. No Brand only: Move app to regular brand (`components/app/AppShell.tsx`)
 
 The sticky Deliverables rail is anchored to Steps 8–10 only.
 
@@ -109,8 +113,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 
 ## hooks Breakdown
 - `hooks/use-auth-session.ts` - Supabase auth session + loading state.
-- `hooks/use-brands.ts` - Brand list + brand form state and CRUD.
-- `hooks/use-apps.ts` - App list + app form, reorder, and ban/unban.
+- `hooks/use-brands.ts` - Brand list + brand form state and CRUD (ensures exactly one system No Brand row per user and keeps it non-editable/reorder-excluded).
+- `hooks/use-apps.ts` - App list + app form, reorder, and ban/unban (global alias auto-allocation + collision notifications).
 - `hooks/use-brand-references.ts` - Brand references CRUD, uploads, and prompts.
 - `hooks/use-app-screenshots.ts` - Simulator screenshots CRUD and uploads.
 - `hooks/use-generated-assets.ts` - Generation actions, downloads, and edit state.
@@ -119,8 +123,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-connector-config-form.ts` - Loads/saves Connector app config (+ selected `idea_id`) and secret metadata (used by Step 2/3 panels).
 - `hooks/use-app-ideas.ts` - Ideas/categories pool list + CRUD for `/ideas`.
 - `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
-- `hooks/use-route-sync.ts` - URL sync with selected brand/app.
-- `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, and lock conflict state.
+- `hooks/use-route-sync.ts` - URL sync with selected brand/app (alias matching normalized case-insensitively).
+- `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, lock conflict state, and optional `heartbeatBrandId` lock-hold override.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
 - `hooks/use-slot-mappings.ts` - Slot mapping persistence.
 - `hooks/use-app-folder-layout.ts` - Gooey layout measurements + refs.
@@ -134,7 +138,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 ## data Breakdown
 - `data/auth.ts` - Auth actions (sign out).
 - `data/brands.ts` - Brand queries and writes.
-- `data/apps.ts` - App queries and writes.
+- `data/apps.ts` - App queries and writes (includes `move_app_to_brand` RPC wrapper).
 - `data/brand-references.ts` - Brand reference queries + storage ops.
 - `data/app-screenshots.ts` - App screenshot queries + storage ops.
 - `data/generated-assets.ts` - Generated asset queries + storage ops.
@@ -162,7 +166,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `api/delete-github-repo.ts` - GitHub repository deletion endpoint.
 
 ## utils Breakdown
-- `utils/slug.ts` - Slug creation helpers.
+- `utils/slug.ts` - Slug creation helpers (`makeUniqueAlias` allocates first free numbered alias, e.g. `ef-02` instead of `ef-01-2`).
 - `utils/routes.ts` - Route build/parse helpers.
 - `utils/id.ts` - ID creation helper.
 - `utils/images.ts` - Image validation, loading, resizing, and rendering.
@@ -171,6 +175,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `utils/appstore.ts` - App Store URL normalization and geo-link helpers.
 - `utils/retry.ts` - Retry helper for async actions.
 - `utils/runner-log.ts` - Best-effort parser that compacts Runner log lines into a user-friendly status view.
+- `utils/no-brand.ts` - No Brand detector utility (supports legacy rows via slug/name fallback).
 
 ## Generation/Download Notes
 - Step markers:
@@ -225,12 +230,35 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - API snapshot reads table rows directly and normalizes payload shape.
   - Lock actions prefer RPC; API has table-based fallback paths for resilience.
   - Client hook (`hooks/use-workspace-collaboration.ts`) uses persistent `client_device_id` (localStorage) and per-load `client_session_id` (runtime), polls every 10s, and triggers immediate refresh on focus/visibility/online.
+- Hybrid soft-lock mode (current default):
+  - Controlled by `WORKSPACE_SOFT_LOCK_VIEW_MODE_ENABLED` (`constants/zefgen.ts`).
+  - Busy brand by another device opens in view-only mode instead of hard navigation block.
+  - Workspace shows top notice with explicit “Start editing” button to attempt lock claim.
+  - Heartbeat lock-hold is decoupled from selected brand via `heartbeatBrandId`; read-only viewing does not keep claiming the lock.
+  - If lock is lost mid-edit, user stays on the same brand and switches to read-only (no forced brand redirect).
+  - Write paths across workspace panels are guarded in read-only mode; read-safe actions (navigation/open/copy/preview) remain available.
 
 ## App Store URL (Workspace Surface)
 - Migration: `supabase/migrations/2026-02-18_apps_appstore_url.sql`
   - Adds `public.apps.appstore_url`.
 - UI: `components/app/AppStoreLinkRow.tsx` (shown in workspace when an app is selected).
 - Utilities: `utils/appstore.ts` for canonicalization and geo-friendly URL helpers.
+
+## Alias Uniqueness & Allocation
+- DB contract:
+  - Legacy per-brand index remains: `apps_brand_alias_key`.
+  - Global enforcement index: `apps_user_alias_lower_key` on `(user_id, lower(alias))`.
+  - Different users may reuse the same alias; uniqueness scope is per user workspace.
+- Migration behavior:
+  - `supabase/migrations/2026-03-02_global_alias_uniqueness.sql` fails fast if existing duplicates are found by `(user_id, lower(alias))`.
+- App create/edit behavior:
+  - Alias input is normalized with `slugify`.
+  - If requested alias is busy globally for the same user, client auto-picks first free alias.
+  - For numbered aliases, allocator picks first free number (`ef-01` busy -> `ef-02`, not `ef-01-2`).
+  - UI shows a toast notification when auto-adjustment is applied.
+- No Brand move behavior:
+  - Step 11 alias collision preflight is global (all apps of same user).
+  - Auto-adjusted alias is surfaced to user via toast notification.
 
 ## Legal Links Generation (Step 3 Setup data)
 - Trigger UI: `Generate privacies` button in `components/app/ConnectorVariablesSecretsPanel.tsx`.
@@ -284,6 +312,10 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `api/generate-screenshot.ts` runs server-side on Vercel so provider keys are never exposed to the client.
 - Replicate:
   - Requires `REPLICATE_API_TOKEN` in the prod environment.
+  - Supported models in this app:
+    - `google/nano-banana-pro`
+    - `google/nano-banana-2` (wired with `resolution=2K`, `google_search=false`, `image_search=false`)
+    - `bytedance/seedream-4`
   - If the token/account has insufficient credit, Replicate responds with 402 and the UI surfaces a billing/token ownership hint.
 - OpenAI:
   - Requires `OPENAI_API_KEY` in the prod environment.

@@ -77,6 +77,7 @@ union all select 'connector_app_configs.idea_id', exists(
 select 'brands_user_slug_key' as index, to_regclass('public.brands_user_slug_key') is not null as exists
 union all select 'brands_user_id_idx', to_regclass('public.brands_user_id_idx') is not null
 union all select 'apps_brand_alias_key', to_regclass('public.apps_brand_alias_key') is not null
+union all select 'apps_user_alias_lower_key', to_regclass('public.apps_user_alias_lower_key') is not null
 union all select 'apps_user_id_idx', to_regclass('public.apps_user_id_idx') is not null
 union all select 'apps_brand_id_idx', to_regclass('public.apps_brand_id_idx') is not null
 union all select 'appstore_accounts_user_id_idx', to_regclass('public.appstore_accounts_user_id_idx') is not null

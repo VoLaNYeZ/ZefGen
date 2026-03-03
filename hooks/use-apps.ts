@@ -4,7 +4,7 @@ import type { TranslationKey } from '../i18n';
 import type { AppFormState, AppItem, Brand } from '../types/zefgen';
 import { MAX_ACTIVE_APPS } from '../constants/zefgen';
 import { createApp, deleteApp, fetchApps, updateApp, updateAppOrder } from '../data/apps';
-import { makeUniqueSlug, slugify } from '../utils/slug';
+import { makeUniqueAlias, slugify } from '../utils/slug';
 
 const LAST_APP_BY_BRAND_STORAGE_KEY = 'zefgen.lastAppByBrand';
 
@@ -46,6 +46,7 @@ type Params = {
     setSelectedAppId: (value: string | null) => void;
     text: (key: TranslationKey) => string;
     onDataError?: (message: string) => void;
+    onAliasAutoApplied?: (payload: { from: string; to: string }) => void;
 };
 
 export const useApps = ({
@@ -56,6 +57,7 @@ export const useApps = ({
     setSelectedAppId,
     text,
     onDataError,
+    onAliasAutoApplied,
 }: Params) => {
     const [apps, setApps] = useState<AppItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -125,10 +127,10 @@ export const useApps = ({
     );
 
     const { suggestedNewAppAlias, newAppAliasPlaceholder } = useMemo(() => {
-        const brandApps = orderedApps.filter((app) => app.brand_id === selectedBrandId);
+        const userApps = orderedApps;
         const re = /^([a-z0-9][a-z0-9-]*?)-(\d+)$/i;
 
-        const parsed = brandApps
+        const parsed = userApps
             .map((app) => {
                 const m = re.exec(String(app.alias || '').trim());
                 if (!m) return null;
@@ -150,13 +152,16 @@ export const useApps = ({
             prefix = latest.prefix || prefix;
         }
 
-        let maxN = 0;
+        const usedNumbers = new Set<number>();
         for (const p of parsed) {
             if (p.prefix !== prefix) continue;
-            if (p.n > maxN) maxN = p.n;
+            usedNumbers.add(p.n);
         }
 
-        const next = maxN > 0 ? maxN + 1 : 1;
+        let next = 1;
+        while (usedNumbers.has(next)) {
+            next += 1;
+        }
         const numStr = String(next).padStart(2, '0');
         const prefixUpper = prefix.toUpperCase();
         return {
@@ -264,9 +269,11 @@ export const useApps = ({
 
         const baseAlias = slugify(appForm.alias || name);
         const existingAliases = apps
-            .filter((app) => app.brand_id === selectedBrand.id && app.id !== editingAppId)
-            .map((app) => app.alias);
-        const alias = makeUniqueSlug(baseAlias, existingAliases);
+            .filter((app) => app.id !== editingAppId)
+            .map((app) => slugify(String(app.alias || '').trim()))
+            .filter(Boolean);
+        const alias = makeUniqueAlias(baseAlias, existingAliases);
+        const aliasAutoAdjusted = alias !== baseAlias;
 
         setAppFormLoading(true);
         setAppFormError(null);
@@ -291,6 +298,12 @@ export const useApps = ({
                     )
                 );
                 setSelectedAppId(data.id);
+                if (aliasAutoAdjusted) {
+                    onAliasAutoApplied?.({
+                        from: baseAlias,
+                        to: String(data.alias || alias),
+                    });
+                }
             }
         } else {
             const { data, error } = await createApp({
@@ -308,6 +321,12 @@ export const useApps = ({
             if (data) {
                 setApps((prev) => [...prev, { ...data, is_banned: data.is_banned ?? false }]);
                 setSelectedAppId(data.id);
+                if (aliasAutoAdjusted) {
+                    onAliasAutoApplied?.({
+                        from: baseAlias,
+                        to: String(data.alias || alias),
+                    });
+                }
             }
         }
 

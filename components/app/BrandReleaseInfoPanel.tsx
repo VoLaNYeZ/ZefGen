@@ -20,8 +20,9 @@ export function BrandReleaseInfoPanel(props: {
     patchBrand: (brandId: string, patch: Partial<Brand>) => Promise<void>;
     reportError: (message: string) => void;
     text: (key: TranslationKey) => string;
+    isReadOnly?: boolean;
 }) {
-    const { selectedBrand, patchBrand, reportError, text } = props;
+    const { selectedBrand, patchBrand, reportError, text, isReadOnly = false } = props;
     const brandId = selectedBrand.id;
 
     const orderedCountries = React.useMemo(() => getOrderedCountriesEn(), []);
@@ -61,6 +62,7 @@ export function BrandReleaseInfoPanel(props: {
     }, []);
 
     const scheduleSaveTargetCountries = (next: string[]) => {
+        if (isReadOnly) return;
         setTargetCountries(next);
         if (countriesSaveTimerRef.current) window.clearTimeout(countriesSaveTimerRef.current);
         setCountriesSaving(true);
@@ -76,6 +78,7 @@ export function BrandReleaseInfoPanel(props: {
     };
 
     const saveKeywords = async (value: string) => {
+        if (isReadOnly) return;
         const next = value.slice(0, 100);
         setKeywordsDraft(next);
         setKeywordsSaving(true);
@@ -102,6 +105,7 @@ export function BrandReleaseInfoPanel(props: {
     };
 
     const saveNotesIfChanged = async () => {
+        if (isReadOnly) return;
         const next = notesDraft;
         if ((selectedBrand.release_strategy_notes || '') === next) return;
         setNotesSaving(true);
@@ -135,7 +139,7 @@ export function BrandReleaseInfoPanel(props: {
                             <CountryMultiSelect
                                 value={targetCountries}
                                 options={orderedCountries}
-                                disabled={countriesSaving}
+                                disabled={countriesSaving || isReadOnly}
                                 onChange={scheduleSaveTargetCountries}
                                 text={text}
                             />
@@ -183,6 +187,7 @@ export function BrandReleaseInfoPanel(props: {
                                     }}
                                     maxLength={100}
                                     rows={2}
+                                    readOnly={isReadOnly}
                                     className="w-full whitespace-pre-wrap break-words rounded-2xl border border-indigo-400/20 bg-slate-900/25 px-4 py-3 text-sm text-indigo-50 placeholder:text-indigo-200/40 outline-none focus:border-indigo-400/40"
                                     placeholder={text('keywords_hint')}
                                 />
@@ -213,9 +218,11 @@ export function BrandReleaseInfoPanel(props: {
                                 <button
                                     type="button"
                                     onClick={() => {
+                                        if (isReadOnly) return;
                                         setKeywordsDraft(selectedBrand.keywords || '');
                                         setKeywordsEditing(true);
                                     }}
+                                    disabled={isReadOnly}
                                     className="inline-flex items-center justify-center rounded-full border border-white/10 p-2 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                                     aria-label={text('edit')}
                                     title={text('edit')}
@@ -231,10 +238,11 @@ export function BrandReleaseInfoPanel(props: {
                                         ignoreKeywordsBlurRef.current = true;
                                     }}
                                     onClick={async () => {
+                                        if (isReadOnly) return;
                                         await saveKeywords(keywordsDraft);
                                         setKeywordsEditing(false);
                                     }}
-                                    disabled={keywordsSaving}
+                                    disabled={keywordsSaving || isReadOnly}
                                     className="inline-flex items-center justify-center rounded-full border border-indigo-400/35 bg-indigo-500/10 p-2 text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                                     aria-label={text('save')}
                                     title={text('save')}
@@ -268,9 +276,13 @@ export function BrandReleaseInfoPanel(props: {
                     </div>
                     <textarea
                         value={notesDraft}
-                        onChange={(e) => setNotesDraft(e.target.value)}
+                        onChange={(e) => {
+                            if (isReadOnly) return;
+                            setNotesDraft(e.target.value);
+                        }}
                         onBlur={saveNotesIfChanged}
                         rows={4}
+                        readOnly={isReadOnly}
                         className="mt-2 w-full rounded-2xl border border-indigo-400/20 bg-slate-900/25 px-4 py-3 text-sm text-indigo-50 placeholder:text-indigo-200/40 outline-none focus:border-indigo-400/40"
                         placeholder={text('release_strategy_notes_hint')}
                     />

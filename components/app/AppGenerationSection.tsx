@@ -11,6 +11,7 @@ import type {
     ScreenshotProviderId,
     TextLayer,
 } from '../../types/zefgen';
+import { MAX_SCREENSHOT_VERSIONS } from '../../constants/zefgen';
 import { TranslationKey } from '../../i18n';
 import { EditPanel } from './EditPanel';
 import { TextLayersCanvasOverlay } from './TextLayersCanvasOverlay';
@@ -119,6 +120,10 @@ type AppGenerationSectionProps = {
     handleMarkAsCompleted: (opts?: { pruneUnpicked?: boolean }) => void;
     handleBrandPromptChange: (refId: string, value: string) => void;
     handleBrandPromptSave: (refId: string, value: string) => void;
+    isNoBrandMode?: boolean;
+    noBrandIconPromptValue?: string;
+    handleNoBrandIconPromptChange?: (value: string) => void;
+    handleNoBrandIconPromptSave?: (value: string) => void;
     handleAutoGrowInput: (event: React.FormEvent<HTMLTextAreaElement>) => void;
     openLightbox: (
         src: string,
@@ -127,6 +132,7 @@ type AppGenerationSectionProps = {
     ) => void;
     text: (key: TranslationKey) => string;
     fonts: string[];
+    isReadOnly?: boolean;
     mode?: 'all' | 'icon' | 'prompts' | 'generated';
 };
 
@@ -214,10 +220,15 @@ export const AppGenerationSection = ({
     handleMarkAsCompleted,
     handleBrandPromptChange,
     handleBrandPromptSave,
+    isNoBrandMode = false,
+    noBrandIconPromptValue = '',
+    handleNoBrandIconPromptChange,
+    handleNoBrandIconPromptSave,
     handleAutoGrowInput,
     openLightbox,
     text,
     fonts,
+    isReadOnly = false,
 }: AppGenerationSectionProps) => {
     const formatSlotIndex = (value: number) => String(value).padStart(2, '0');
     const [slotPrimaryTabByIndex, setSlotPrimaryTabByIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
@@ -263,7 +274,7 @@ export const AppGenerationSection = ({
         },
         [handleUploadCustomIconFiles]
     );
-    const canUploadCustomIcons = Boolean(selectedApp) && !iconUploading && !iconGenerating;
+    const canUploadCustomIcons = Boolean(selectedApp) && !iconUploading && !iconGenerating && !isReadOnly;
     const onIconDrop = React.useCallback(
         async (event: React.DragEvent<HTMLDivElement>) => {
             event.preventDefault();
@@ -311,6 +322,11 @@ export const AppGenerationSection = ({
     const showIcon = mode === 'all' || mode === 'icon';
     const showPrompts = mode === 'all' || mode === 'prompts';
     const showGenerated = mode === 'all' || mode === 'generated';
+    const iconPromptValue = isNoBrandMode ? noBrandIconPromptValue : (brandIconReference?.prompt ?? '');
+    const canEditIconPrompt = !isReadOnly && (isNoBrandMode ? Boolean(selectedApp) : Boolean(brandIconReference));
+    const iconPromptPlaceholder = isNoBrandMode
+        ? text('no_brand_icon_prompt_placeholder')
+        : (brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt'));
 
     return (
         <>
@@ -340,13 +356,29 @@ export const AppGenerationSection = ({
                             <div className="max-w-[520px] space-y-2">
                                 <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
                                 <textarea
-                                    value={brandIconReference?.prompt ?? ''}
-                                    onChange={(event) => brandIconReference && handleBrandPromptChange(brandIconReference.id, event.target.value)}
+                                    value={iconPromptValue}
+                                    onChange={(event) => {
+                                        if (isNoBrandMode) {
+                                            handleNoBrandIconPromptChange?.(event.target.value);
+                                            return;
+                                        }
+                                        if (brandIconReference) {
+                                            handleBrandPromptChange(brandIconReference.id, event.target.value);
+                                        }
+                                    }}
                                     onInput={handleAutoGrowInput}
-                                    onBlur={(event) => brandIconReference && handleBrandPromptSave(brandIconReference.id, event.target.value)}
-                                    placeholder={brandIconReference ? text('prompt_placeholder') : text('upload_icon_to_add_prompt')}
+                                    onBlur={(event) => {
+                                        if (isNoBrandMode) {
+                                            handleNoBrandIconPromptSave?.(event.target.value);
+                                            return;
+                                        }
+                                        if (brandIconReference) {
+                                            handleBrandPromptSave(brandIconReference.id, event.target.value);
+                                        }
+                                    }}
+                                    placeholder={iconPromptPlaceholder}
                                     rows={3}
-                                    disabled={!brandIconReference}
+                                    disabled={!canEditIconPrompt}
                                     className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                                 />
 
@@ -381,7 +413,7 @@ export const AppGenerationSection = ({
                                                         <button
                                                             type="button"
                                                             onClick={resetIconSystemPromptOverride}
-                                                            disabled={!selectedApp || !sys.isOverridden}
+                                                            disabled={isReadOnly || !selectedApp || !sys.isOverridden}
                                                             className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                                                 selectedApp && sys.isOverridden
                                                                     ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
@@ -400,7 +432,7 @@ export const AppGenerationSection = ({
                                                             iconSystemPromptTextareaRef.current = el;
                                                             if (el) syncUnlimitedTextarea(el);
                                                         }}
-                                                        disabled={!selectedApp}
+                                                        disabled={isReadOnly || !selectedApp}
                                                         className="w-full rounded-md border border-indigo-500/15 bg-slate-950/60 px-2 py-1 text-[10px] leading-snug text-indigo-50/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                                                     />
                                                 </div>
@@ -416,7 +448,7 @@ export const AppGenerationSection = ({
                                             value={iconProviderId}
                                             onChange={(event) => setIconProviderId(event.target.value as ScreenshotProviderId)}
                                             className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                            disabled={!selectedApp || iconGenerating}
+                                            disabled={isReadOnly || !selectedApp || iconGenerating}
                                         >
                                             <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
                                             <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
@@ -430,7 +462,7 @@ export const AppGenerationSection = ({
                                             value={iconVariationsCount}
                                             onChange={(event) => setIconVariationsCount(Number(event.target.value))}
                                             className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                            disabled={!selectedApp || iconGenerating}
+                                            disabled={isReadOnly || !selectedApp || iconGenerating}
                                         >
                                             {[1, 2, 3].map((v) => (
                                                 <option key={v} value={v}>
@@ -443,7 +475,7 @@ export const AppGenerationSection = ({
                                     <button
                                         type="button"
                                         onClick={handleGenerateIcon}
-                                        disabled={!canGenerateIcon || iconGenerating || iconUploading}
+                                        disabled={isReadOnly || !canGenerateIcon || iconGenerating || iconUploading}
                                         className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
                                             canGenerateIcon
                                                 ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
@@ -468,7 +500,11 @@ export const AppGenerationSection = ({
                             return versions.reduce((prev, current) => {
                                 const prevIndex = prev.version_index ?? 1;
                                 const currentIndex = current.version_index ?? 1;
-                                return currentIndex > prevIndex ? current : prev;
+                                if (currentIndex !== prevIndex) return currentIndex > prevIndex ? current : prev;
+                                const prevTime = new Date(prev.created_at || 0).getTime();
+                                const currentTime = new Date(current.created_at || 0).getTime();
+                                if (currentTime !== prevTime) return currentTime > prevTime ? current : prev;
+                                return String(current.id) > String(prev.id) ? current : prev;
                             }, versions[0]);
                         };
 
@@ -785,7 +821,7 @@ export const AppGenerationSection = ({
                                     value={activeScreenshotSetId ?? ''}
                                     onChange={(event) => setActiveScreenshotSetId(event.target.value || null)}
                                     className="min-w-[240px] rounded-xl border border-indigo-500/20 bg-slate-950/60 px-4 py-2 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                    disabled={!selectedApp}
+                                    disabled={isReadOnly || !selectedApp}
                                 >
                                     {(screenshotSets || []).map((set) => (
                                         <option key={set.id} value={set.id}>
@@ -796,7 +832,7 @@ export const AppGenerationSection = ({
                                 <button
                                     type="button"
                                     onClick={handleAddScreenshotSet}
-                                    disabled={!selectedApp}
+                                    disabled={isReadOnly || !selectedApp}
                                     className={`ui-btn-fit rounded-xl border px-3 py-2 text-xs font-semibold ${
                                         selectedApp
                                             ? 'border-white/10 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white'
@@ -814,6 +850,7 @@ export const AppGenerationSection = ({
                                             : Number((activeSet as any).order_index) === 0 ||
                                               String(activeSet.name || '').toLowerCase() === 'original';
                                     const canDelete = Boolean(selectedApp && activeSet && !isOriginal);
+                                    const canDeleteWithMode = canDelete && !isReadOnly;
                                     if (!activeSet || isOriginal) return null;
                                     return (
                                         <ConfirmIconButton
@@ -821,12 +858,12 @@ export const AppGenerationSection = ({
                                             question={`${text('confirm_delete')} Delete set "${activeSet.name}" and all its screenshots?`}
                                             confirmLabel={text('delete')}
                                             cancelLabel={text('cancel')}
-                                            disabled={!canDelete}
-                                            onConfirm={() => canDelete && handleDeleteScreenshotSet(activeSet.id)}
+                                            disabled={!canDeleteWithMode}
+                                            onConfirm={() => canDeleteWithMode && handleDeleteScreenshotSet(activeSet.id)}
                                         >
                                             <span
                                                 className={`inline-flex items-center justify-center rounded-full border p-2 text-indigo-200/70 ${
-                                                    canDelete
+                                                    canDeleteWithMode
                                                         ? 'border-white/10 hover:border-rose-400/40 hover:text-white'
                                                         : 'border-white/10 text-indigo-200/30'
                                                 }`}
@@ -844,7 +881,7 @@ export const AppGenerationSection = ({
                                     value={screenshotProviderId}
                                     onChange={(event) => setScreenshotProviderId(event.target.value as ScreenshotProviderId)}
                                     className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                    disabled={!selectedApp || screenshotsGenerating}
+                                    disabled={isReadOnly || !selectedApp || screenshotsGenerating}
                                 >
                                     <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
                                     <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
@@ -854,7 +891,7 @@ export const AppGenerationSection = ({
                             <button
                                 type="button"
                                 onClick={handleGenerateAllScreenshots}
-                                disabled={!canGenerateScreenshots || screenshotsGenerating}
+                                disabled={isReadOnly || !canGenerateScreenshots || screenshotsGenerating}
                                 className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
                                     canGenerateScreenshots
                                         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
@@ -906,14 +943,16 @@ export const AppGenerationSection = ({
                         {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
                             const mapping = getSlotMapping(slotIndex);
                             const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
-                            const atLimit = versions.length >= 3;
+                            const atLimit = versions.length >= MAX_SCREENSHOT_VERSIONS;
                             const promptRefId = mapping.brandRefId;
 
                             return (
                                 <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-2.5 space-y-2">
                                     <div className="flex items-center justify-between">
                                         <p className="text-[11px] font-semibold text-white">{text('slot')} {slotIndex}</p>
-                                        <span className="text-[10px] text-indigo-200/50">{versions.length}/3</span>
+                                        <span className="text-[10px] text-indigo-200/50">
+                                            {versions.length}/{MAX_SCREENSHOT_VERSIONS}
+                                        </span>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-2">
@@ -968,7 +1007,7 @@ export const AppGenerationSection = ({
                                         onInput={handleAutoGrowInput}
                                         placeholder={text('prompt_placeholder')}
                                         rows={2}
-                                        disabled={!selectedApp}
+                                        disabled={isReadOnly || !selectedApp}
                                         className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                                     />
 
@@ -1009,7 +1048,12 @@ export const AppGenerationSection = ({
                                                             <button
                                                                 type="button"
                                                                 onClick={() => resetSystemPromptOverride(slotIndex, 'generate')}
-                                                                disabled={!selectedApp || !activeScreenshotSetId || !sys.isOverridden}
+                                                                disabled={
+                                                                    isReadOnly ||
+                                                                    !selectedApp ||
+                                                                    !activeScreenshotSetId ||
+                                                                    !sys.isOverridden
+                                                                }
                                                                 className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                                                     selectedApp && activeScreenshotSetId && sys.isOverridden
                                                                         ? 'border-indigo-400/30 text-indigo-100 hover:bg-indigo-500/10'
@@ -1030,7 +1074,7 @@ export const AppGenerationSection = ({
                                                                 systemPromptTextareaRefBySlotIndex.current[slotIndex] = el;
                                                                 if (el) syncUnlimitedTextarea(el);
                                                             }}
-                                                            disabled={!selectedApp || !activeScreenshotSetId}
+                                                            disabled={isReadOnly || !selectedApp || !activeScreenshotSetId}
                                                             className="w-full rounded-md border border-indigo-500/15 bg-slate-950/60 px-2 py-1 text-[10px] leading-snug text-indigo-50/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
                                                         />
                                                     </div>
@@ -1042,7 +1086,13 @@ export const AppGenerationSection = ({
                                     <button
                                         type="button"
                                         onClick={() => handleGenerateSlot(slotIndex)}
-                                        disabled={!canGenerateScreenshots || screenshotsGenerating || slotGenerating === slotIndex || atLimit}
+                                        disabled={
+                                            isReadOnly ||
+                                            !canGenerateScreenshots ||
+                                            screenshotsGenerating ||
+                                            slotGenerating === slotIndex ||
+                                            atLimit
+                                        }
                                         className={`ui-btn-fit w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
                                             !canGenerateScreenshots || atLimit
                                                 ? 'border-white/10 text-indigo-200/40'
@@ -1095,7 +1145,11 @@ export const AppGenerationSection = ({
                                 return versions.reduce((prev, current) => {
                                     const prevIndex = prev.version_index ?? 1;
                                     const currentIndex = current.version_index ?? 1;
-                                    return currentIndex > prevIndex ? current : prev;
+                                    if (currentIndex !== prevIndex) return currentIndex > prevIndex ? current : prev;
+                                    const prevTime = new Date(prev.created_at || 0).getTime();
+                                    const currentTime = new Date(current.created_at || 0).getTime();
+                                    if (currentTime !== prevTime) return currentTime > prevTime ? current : prev;
+                                    return String(current.id) > String(prev.id) ? current : prev;
                                 }, versions[0]);
                             };
 
@@ -1112,14 +1166,33 @@ export const AppGenerationSection = ({
                             const selectedEnhanced = selectForTab('enhanced');
                             const selectedAsset = primaryTab === 'generated' ? selectedGenerated : selectedEnhanced;
                             const activeVersions = primaryTab === 'generated' ? genVersions : enhVersions;
-                            const activeByVersionIndex = new Map(activeVersions.map((a) => [a.version_index ?? 1, a]));
+                            const orderedActiveVersions = [...activeVersions].sort((a, b) => {
+                                const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
+                                if (versionDiff !== 0) return versionDiff;
+                                const timeDiff =
+                                    new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                                if (timeDiff !== 0) return timeDiff;
+                                return String(a.id).localeCompare(String(b.id));
+                            });
+                            const labelByAssetId = (() => {
+                                const labels = new Map<string, string>();
+                                const duplicateCounter = new Map<number, number>();
+                                for (const asset of orderedActiveVersions) {
+                                    const version = asset.version_index ?? 1;
+                                    const seen = (duplicateCounter.get(version) ?? 0) + 1;
+                                    duplicateCounter.set(version, seen);
+                                    const suffix = seen > 1 ? String.fromCharCode(96 + Math.min(seen, 26)) : '';
+                                    labels.set(asset.id, `v${version}${suffix}`);
+                                }
+                                return labels;
+                            })();
 
                             const headlineText = slotHeadlineBySlotIndex[slotIndex] ?? '';
                             const headlinePos = slotHeadlinePosBySlotIndex[slotIndex] ?? { x: 50, y: 12 };
                             const enhancePrompt = enhancePromptBySlotIndex[slotIndex] ?? '';
 
                             const baseForEnhance = selectedEnhanced ?? selectedGenerated;
-                            const enhancedAtLimit = enhVersions.length >= 3;
+                            const enhancedAtLimit = enhVersions.length >= MAX_SCREENSHOT_VERSIONS;
                             const canEnhance = Boolean(selectedApp && baseForEnhance && !enhancedAtLimit);
                             const isPicked = Boolean(selectedAsset && pickedScreenshotAssetIdBySlotIndex[slotIndex] === selectedAsset.id);
 
@@ -1150,8 +1223,8 @@ export const AppGenerationSection = ({
                                             <p className="ui-btn-fit-ellipsis text-sm font-semibold text-white">{text('slot')} {slotIndex}</p>
                                             <p className="ui-btn-fit-ellipsis text-[11px] text-indigo-200/50">
                                                 {primaryTab === 'generated'
-                                                    ? `${text('tab_generated')} ${genVersions.length}/3`
-                                                    : `${text('tab_enhanced')} ${enhVersions.length}/3`}
+                                                    ? `${text('tab_generated')} ${genVersions.length}/${MAX_SCREENSHOT_VERSIONS}`
+                                                    : `${text('tab_enhanced')} ${enhVersions.length}/${MAX_SCREENSHOT_VERSIONS}`}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
@@ -1181,25 +1254,21 @@ export const AppGenerationSection = ({
                                     </div>
 
                                     <div className="flex items-center gap-1">
-                                        {[1, 2, 3].map((v) => {
-                                            const asset = activeByVersionIndex.get(v) ?? null;
-                                            const isSelected = Boolean(asset && selectedAsset?.id === asset.id);
+                                        {orderedActiveVersions.map((asset) => {
+                                            const isSelected = selectedAsset?.id === asset.id;
                                             const key = `${slotIndex}:${primaryTab}`;
                                             return (
                                                 <button
-                                                    key={v}
+                                                    key={asset.id}
                                                     type="button"
-                                                    disabled={!asset}
-                                                    onClick={() => asset && setSlotSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
+                                                    onClick={() => setSlotSelectedAssetIdByKey((prev) => ({ ...prev, [key]: asset.id }))}
                                                     className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                                        !asset
-                                                            ? 'border-white/10 text-indigo-200/30'
-                                                            : isSelected
-                                                                ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
-                                                                : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                        isSelected
+                                                            ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                            : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
                                                     }`}
                                                 >
-                                                    v{v}
+                                                    {labelByAssetId.get(asset.id) ?? `v${asset.version_index ?? 1}`}
                                                 </button>
                                             );
                                         })}

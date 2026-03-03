@@ -23,6 +23,7 @@ import {
 } from '../fancy/text';
 import { InstantTooltip } from '../ui/InstantTooltip';
 import type { Brand, BrandFormState } from '../../types/zefgen';
+import { isNoBrand } from '../../utils/no-brand';
 
 type SidebarProps = {
     isSidebarOpen: boolean;
@@ -163,6 +164,11 @@ export const Sidebar = ({
             setActiveBrandRect(null);
             return;
         }
+        if (!container.contains(activeRow)) {
+            // No Brand lives outside the scrollable brands list; do not project list highlight for it.
+            setActiveBrandRect(null);
+            return;
+        }
 
         const containerRect = container.getBoundingClientRect();
         const rowRect = activeRow.getBoundingClientRect();
@@ -234,7 +240,14 @@ export const Sidebar = ({
         brands.forEach((b) => map.set(b.id, b));
         return map;
     }, [brands]);
-
+    const regularBrands = React.useMemo(
+        () => brands.filter((brand) => !isNoBrand(brand)),
+        [brands]
+    );
+    const noBrand = React.useMemo(
+        () => brands.find((brand) => isNoBrand(brand)) || null,
+        [brands]
+    );
     const isAccountsActive = activePage === 'accounts';
     const isIdeasActive = activePage === 'ideas';
     const tooltipCountries = React.useMemo(() => {
@@ -411,7 +424,7 @@ export const Sidebar = ({
                         />
                     ) : null}
 
-                    {!brandsLoading && !brands.length && (
+                    {!brandsLoading && !regularBrands.length && (
                         <div className="rounded-2xl border border-dashed border-indigo-900/60 p-4 text-sm text-indigo-200/70">
                             {text('no_brands_yet')}
                         </div>
@@ -419,11 +432,11 @@ export const Sidebar = ({
 
                     {isBrandReorderMode ? (
                         <SortableList
-                            ids={brands.map((b) => b.id)}
+                            ids={regularBrands.map((b) => b.id)}
                             disabled={isBusy}
                             onActiveIdChange={setBrandListDragActiveId}
                             onCommitMove={({ activeId, toIndex }) => {
-                                const targetId = brands[toIndex]?.id;
+                                const targetId = regularBrands[toIndex]?.id;
                                 if (!targetId) return;
                                 brandListLastDragAtRef.current = Date.now();
                                 reorderBrands(activeId, targetId);
@@ -468,7 +481,7 @@ export const Sidebar = ({
                             )}
                         </SortableList>
                     ) : (
-                        brands.map((brand) => {
+                        regularBrands.map((brand) => {
                             const isActive = brand.id === selectedBrandId;
                             const iconUrl = brandIconUrls[brand.id];
                             const summary =
@@ -480,6 +493,7 @@ export const Sidebar = ({
                                     iconUrl={iconUrl}
                                     summary={summary}
                                     isActive={isActive}
+                                    isNoBrand={isNoBrand(brand)}
                                     isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                     isBusy={isBusy}
                                     onBlockedAction={onBlockedAction}
@@ -510,6 +524,33 @@ export const Sidebar = ({
                     </div>
                 ) : null}
             </div>
+
+            {noBrand ? (
+                <div className="bg-slate-900 border-t border-slate-800/60 px-3 py-3">
+                    <PlainBrandRow
+                        key={noBrand.id}
+                        brand={noBrand}
+                        iconUrl={brandIconUrls[noBrand.id]}
+                        summary={brandAppSummaryByBrandId[noBrand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 }}
+                        isActive={noBrand.id === selectedBrandId}
+                        isNoBrand
+                        isLockedByOtherDevice={lockedBrandIdSet.has(noBrand.id)}
+                        isBusy={isBusy}
+                        onBlockedAction={onBlockedAction}
+                        onLockedAction={handleLockedBrandAction}
+                        onSelect={() => {
+                            setSelectedBrandId(noBrand.id);
+                            if (window.innerWidth < 768) setIsSidebarOpen(false);
+                        }}
+                        onOpenLightbox={() => {}}
+                        clampCount={clampCount}
+                        dotClass={dotClass}
+                        countTextClass={countTextClass}
+                        setRowRef={(el) => setBrandRowRef(noBrand.id, el)}
+                        text={text}
+                    />
+                </div>
+            ) : null}
 
             <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-3">
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
@@ -575,7 +616,7 @@ export const Sidebar = ({
             {showLockedBrandNotice ? (
                 <div className="bg-slate-900 px-5 pb-3">
                     <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100/90">
-                        {text('brand_locked_open_blocked')}
+                        {text('brand_under_work_readonly')}
                     </div>
                 </div>
             ) : null}
@@ -629,6 +670,7 @@ function PlainBrandRow({
     iconUrl,
     summary,
     isActive,
+    isNoBrand,
     isLockedByOtherDevice,
     isBusy,
     onBlockedAction,
@@ -645,6 +687,7 @@ function PlainBrandRow({
     iconUrl: string | undefined;
     summary: { total: number; active: number; green: number; yellow: number; red: number };
     isActive: boolean;
+    isNoBrand: boolean;
     isLockedByOtherDevice: boolean;
     isBusy: boolean;
     onBlockedAction: () => void;
@@ -657,8 +700,9 @@ function PlainBrandRow({
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
+    const effectiveIconUrl = isNoBrand ? undefined : iconUrl;
     const rowStateClass = isLockedByOtherDevice
-        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55 cursor-not-allowed'
+        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
         : isActive
           ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
           : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
@@ -669,7 +713,6 @@ function PlainBrandRow({
             onClick={() => {
                 if (isLockedByOtherDevice) {
                     onLockedAction();
-                    return;
                 }
                 if (isBusy) {
                     onBlockedAction();
@@ -683,12 +726,12 @@ function PlainBrandRow({
                 <div className="flex items-center gap-3 min-w-0">
                     <div
                         className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 shrink-0 ${
-                            iconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
+                            effectiveIconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
                         }`}
                     >
-                        {iconUrl ? (
+                        {effectiveIconUrl ? (
                             <img
-                                src={iconUrl}
+                                src={effectiveIconUrl}
                                 alt={text('icon_reference')}
                                 className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
                                 loading="lazy"
@@ -699,7 +742,7 @@ function PlainBrandRow({
                                 }}
                             />
                         ) : (
-                            <span>{brand.name.slice(0, 1).toUpperCase()}</span>
+                            <span>{isNoBrand ? text('no_brand_short') : brand.name.slice(0, 1).toUpperCase()}</span>
                         )}
                     </div>
                     <div className="min-w-0">
@@ -716,34 +759,45 @@ function PlainBrandRow({
                                 </span>
                             ) : null}
                         </div>
-                        <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
-                            /{brand.slug}
-                        </p>
+                        {!isNoBrand && (
+                            <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
+                                /{brand.slug}
+                            </p>
+                        )}
                     </div>
                 </div>
-                <div
-                    className="flex items-center gap-2 shrink-0"
-                    title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
-                >
-                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
-                        {clampCount(summary.active)}
-                    </span>
-                    <div className="flex flex-col items-end justify-center gap-0.5">
-                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                            <span className={dotClass('green', summary.green)} />
-                            <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                            <span className={dotClass('yellow', summary.yellow)} />
-                            <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                            <span className={dotClass('red', summary.red)} />
-                            <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
-                        </div>
+                {isNoBrand ? (
+                    <div className="flex items-center gap-2 shrink-0" title={`Apps: ${summary.total}`}>
+                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-100/80 tabular-nums min-w-[24px]">
+                            {clampCount(summary.total)}
+                        </span>
+                        {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
                     </div>
-                    {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
-                </div>
+                ) : (
+                    <div
+                        className="flex items-center gap-2 shrink-0"
+                        title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
+                    >
+                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
+                            {clampCount(summary.active)}
+                        </span>
+                        <div className="flex flex-col items-end justify-center gap-0.5">
+                            <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                                <span className={dotClass('green', summary.green)} />
+                                <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                                <span className={dotClass('yellow', summary.yellow)} />
+                                <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
+                                <span className={dotClass('red', summary.red)} />
+                                <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
+                            </div>
+                        </div>
+                        {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
+                    </div>
+                )}
             </div>
         </button>
     );
@@ -789,7 +843,7 @@ function SortableBrandRow({
     const isLocked = isLockedByOtherDevice;
     const { attributes, listeners, setNodeRef, style } = useSortableTile(brand.id, isBusy || isLocked);
     const rowStateClass = isLocked
-        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55 cursor-not-allowed'
+        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
         : isActive
           ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
           : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
@@ -806,7 +860,6 @@ function SortableBrandRow({
             onClick={() => {
                 if (isLocked) {
                     onLockedAction();
-                    return;
                 }
                 if (isBusy) {
                     onBlockedAction();
@@ -816,7 +869,7 @@ function SortableBrandRow({
                 onSelect();
             }}
             className={`w-full rounded-2xl px-4 py-3 text-left transition ring-1 ${
-                isLocked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'
+                isLocked ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
             } ${rowStateClass}`}
         >
             <div className="flex items-center justify-between gap-3">
