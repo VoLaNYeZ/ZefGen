@@ -3,6 +3,8 @@ import type { AppItem, Brand } from '../types/zefgen';
 import type { AppPage } from '../utils/routes';
 import { buildRoute, parseRoute } from '../utils/routes';
 
+const normalizeAlias = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+
 type RouteSyncParams = {
     dataLoading: boolean;
     hasParsedRoute: boolean;
@@ -65,8 +67,9 @@ export const useRouteSync = (params: RouteSyncParams) => {
         setSelectedBrandId(nextBrand?.id ?? null);
 
         if (nextBrand && appAlias) {
+            const targetAlias = normalizeAlias(appAlias);
             const nextApp = apps.find(
-                (app) => app.brand_id === nextBrand?.id && app.alias === appAlias
+                (app) => app.brand_id === nextBrand?.id && normalizeAlias(app.alias) === targetAlias
             );
             setSelectedAppId(nextApp?.id ?? null);
         } else {
@@ -132,8 +135,9 @@ export const useRouteSync = (params: RouteSyncParams) => {
             if (parsed.page !== 'workspace') return;
             const { brandSlug, appAlias } = parsed;
             const brandMatch = brands.find((brand) => brand.slug === brandSlug);
+            const targetAlias = normalizeAlias(appAlias);
             const appMatch = brands.length && brandMatch && appAlias
-                ? apps.find((app) => app.brand_id === brandMatch.id && app.alias === appAlias)
+                ? apps.find((app) => app.brand_id === brandMatch.id && normalizeAlias(app.alias) === targetAlias)
                 : null;
 
             setSelectedBrandId(brandMatch?.id ?? null);

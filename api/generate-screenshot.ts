@@ -4,7 +4,11 @@
 
 import Replicate from 'replicate';
 
-type ProviderId = 'replicate:nano-banana-pro' | 'replicate:seedream-4' | 'openai:gpt-image-1.5';
+type ProviderId =
+    | 'replicate:nano-banana-2'
+    | 'replicate:nano-banana-pro'
+    | 'replicate:seedream-4'
+    | 'openai:gpt-image-1.5';
 
 type GenerateScreenshotRequestBody = {
     providerId: ProviderId;
@@ -142,6 +146,75 @@ const runReplicateNanoBananaPro = async (payload: {
                 resolution: '2K',
                 output_format: 'jpg',
                 safety_filter_level: 'block_only_high',
+            },
+        });
+
+        const url = extractFirstUrl(output);
+        if (!url) {
+            throw new Error('Replicate response missing output URL.');
+        }
+
+        if (payload.responseMode === 'url') {
+            return { outputUrl: url } as const;
+        }
+
+        const imageResp = await fetch(url);
+        if (!imageResp.ok) {
+            throw new Error(`Failed to fetch Replicate output (${imageResp.status}).`);
+        }
+        const mimeType = imageResp.headers.get('content-type') || 'image/jpeg';
+        const arrayBuffer = await imageResp.arrayBuffer();
+        const b64 = Buffer.from(arrayBuffer).toString('base64');
+
+        return { mimeType, b64 } as const;
+    } catch (err: any) {
+        const message = String(err?.message || 'Replicate request failed').slice(0, 500);
+        const status =
+            Number(err?.statusCode) ||
+            Number(err?.status) ||
+            Number(err?.response?.status) ||
+            502;
+        const looksLikeInsufficientCredit =
+            status === 402 || /insufficient\s+credit/i.test(message) || /payment\s+required/i.test(message);
+        if (looksLikeInsufficientCredit) {
+            const billingUrl = 'https://replicate.com/account/billing#billing';
+            const error = new Error(
+                `Replicate: insufficient credit for this token. Check billing or token/account ownership: ${billingUrl}.`
+            );
+            (error as any).statusCode = 402;
+            throw error;
+        }
+
+        const error = new Error(message);
+        (error as any).statusCode = status;
+        throw error;
+    }
+};
+
+const runReplicateNanoBanana2 = async (payload: {
+    prompt: string;
+    simulatorImageUrl: string;
+    brandRefImageUrl: string;
+    responseMode?: 'b64' | 'url';
+}) => {
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) {
+        const error = new Error('Provider not configured');
+        (error as any).statusCode = 500;
+        throw error;
+    }
+
+    try {
+        const replicate = new Replicate({ auth: token });
+        const output = await replicate.run('google/nano-banana-2', {
+            input: {
+                prompt: payload.prompt,
+                image_input: [payload.simulatorImageUrl, payload.brandRefImageUrl],
+                aspect_ratio: 'match_input_image',
+                resolution: '2K',
+                output_format: 'jpg',
+                google_search: false,
+                image_search: false,
             },
         });
 
@@ -348,6 +421,7 @@ export default async function handler(req: any, res: any) {
 
         const providerId = parsed.providerId as ProviderId;
         if (
+            providerId !== 'replicate:nano-banana-2' &&
             providerId !== 'replicate:nano-banana-pro' &&
             providerId !== 'replicate:seedream-4' &&
             providerId !== 'openai:gpt-image-1.5'
@@ -359,7 +433,14 @@ export default async function handler(req: any, res: any) {
 
         const responseMode = parsed.responseMode === 'url' ? 'url' : 'b64';
         let result: { mimeType: string; b64: string } | { outputUrl: string };
-        if (providerId === 'replicate:nano-banana-pro') {
+        if (providerId === 'replicate:nano-banana-2') {
+            result = await runReplicateNanoBanana2({
+                prompt: parsed.prompt,
+                simulatorImageUrl: parsed.simulatorImageUrl,
+                brandRefImageUrl: parsed.brandRefImageUrl,
+                responseMode,
+            });
+        } else if (providerId === 'replicate:nano-banana-pro') {
             result = await runReplicateNanoBananaPro({
                 prompt: parsed.prompt,
                 simulatorImageUrl: parsed.simulatorImageUrl,

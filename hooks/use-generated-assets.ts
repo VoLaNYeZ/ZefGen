@@ -20,6 +20,7 @@ import {
     EDIT_FONTS,
     GENERATED_BUCKET,
     MAX_SCREENSHOT_VERSIONS,
+    NO_BRAND_ICON_SEED_PATH,
     SCREENSHOT_SIZES,
 } from '../constants/zefgen';
 import { createId } from '../utils/id';
@@ -49,6 +50,7 @@ import { updateApp } from '../data/apps';
 import { fetchScreenshotSets, createScreenshotSet, updateScreenshotSet, deleteScreenshotSet } from '../data/screenshot-sets';
 import { fetchAssetPicks, setIconPick, setScreenshotPick } from '../data/asset-picks';
 import { fetchExportStatus, upsertExportStatus } from '../data/export-status';
+import { isNoBrand } from '../utils/no-brand';
 
 type SlotMapping = {
     brandRefId: string | null;
@@ -1850,6 +1852,15 @@ export const useGeneratedAssets = ({
         return Math.max(...iconLike.map((asset) => asset.slot_index ?? 0));
     }, [selectedGeneratedAssets]);
 
+    const getNoBrandIconSeedUrl = useCallback(() => {
+        if (typeof window === 'undefined') return NO_BRAND_ICON_SEED_PATH;
+        try {
+            return new URL(NO_BRAND_ICON_SEED_PATH, window.location.origin).toString();
+        } catch {
+            return NO_BRAND_ICON_SEED_PATH;
+        }
+    }, []);
+
     const handleUploadCustomIconFiles = useCallback(
         async (files: File[]) => {
             if (!session || !selectedBrand || !selectedApp) return;
@@ -1928,7 +1939,8 @@ export const useGeneratedAssets = ({
 
     const handleGenerateIcon = async () => {
         if (!session || !selectedBrand || !selectedApp) return;
-        if (!brandIconReference) {
+        const isNoBrandMode = isNoBrand(selectedBrand);
+        if (!isNoBrandMode && !brandIconReference) {
             reportError(text('need_icon_reference'));
             return;
         }
@@ -1936,21 +1948,35 @@ export const useGeneratedAssets = ({
         setIconGenerating(true);
 
         try {
-            const iconUrl =
-                brandRefUrls[brandIconReference.id] ??
-                (await getSignedUrl(BRAND_BUCKET, brandIconReference.image_path));
+            const iconUrl = isNoBrandMode
+                ? getNoBrandIconSeedUrl()
+                : (brandRefUrls[brandIconReference!.id] ??
+                    (await getSignedUrl(BRAND_BUCKET, brandIconReference!.image_path)));
             const { effectivePrompt: iconSystemPrompt } = getIconSystemPrompt();
 
-            const basePrompt = [
-                `Create an App Store-ready iOS app icon (ready to submit).`,
-                `Use image 1 as the reference for the core motif/subject and overall composition.`,
-                `Keep the icon centered, balanced, crisp, and high quality.`,
-                `No text, no letters, no numbers, no words, no slogans.`,
-                `No watermarks, no provider marks.`,
-                `No device frame, no screenshots, no UI elements.`,
-                `Output must be a single square image at EXACTLY 1024x1024 pixels.`,
-            ].join(' ');
-            const userPrompt = String(brandIconReference.prompt ?? '').trim();
+            const basePrompt = isNoBrandMode
+                ? [
+                      `Create an App Store-ready iOS app icon (ready to submit).`,
+                      `Do not rely on brand identity or external logo references.`,
+                      `Invent an original motif from the prompt while keeping a clean, modern visual style.`,
+                      `Keep the icon centered, balanced, crisp, and high quality.`,
+                      `No text, no letters, no numbers, no words, no slogans.`,
+                      `No watermarks, no provider marks.`,
+                      `No device frame, no screenshots, no UI elements.`,
+                      `Output must be a single square image at EXACTLY 1024x1024 pixels.`,
+                  ].join(' ')
+                : [
+                      `Create an App Store-ready iOS app icon (ready to submit).`,
+                      `Use image 1 as the reference for the core motif/subject and overall composition.`,
+                      `Keep the icon centered, balanced, crisp, and high quality.`,
+                      `No text, no letters, no numbers, no words, no slogans.`,
+                      `No watermarks, no provider marks.`,
+                      `No device frame, no screenshots, no UI elements.`,
+                      `Output must be a single square image at EXACTLY 1024x1024 pixels.`,
+                  ].join(' ');
+            const userPrompt = isNoBrandMode
+                ? String(selectedApp.icon_prompt ?? '').trim()
+                : String(brandIconReference?.prompt ?? '').trim();
             const prompt = [iconSystemPrompt, basePrompt, userPrompt ? userPrompt : null]
                 .filter((value): value is string => typeof value === 'string' && value.length > 0)
                 .join('\n\n');
@@ -1976,6 +2002,8 @@ export const useGeneratedAssets = ({
             const eta =
                 iconProviderId === 'replicate:seedream-4'
                     ? 'Dream ETA ~40s'
+                    : iconProviderId === 'replicate:nano-banana-2'
+                        ? 'Nano 2 ETA ~2m'
                     : iconProviderId === 'replicate:nano-banana-pro'
                         ? 'Nano ETA ~2m'
                         : 'Giga ETA ~2m';
@@ -2080,7 +2108,8 @@ export const useGeneratedAssets = ({
 
     const handleEnhanceIconSlot = async (payload: { slotIndex: number; base: { kind: IconKind; assetId: string }; enhancePrompt: string }) => {
         if (!session || !selectedBrand || !selectedApp) return;
-        if (!brandIconReference) {
+        const isNoBrandMode = isNoBrand(selectedBrand);
+        if (!isNoBrandMode && !brandIconReference) {
             reportError(text('need_icon_reference'));
             return;
         }
@@ -2097,6 +2126,8 @@ export const useGeneratedAssets = ({
         const eta =
             iconProviderId === 'replicate:seedream-4'
                 ? 'Dream ETA ~40s'
+                : iconProviderId === 'replicate:nano-banana-2'
+                    ? 'Nano 2 ETA ~2m'
                 : iconProviderId === 'replicate:nano-banana-pro'
                     ? 'Nano ETA ~2m'
                     : 'Giga ETA ~2m';
@@ -2110,9 +2141,10 @@ export const useGeneratedAssets = ({
             }
 
             const baseImageUrl = await resolveGeneratedUrl(baseAsset);
-            const iconRefUrl =
-                brandRefUrls[brandIconReference.id] ??
-                (await getSignedUrl(BRAND_BUCKET, brandIconReference.image_path));
+            const iconRefUrl = isNoBrandMode
+                ? getNoBrandIconSeedUrl()
+                : (brandRefUrls[brandIconReference!.id] ??
+                    (await getSignedUrl(BRAND_BUCKET, brandIconReference!.image_path)));
 
             const existingEnhanced = enhancedIconSlots.find((item) => item.slotIndex === slotIndex) || null;
             const nextVersion = existingEnhanced
@@ -2120,15 +2152,25 @@ export const useGeneratedAssets = ({
                 : 1;
             const { effectivePrompt: iconSystemPrompt } = getIconSystemPrompt();
 
-            const enhanceBasePrompt = [
-                `Enhance image 1 into an App Store-ready iOS app icon (ready to submit).`,
-                `Preserve image 1 motif/subject and overall composition.`,
-                `Use image 2 only as a style/color reference (palette, lighting, finish) without changing the motif.`,
-                `No text, no letters, no numbers, no words, no slogans.`,
-                `No watermarks, no provider marks.`,
-                `Output must be EXACTLY 1024x1024 pixels.`,
-                `Keep it crisp, clean, and high quality (no blur, no artifacts).`,
-            ].join(' ');
+            const enhanceBasePrompt = isNoBrandMode
+                ? [
+                      `Enhance image 1 into an App Store-ready iOS app icon (ready to submit).`,
+                      `Preserve image 1 motif/subject and overall composition.`,
+                      `Refine quality, contrast, shape clarity, and finish while keeping originality.`,
+                      `No text, no letters, no numbers, no words, no slogans.`,
+                      `No watermarks, no provider marks.`,
+                      `Output must be EXACTLY 1024x1024 pixels.`,
+                      `Keep it crisp, clean, and high quality (no blur, no artifacts).`,
+                  ].join(' ')
+                : [
+                      `Enhance image 1 into an App Store-ready iOS app icon (ready to submit).`,
+                      `Preserve image 1 motif/subject and overall composition.`,
+                      `Use image 2 only as a style/color reference (palette, lighting, finish) without changing the motif.`,
+                      `No text, no letters, no numbers, no words, no slogans.`,
+                      `No watermarks, no provider marks.`,
+                      `Output must be EXACTLY 1024x1024 pixels.`,
+                      `Keep it crisp, clean, and high quality (no blur, no artifacts).`,
+                  ].join(' ');
             const extra = String(enhancePrompt || '').trim();
             const prompt = [iconSystemPrompt, enhanceBasePrompt, extra ? extra : null]
                 .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -2673,6 +2715,8 @@ export const useGeneratedAssets = ({
         const eta =
             screenshotProviderId === 'replicate:seedream-4'
                 ? 'ETA ~40s'
+                : screenshotProviderId === 'replicate:nano-banana-2'
+                    ? 'ETA ~2m'
                 : screenshotProviderId === 'replicate:nano-banana-pro'
                     ? 'ETA ~2m'
                     : 'ETA ~2m';
@@ -2717,6 +2761,8 @@ export const useGeneratedAssets = ({
         const eta =
             screenshotProviderId === 'replicate:seedream-4'
                 ? 'ETA ~40s'
+                : screenshotProviderId === 'replicate:nano-banana-2'
+                    ? 'ETA ~2m'
                 : screenshotProviderId === 'replicate:nano-banana-pro'
                     ? 'ETA ~2m'
                     : 'ETA ~2m';
@@ -2761,6 +2807,8 @@ export const useGeneratedAssets = ({
         const eta =
             screenshotProviderId === 'replicate:seedream-4'
                 ? 'Dream ~40s/slot'
+                : screenshotProviderId === 'replicate:nano-banana-2'
+                    ? 'Nano 2 ~2m/slot'
                 : screenshotProviderId === 'replicate:nano-banana-pro'
                     ? 'Nano ~2m/slot'
                     : 'Giga ~2m/slot';
@@ -2808,7 +2856,11 @@ export const useGeneratedAssets = ({
     const slotsToCreate = Array.from({ length: targetSlotCount }, (_, index) => index + 1).filter(
         (slotIndex) => !generatedScreenshotSlots.some((slot) => slot.slotIndex === slotIndex)
     );
-    const canGenerateIcon = Boolean(selectedApp && selectedBrand && brandIconReference);
+    const canGenerateIcon = Boolean(
+        selectedApp &&
+            selectedBrand &&
+            (isNoBrand(selectedBrand) || brandIconReference)
+    );
     const canGenerateScreenshots = Boolean(selectedApp && selectedBrand);
 
     const slotPromptBySlotIndex = useMemo(() => {

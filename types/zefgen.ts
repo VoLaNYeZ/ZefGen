@@ -3,6 +3,7 @@ export type Brand = {
     name: string;
     slug: string;
     order_index?: number | null;
+    is_no_brand?: boolean | null;
     target_countries?: string[] | null;
     keywords?: string | null;
     release_strategy_notes?: string | null;
@@ -16,6 +17,7 @@ export type AppItem = {
     brand_id: string;
     name: string;
     alias: string;
+    icon_prompt?: string | null;
     github_repo_url?: string | null;
     github_repo_full_name?: string | null;
     github_repo_created_at?: string | null;
@@ -204,6 +206,7 @@ export type BrandLockResult = {
 
 // Client-side generation provider selector (internal; no DB impact).
 export type ScreenshotProviderId =
+    | 'replicate:nano-banana-2'
     | 'replicate:nano-banana-pro'
     | 'replicate:seedream-4'
     | 'openai:gpt-image-1.5';
