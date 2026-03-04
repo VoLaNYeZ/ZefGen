@@ -170,6 +170,7 @@ export type AppIdea = {
     id: string;
     user_id?: string;
     category_id: string;
+    title: string;
     description: string;
     updated_at?: string;
     created_at?: string;

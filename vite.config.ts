@@ -92,6 +92,7 @@ export default defineConfig(({ mode }) => {
 
       wire('/api/generate-screenshot', './api/generate-screenshot');
       wire('/api/generate-appstore-description', './api/generate-appstore-description');
+      wire('/api/generate-icon-prompt', './api/generate-icon-prompt');
       wire('/api/create-github-repo', './api/create-github-repo');
       wire('/api/delete-github-repo', './api/delete-github-repo');
       wire('/api/provider-status', './api/provider-status');

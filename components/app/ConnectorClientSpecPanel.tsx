@@ -11,6 +11,8 @@ const formatIdeaPreview = (description: string) => {
     return `${words.slice(0, 10).join(' ')}...`;
 };
 
+const normalize = (value: unknown) => String(value ?? '').trim();
+
 export function ConnectorClientSpecPanel(props: {
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     isEnabled: boolean;
@@ -86,12 +88,22 @@ export function ConnectorClientSpecPanel(props: {
         const idea = ideasById.get(nextIdeaId);
         if (!idea) return;
         setIdeaApplyBusy(true);
-        connectorForm.setProjectBrief(String(idea.description || ''));
+        const ideaDescription = String(idea.description || '');
+        const ideaTitle = normalize((idea as any).title);
+        const nextVariables = { ...(connectorForm.variables || {}) } as Record<string, any>;
+        if (ideaTitle) {
+            nextVariables.appstore_name = ideaTitle;
+            nextVariables.app_new_name = ideaTitle;
+            nextVariables.home_screen_name = ideaTitle;
+            connectorForm.setVariables(nextVariables);
+        }
+        connectorForm.setProjectBrief(ideaDescription);
         connectorForm.setIdeaId(idea.id);
         try {
             await connectorForm.savePatch({
-                project_brief: String(idea.description || ''),
+                project_brief: ideaDescription,
                 idea_id: idea.id,
+                ...(ideaTitle ? { variables: nextVariables } : {}),
             });
         } finally {
             setIdeaApplyBusy(false);
@@ -156,7 +168,11 @@ export function ConnectorClientSpecPanel(props: {
                                     const n = ideaIndexById.get(idea.id) ?? null;
                                     const category = ideaCategoryById.get(idea.category_id);
                                     const categoryName = category?.name || '';
-                                    const label = `#${n ?? '—'} · ${formatIdeaPreview(idea.description)}`;
+                                    const title = normalize((idea as any).title);
+                                    const preview = formatIdeaPreview(idea.description);
+                                    const label = title
+                                        ? `#${n ?? '—'} · ${title} — ${preview}`
+                                        : `#${n ?? '—'} · ${preview}`;
                                     return (
                                         <option key={idea.id} value={idea.id} title={`${label}${categoryName ? ` · ${categoryName}` : ''}`}>
                                             {label}

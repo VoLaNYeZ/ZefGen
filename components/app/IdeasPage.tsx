@@ -46,7 +46,7 @@ export function IdeasPage(props: {
     const [rowBusyById, setRowBusyById] = React.useState<Record<string, boolean>>({});
     const [rowErrorById, setRowErrorById] = React.useState<Record<string, string | null>>({});
     const [rowSavedById, setRowSavedById] = React.useState<Record<string, boolean>>({});
-    const [newDraft, setNewDraft] = React.useState<{ category_id: string; description: string } | null>(null);
+    const [newDraft, setNewDraft] = React.useState<{ category_id: string; title: string; description: string } | null>(null);
     const [newBusy, setNewBusy] = React.useState(false);
     const [newError, setNewError] = React.useState<string | null>(null);
     const [newRowScrollNonce, setNewRowScrollNonce] = React.useState(0);
@@ -130,6 +130,7 @@ export function IdeasPage(props: {
     const isDirty = React.useCallback((idea: AppIdea, draft: Draft) => {
         const keys: Array<keyof Omit<AppIdea, 'id' | 'user_id' | 'updated_at' | 'created_at'>> = [
             'category_id',
+            'title',
             'description',
         ];
         return keys.some((key) => {
@@ -145,6 +146,7 @@ export function IdeasPage(props: {
 
             const patch = {
                 category_id: normalize(draft.category_id ?? idea.category_id),
+                title: normalize(draft.title ?? idea.title),
                 description: normalize(draft.description ?? idea.description),
             };
 
@@ -197,6 +199,7 @@ export function IdeasPage(props: {
             if (prev) return prev;
             return {
                 category_id: categories[0]?.id || '',
+                title: '',
                 description: '',
             };
         });
@@ -228,6 +231,7 @@ export function IdeasPage(props: {
             const created = await createIdea({
                 row: {
                     category_id: categoryId,
+                    title: normalize(newDraft.title),
                     description: normalize(newDraft.description),
                 },
             });
@@ -280,10 +284,11 @@ export function IdeasPage(props: {
             const draft = draftById[idea.id] || {};
             const categoryId = normalize(draft.category_id ?? idea.category_id);
             const category = categoryById.get(categoryId);
+            const title = normalize(draft.title ?? idea.title);
             const description = normalize(draft.description ?? idea.description);
             const applied = appliedAppsByIdeaId.get(idea.id) || [];
             const appliedSearch = applied.map((item) => `${item.alias} ${item.name}`).join(' ');
-            const hay = [category?.name, description, appliedSearch].filter(Boolean).join(' ').toLowerCase();
+            const hay = [category?.name, title, description, appliedSearch].filter(Boolean).join(' ').toLowerCase();
             return hay.includes(q);
         });
     }, [ideas, search, draftById, categoryById, appliedAppsByIdeaId]);
@@ -291,6 +296,8 @@ export function IdeasPage(props: {
     const anyBusy = loading || newBusy || Object.values(rowBusyById).some(Boolean);
     const searchInput =
         'h-9 w-full rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60';
+    const cellInput =
+        'h-10 w-full bg-transparent px-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 disabled:opacity-60';
     const cellTextarea =
         'h-10 w-full resize-none bg-transparent px-3 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 disabled:opacity-60';
     const cellSelect =
@@ -299,7 +306,7 @@ export function IdeasPage(props: {
         'min-w-0 focus-within:bg-slate-950/20 focus-within:ring-1 focus-within:ring-inset focus-within:ring-indigo-400/25';
     const gridStyle = React.useMemo<React.CSSProperties>(
         () => ({
-            gridTemplateColumns: '48px 220px minmax(0,1fr) 220px 104px',
+            gridTemplateColumns: '48px 180px 220px minmax(0,1fr) 220px 104px',
         }),
         []
     );
@@ -356,7 +363,7 @@ export function IdeasPage(props: {
                 </div>
 
                 <div className="border-t border-white/10 overflow-x-auto">
-                    <div className="min-w-[980px]">
+                    <div className="min-w-[1160px]">
                         <div
                             className="sticky top-0 z-10 grid divide-x divide-white/5 border-b border-white/10 bg-slate-950/50 backdrop-blur"
                             style={gridStyle}
@@ -366,6 +373,9 @@ export function IdeasPage(props: {
                             </div>
                             <div className="flex items-center px-3 py-2 text-[10px] font-semibold tracking-[0.12em] text-indigo-200/55">
                                 {text('ideas_category')}
+                            </div>
+                            <div className="flex items-center px-3 py-2 text-[10px] font-semibold tracking-[0.12em] text-indigo-200/55">
+                                {text('ideas_name')}
                             </div>
                             <div className="flex items-center px-3 py-2 text-[10px] font-semibold tracking-[0.12em] text-indigo-200/55">
                                 {text('ideas_description')}
@@ -424,6 +434,15 @@ export function IdeasPage(props: {
                                                 ))}
                                             </select>
                                             {rowError ? <div className="px-3 pb-2 text-[10px] text-rose-200/90">{rowError}</div> : null}
+                                        </div>
+                                        <div className={cellBox}>
+                                            <input
+                                                value={String(field('title') ?? '')}
+                                                onChange={(e) => setDraftField(idea.id, { title: e.target.value })}
+                                                onKeyDown={(e) => onExistingCellKeyDown(e, idea)}
+                                                disabled={busy}
+                                                className={cellInput}
+                                            />
                                         </div>
                                         <div className={cellBox}>
                                             <textarea
@@ -503,6 +522,15 @@ export function IdeasPage(props: {
                                             ))}
                                         </select>
                                         {newError ? <div className="px-3 pb-2 text-[10px] text-rose-200/90">{newError}</div> : null}
+                                    </div>
+                                    <div className={cellBox}>
+                                        <input
+                                            value={newDraft.title}
+                                            onChange={(e) => setNewDraft((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+                                            onKeyDown={onNewCellKeyDown}
+                                            disabled={newBusy}
+                                            className={cellInput}
+                                        />
                                     </div>
                                     <div className={cellBox}>
                                         <textarea
