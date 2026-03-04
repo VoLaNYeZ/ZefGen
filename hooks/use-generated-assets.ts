@@ -2385,7 +2385,7 @@ export const useGeneratedAssets = ({
         }
 
         const mapping = getSlotMapping(slotIndex);
-        const brandRefId = mapping.brandRefId;
+        const effectiveBrandRefId = isNoBrand(selectedBrand) ? null : mapping.brandRefId;
         const simShotId = mapping.simShotId;
         if (!simShotId) {
             throw new Error(text('select_sim_screenshot'));
@@ -2405,15 +2405,15 @@ export const useGeneratedAssets = ({
 
         let brandRefImageUrl = simulatorImageUrl;
         let userPrompt = '';
-        if (brandRefId) {
-            const brandRef = brandScreenshotReferences.find((ref) => ref.id === brandRefId) ?? null;
+        if (effectiveBrandRefId) {
+            const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
             if (!brandRef) {
                 throw new Error(text('select_brand_reference'));
             }
             brandRefImageUrl =
                 brandRefUrls[brandRef.id] ??
                 (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
-            userPrompt = (promptsByRefId[brandRef.id] ?? '').trim();
+            userPrompt = (promptsByRefId[effectiveBrandRefId] ?? '').trim();
         } else {
             const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
             userPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
@@ -2434,7 +2434,7 @@ export const useGeneratedAssets = ({
         const { effectivePrompt: basePrompt } = getSystemPromptForSlot(slotIndex, 'generate');
         const prompt = [
             basePrompt,
-            !brandRefId ? noReferenceClause : null,
+            !effectiveBrandRefId ? noReferenceClause : null,
             userPrompt ? userPrompt : null,
         ]
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -2442,8 +2442,8 @@ export const useGeneratedAssets = ({
 
         // For screenshot generation, reference should drive composition/ratio (image 1),
         // while simulator should drive app UI content (image 2).
-        const image1 = brandRefId ? brandRefImageUrl : simulatorImageUrl;
-        const image2 = brandRefId ? simulatorImageUrl : brandRefImageUrl;
+        const image1 = effectiveBrandRefId ? brandRefImageUrl : simulatorImageUrl;
+        const image2 = effectiveBrandRefId ? simulatorImageUrl : brandRefImageUrl;
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
@@ -2564,7 +2564,7 @@ export const useGeneratedAssets = ({
         const { slotIndex, base, enhancePrompt } = payload;
 
         const mapping = getSlotMapping(slotIndex);
-        const brandRefId = mapping.brandRefId;
+        const effectiveBrandRefId = isNoBrand(selectedBrand) ? null : mapping.brandRefId;
 
         const baseAsset = selectedGeneratedAssets.find((asset) => asset.id === base.assetId) || null;
         if (!baseAsset || (baseAsset.kind !== 'screenshot' && baseAsset.kind !== 'screenshot_enhanced')) {
@@ -2589,8 +2589,8 @@ export const useGeneratedAssets = ({
             `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
 
         let brandRefImageUrl = baseImageUrl;
-        if (brandRefId) {
-            const brandRef = brandScreenshotReferences.find((ref) => ref.id === brandRefId) ?? null;
+        if (effectiveBrandRefId) {
+            const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
             if (!brandRef) {
                 throw new Error(text('select_brand_reference'));
             }
@@ -2603,7 +2603,7 @@ export const useGeneratedAssets = ({
         const extra = String(enhancePrompt || '').trim();
         const prompt = [
             enhanceBasePrompt,
-            !brandRefId ? noReferenceClause : null,
+            !effectiveBrandRefId ? noReferenceClause : null,
             extra ? extra : null,
         ]
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -2611,8 +2611,8 @@ export const useGeneratedAssets = ({
 
         // For screenshot enhance, keep the same image contract as generation:
         // image 1 = composition reference, image 2 = app UI source.
-        const image1 = brandRefId ? brandRefImageUrl : baseImageUrl;
-        const image2 = brandRefId ? baseImageUrl : brandRefImageUrl;
+        const image1 = effectiveBrandRefId ? brandRefImageUrl : baseImageUrl;
+        const image2 = effectiveBrandRefId ? baseImageUrl : brandRefImageUrl;
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,

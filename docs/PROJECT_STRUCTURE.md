@@ -10,7 +10,7 @@ Ideas are stored in Supabase (`app_ideas`) with fixed categories in `app_idea_ca
 Canonical App Store links are stored on `apps.appstore_url` and edited from the workspace App Store row.
 Workspace collaboration presence + brand locks are stored in Supabase (`workspace_sessions`) and mediated via `/api/workspace-sessions`.
 Hybrid lock UX is enabled by default: busy brands can be opened in view-only mode and require explicit “Start editing” claim before writes.
-`No Brand` is a system-managed workspace bucket (real brand row) rendered as a separate fixed sidebar section above Accounts/Ideas.
+`No Brand` is a system-managed workspace bucket (real brand row) rendered as a separate fixed sidebar section above Accounts/Ideas, with a dedicated slate/cyan visual style to distinguish it from regular brands.
 App aliases are globally unique per user (case-insensitive) via `public.apps (user_id, lower(alias))`.
 
 ## Top-Level Files
@@ -48,7 +48,7 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 
 ## components/app Breakdown
 - `components/app/AppShell.tsx` - Main authenticated UI state + orchestration (including collaboration hook wiring, hybrid soft-lock read-only mode, explicit lock-claim CTA, write guards, and No Brand Step 11 move-to-brand flow).
-- `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices (locked brands remain openable in view mode). Renders No Brand as a dedicated fixed system card (outside reorderable list).
+- `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices (locked brands remain openable in view mode). Renders No Brand as a dedicated fixed system card (outside reorderable list) with its own slate/cyan palette.
 - `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes) with read-only write guards.
 - `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand (read-only aware for upload/delete/reorder).
 - `components/app/CountryMultiSelect.tsx` - Multi-select dropdown used for Target countries.
@@ -56,7 +56,7 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
 - `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 6 in the AppFolder), read-only aware.
-- `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots), read-only aware. In No Brand mode icon prompt is app-level (`apps.icon_prompt`) and does not require brand icon reference.
+- `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots), read-only aware. In No Brand mode icon prompt is app-level (`apps.icon_prompt`) and does not require brand icon reference; screenshot slots run in strict reference-free mode (no brand-reference selector).
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command), read-only aware.
 - `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries), read-only aware.
@@ -150,6 +150,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/app-ideas.ts` - Ideas/categories CRUD (`app_ideas`, `app_idea_categories`).
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
 - `data/connector-legal-links.ts` - Legal links precheck/fingerprint + Edge Function invoke (`generate-legal-links`).
+- `data/appstore-description.ts` - App Store description generation API client (`/api/generate-appstore-description`) with auth refresh/retry.
 - `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
 - `data/appstore-accounts.ts` - App Store accounts pool CRUD (`appstore_accounts`).
@@ -162,6 +163,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Retention cleanup is best-effort per request: deletes caller-owned rows older than 48h past expiry.
 - `api/provider-status.ts` - Environment/provider diagnostics endpoint.
 - `api/generate-screenshot.ts` - Server-side screenshot generation proxy.
+- `api/generate-appstore-description.ts` - Server-side App Store description generator (OpenAI-backed, bearer-protected).
 - `api/create-github-repo.ts` - GitHub repository creation endpoint.
 - `api/delete-github-repo.ts` - GitHub repository deletion endpoint.
 
@@ -190,6 +192,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Screenshot generation/enhancement is scoped to the currently selected set.
 - Slot mappings + prompts:
   - Slot source mapping (simulator screenshot + optional brand reference) is stored in `localStorage` per app: `zefgen.slotMappings.<appId>`.
+  - In No Brand mode, `brandRefId` is always forced to `null` and ignored by generation even if stale legacy values exist in localStorage/DB prompts.
   - Users can select “No reference” per slot (persisted as `brandRefId: null`). Generation still works by reusing image 1 as image 2 and instructing the provider to ignore image 2.
   - When “No reference” is selected, the per-slot prompt is stored in `localStorage` per app + set + slot: `zefgen.slotPrompt.<appId>.<setId>.<slotIndex>`.
 - Slot system prompts:
@@ -289,6 +292,27 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - Form is published and accepting responses.
 - On failure after partial file creation, function does best-effort cleanup by moving created Google files to trash.
 
+### Parallel App Store Description Generation (Step 3)
+- Trigger: same Step 3 button (`Generate links` / `Regenerate links`) now runs two tasks in parallel:
+  - legal links generation (Supabase Edge Function);
+  - App Store description generation (Vercel API).
+- Description endpoint: `POST /api/generate-appstore-description` (`api/generate-appstore-description.ts`).
+- Auth model for endpoint: `Authorization: Bearer <supabase_access_token>` verified via Supabase `/auth/v1/user`.
+- Data layer client: `data/appstore-description.ts`.
+- Hook integration: `hooks/use-connector-config-form.ts` adds:
+  - `generateDescriptionBusy`
+  - `regenerateAppstoreDescription(...)`
+- Storage target: generated text is saved into `connector_app_configs.variables.appstore_description`.
+- Short-spec rule:
+  - If `project_brief` (`Client spec`) has fewer than 100 chars, description generation returns `skipped_short_spec`.
+  - This does not block legal links generation.
+- Prompting:
+  - 5 in-code prompt templates.
+  - One template is selected randomly per run (uniform distribution).
+- Field-level actions (Step 3 Variables):
+  - `appstore_description` has `Regenerate` (description-only) and `Copy`.
+  - `Regenerate` is disabled when `Client spec < 100`.
+
 ### Where support form responses go
 - Responses are stored in Google Forms (Google account context), not in Supabase.
 - Supabase stores only generated URLs + generation run history.
@@ -310,6 +334,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 
 ## Generation Providers (Prod)
 - `api/generate-screenshot.ts` runs server-side on Vercel so provider keys are never exposed to the client.
+- `api/generate-appstore-description.ts` runs server-side on Vercel for text generation.
 - Replicate:
   - Requires `REPLICATE_API_TOKEN` in the prod environment.
   - Supported models in this app:
@@ -319,6 +344,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - If the token/account has insufficient credit, Replicate responds with 402 and the UI surfaces a billing/token ownership hint.
 - OpenAI:
   - Requires `OPENAI_API_KEY` in the prod environment.
+  - Optional model override for appstore descriptions: `OPENAI_APPSTORE_MODEL` (default: `gpt-5-mini`).
 
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).
@@ -333,6 +359,6 @@ Data flow: UI component → hook → data layer → Supabase.
 
 ## Local Dev Notes
 - `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
-- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `create-github-repo`, `delete-github-repo`, `workspace-sessions`) so you can iterate without `vercel dev`.
+- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `generate-appstore-description`, `create-github-repo`, `delete-github-repo`, `workspace-sessions`) so you can iterate without `vercel dev`.
 - The local middleware also exposes `GET /api/provider-status` for quick env diagnostics.
 - To run the full Vercel routing layer locally (for `/api/*` + rewrites), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.

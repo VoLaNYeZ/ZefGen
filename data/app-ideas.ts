@@ -1,8 +1,9 @@
 import { supabase } from '../lib/supabase';
-import type { AppIdea } from '../types/zefgen';
+import type { AppIdea, IdeaAppAssignment } from '../types/zefgen';
 
 const IDEA_SELECT = 'id, user_id, category_id, description, updated_at, created_at';
 const CATEGORY_SELECT = 'id, slug, name, order_index, created_at';
+const IDEA_ASSIGNMENT_SELECT = 'app_id, idea_id';
 
 export const fetchIdeaCategories = async () =>
     supabase
@@ -17,6 +18,14 @@ export const fetchAppIdeas = async (userId: string) =>
         .select(IDEA_SELECT)
         .eq('user_id', userId)
         .order('created_at', { ascending: true });
+
+export const fetchIdeaAssignments = async (userId: string) =>
+    supabase
+        .from('connector_app_configs')
+        .select(IDEA_ASSIGNMENT_SELECT)
+        .eq('user_id', userId)
+        .not('idea_id', 'is', null)
+        .returns<IdeaAppAssignment[]>();
 
 export const createAppIdea = async (payload: {
     userId: string;

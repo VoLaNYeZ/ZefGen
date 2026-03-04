@@ -335,6 +335,7 @@ export function AppShell({ session }: AppShellProps) {
     const {
         categories: appIdeaCategories,
         ideas: appIdeas,
+        ideaAssignments: appIdeaAssignments,
         loading: appIdeasLoading,
         error: appIdeasError,
         refresh: refreshAppIdeas,
@@ -345,6 +346,11 @@ export function AppShell({ session }: AppShellProps) {
         session,
         onDataError: setDataError,
     });
+
+    useEffect(() => {
+        if (activePage !== 'ideas') return;
+        void refreshAppIdeas();
+    }, [activePage, refreshAppIdeas]);
 
     const brandAppSummaryByBrandId = useMemo(() => {
         const byBrand: Record<
@@ -511,9 +517,10 @@ export function AppShell({ session }: AppShellProps) {
         const stored = (slotMappings as Record<number, Partial<{ brandRefId: string | null; simShotId: string | null }>>)[slotIndex] || {};
         const hasBrandRefId = Object.prototype.hasOwnProperty.call(stored, 'brandRefId');
         const hasSimShotId = Object.prototype.hasOwnProperty.call(stored, 'simShotId');
+        const resolvedBrandRefId = hasBrandRefId ? (stored.brandRefId ?? null) : brandScreenshotReferences[slotIndex - 1]?.id ?? null;
         return {
             // Important: allow explicit null (stored value) to persist. Only fallback when the key is missing.
-            brandRefId: hasBrandRefId ? (stored.brandRefId ?? null) : brandScreenshotReferences[slotIndex - 1]?.id ?? null,
+            brandRefId: isNoBrandMode ? null : resolvedBrandRefId,
             simShotId: hasSimShotId ? (stored.simShotId ?? null) : selectedAppScreenshots[slotIndex - 1]?.id ?? null,
         };
     };
@@ -521,9 +528,10 @@ export function AppShell({ session }: AppShellProps) {
         slotIndex: number,
         patch: { brandRefId?: string | null; simShotId?: string | null }
     ) => {
+        const normalizedPatch = isNoBrandMode ? { ...patch, brandRefId: null } : patch;
         setSlotMappings((prev) => ({
             ...prev,
-            [slotIndex]: { ...prev[slotIndex], ...patch },
+            [slotIndex]: { ...prev[slotIndex], ...normalizedPatch },
         }));
     };
 
@@ -1468,8 +1476,11 @@ export function AppShell({ session }: AppShellProps) {
     const step8Done = connectorEnabled && targetSlotCount > 0 && selectedAppScreenshots.length >= targetSlotCount;
     const step9HasPrompt = useMemo(() => {
         if (!connectorEnabled) return false;
+        if (isNoBrandMode) {
+            return Object.values(slotPromptBySlotIndex || {}).some((value) => String(value || '').trim().length > 0);
+        }
         return (brandScreenshotReferences || []).some((ref) => String((promptsByRefId as any)?.[ref.id] || '').trim().length > 0);
-    }, [connectorEnabled, brandScreenshotReferences, promptsByRefId]);
+    }, [connectorEnabled, isNoBrandMode, slotPromptBySlotIndex, brandScreenshotReferences, promptsByRefId]);
     const step9HasAnyGenerated = connectorEnabled && (generatedScreenshotSlots.length > 0 || enhancedScreenshotSlots.length > 0);
     const step9Done = step9HasPrompt || step9HasAnyGenerated;
     const step10Done = connectorEnabled && Boolean(exportStatus?.is_completed);
@@ -2398,6 +2409,8 @@ export function AppShell({ session }: AppShellProps) {
                                 <IdeasPage
                                     ideas={appIdeas}
                                     categories={appIdeaCategories}
+                                    ideaAssignments={appIdeaAssignments}
+                                    apps={apps}
                                     loading={appIdeasLoading}
                                     error={appIdeasError}
                                     refresh={refreshAppIdeas}
