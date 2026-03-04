@@ -175,6 +175,11 @@ export type AppIdea = {
     created_at?: string;
 };
 
+export type IdeaAppAssignment = {
+    app_id: string;
+    idea_id: string;
+};
+
 export type BrandFormState = {
     name: string;
 };

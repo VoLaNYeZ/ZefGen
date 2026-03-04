@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import type { AppIdea, AppIdeaCategory } from '../types/zefgen';
+import type { AppIdea, AppIdeaCategory, IdeaAppAssignment } from '../types/zefgen';
 import {
     createAppIdea,
     deleteAppIdea,
     fetchAppIdeas,
+    fetchIdeaAssignments,
     fetchIdeaCategories,
     updateAppIdea,
 } from '../data/app-ideas';
@@ -17,6 +18,7 @@ export const useAppIdeas = (payload: {
 
     const [categories, setCategories] = useState<AppIdeaCategory[]>([]);
     const [ideas, setIdeas] = useState<AppIdea[]>([]);
+    const [ideaAssignments, setIdeaAssignments] = useState<IdeaAppAssignment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const lastUserIdRef = useRef<string | null>(null);
@@ -25,6 +27,7 @@ export const useAppIdeas = (payload: {
         if (!session) {
             setIdeas([]);
             setCategories([]);
+            setIdeaAssignments([]);
             setLoading(false);
             setError(null);
             lastUserIdRef.current = null;
@@ -34,9 +37,10 @@ export const useAppIdeas = (payload: {
         setLoading(true);
         setError(null);
 
-        const [categoriesResp, ideasResp] = await Promise.all([
+        const [categoriesResp, ideasResp, assignmentsResp] = await Promise.all([
             fetchIdeaCategories(),
             fetchAppIdeas(session.user.id),
+            fetchIdeaAssignments(session.user.id),
         ]);
 
         if (categoriesResp.error) {
@@ -53,8 +57,16 @@ export const useAppIdeas = (payload: {
             return;
         }
 
+        if (assignmentsResp.error) {
+            setError(assignmentsResp.error.message);
+            onDataError?.(assignmentsResp.error.message);
+            setLoading(false);
+            return;
+        }
+
         setCategories(categoriesResp.data || []);
         setIdeas(ideasResp.data || []);
+        setIdeaAssignments(assignmentsResp.data || []);
         lastUserIdRef.current = session.user.id;
         setLoading(false);
     }, [session, onDataError]);
@@ -63,6 +75,7 @@ export const useAppIdeas = (payload: {
         if (!session) {
             setIdeas([]);
             setCategories([]);
+            setIdeaAssignments([]);
             setLoading(false);
             setError(null);
             lastUserIdRef.current = null;
@@ -118,6 +131,7 @@ export const useAppIdeas = (payload: {
             const { error } = await deleteAppIdea({ userId: session.user.id, id: args.id });
             if (error) throw error;
             setIdeas((prev) => prev.filter((idea) => idea.id !== args.id));
+            setIdeaAssignments((prev) => prev.filter((row) => row.idea_id !== args.id));
         },
         [session]
     );
@@ -125,6 +139,7 @@ export const useAppIdeas = (payload: {
     return {
         categories,
         ideas,
+        ideaAssignments,
         loading,
         error,
         refresh,

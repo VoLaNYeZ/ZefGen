@@ -210,6 +210,14 @@ body {
   background: #64748b;
 }
 
+/* Native select popup contrast fix (notably Windows/Chromium):
+   keep dropdown menu options readable even when select control text uses light colors. */
+select option,
+select optgroup {
+  color: rgb(15 23 42);
+  background-color: rgb(248 250 252);
+}
+
 /* Overview desktop tweaks */
 .overview-filter {
   min-width: 170px;

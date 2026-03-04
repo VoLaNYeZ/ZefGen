@@ -526,7 +526,7 @@ export const Sidebar = ({
             </div>
 
             {noBrand ? (
-                <div className="bg-slate-900 border-t border-slate-800/60 px-3 py-3">
+                <div className="border-t border-cyan-400/20 bg-gradient-to-b from-cyan-950/35 to-slate-900 px-3 py-3">
                     <PlainBrandRow
                         key={noBrand.id}
                         brand={noBrand}
@@ -701,11 +701,17 @@ function PlainBrandRow({
     text: (key: TranslationKey) => string;
 }) {
     const effectiveIconUrl = isNoBrand ? undefined : iconUrl;
-    const rowStateClass = isLockedByOtherDevice
-        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
-        : isActive
-          ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
-          : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
+    const rowStateClass = isNoBrand
+        ? isLockedByOtherDevice
+            ? 'ring-cyan-200/10 bg-cyan-950/20 text-cyan-100/70 opacity-55'
+            : isActive
+              ? 'ring-cyan-300/35 bg-cyan-500/[0.10] text-cyan-50 shadow-[0_16px_44px_-30px_rgba(34,211,238,0.8)]'
+              : 'ring-cyan-300/45 bg-gradient-to-r from-cyan-950/40 to-slate-900/90 text-cyan-50 shadow-[0_14px_34px_-28px_rgba(34,211,238,0.75)] hover:from-cyan-950/55 hover:to-slate-900'
+        : isLockedByOtherDevice
+          ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
+          : isActive
+            ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
+            : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
 
     return (
         <button
@@ -725,8 +731,16 @@ function PlainBrandRow({
             <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                     <div
-                        className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 shrink-0 ${
-                            effectiveIconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
+                        className={`h-9 w-9 overflow-hidden rounded-[12px] flex items-center justify-center text-[11px] shrink-0 ${
+                            isNoBrand
+                                ? 'bg-cyan-950/45 text-cyan-100/85'
+                                : 'bg-slate-800/35 text-indigo-200/70'
+                        } ${
+                            effectiveIconUrl
+                                ? 'border border-transparent'
+                                : isNoBrand
+                                  ? 'border border-cyan-300/25'
+                                  : 'border border-indigo-400/20'
                         }`}
                     >
                         {effectiveIconUrl ? (
@@ -748,7 +762,9 @@ function PlainBrandRow({
                     <div className="min-w-0">
                         <div className="flex items-start justify-between gap-2">
                             <p
-                                className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
+                                className={`font-semibold whitespace-nowrap overflow-hidden text-ellipsis truncate ${
+                                    isNoBrand ? 'text-cyan-50' : 'text-white'
+                                }`}
                                 title={brand.name}
                             >
                                 {brand.name}
@@ -768,10 +784,10 @@ function PlainBrandRow({
                 </div>
                 {isNoBrand ? (
                     <div className="flex items-center gap-2 shrink-0" title={`Apps: ${summary.total}`}>
-                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-100/80 tabular-nums min-w-[24px]">
+                        <span className="inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-950/35 px-2 py-0.5 text-[10px] font-semibold text-cyan-100/85 tabular-nums min-w-[24px]">
                             {clampCount(summary.total)}
                         </span>
-                        {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
+                        {isActive && <ArrowUpRight size={16} className="text-cyan-200" />}
                     </div>
                 ) : (
                     <div
