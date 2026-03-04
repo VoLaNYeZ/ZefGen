@@ -938,13 +938,18 @@ export const AppGenerationSection = ({
                             </div>
                         </div>
                     </div>
+                    {isNoBrandMode ? (
+                        <p className="rounded-lg border border-cyan-300/25 bg-cyan-950/20 px-2.5 py-1.5 text-[10px] text-cyan-100/80">
+                            {text('no_brand_screenshot_mode_hint')}
+                        </p>
+                    ) : null}
 
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
                             const mapping = getSlotMapping(slotIndex);
                             const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
                             const atLimit = versions.length >= MAX_SCREENSHOT_VERSIONS;
-                            const promptRefId = mapping.brandRefId;
+                            const promptRefId = isNoBrandMode ? null : mapping.brandRefId;
 
                             return (
                                 <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-2.5 space-y-2">
@@ -955,24 +960,28 @@ export const AppGenerationSection = ({
                                         </span>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className={`grid gap-2 ${isNoBrandMode ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                        {!isNoBrandMode && (
+                                            <div className="min-w-0">
+                                                <label className="text-[9px] leading-none text-indigo-200/50">{text('brand_reference_label')}</label>
+                                                <select
+                                                    value={mapping.brandRefId ?? ''}
+                                                    onChange={(event) => updateSlotMapping(slotIndex, { brandRefId: event.target.value || null })}
+                                                    className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                >
+                                                    <option value="">{text('no_reference')}</option>
+                                                    {brandScreenshotReferences.map((ref, refIndex) => (
+                                                        <option key={ref.id} value={ref.id}>
+                                                            {text('reference_short')} {refIndex + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                         <div className="min-w-0">
-                                            <label className="text-[9px] leading-none text-indigo-200/50">{text('brand_reference_label')}</label>
-                                            <select
-                                                value={mapping.brandRefId ?? ''}
-                                                onChange={(event) => updateSlotMapping(slotIndex, { brandRefId: event.target.value || null })}
-                                                className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                            >
-                                                <option value="">{text('no_reference')}</option>
-                                                {brandScreenshotReferences.map((ref, refIndex) => (
-                                                    <option key={ref.id} value={ref.id}>
-                                                        {text('reference_short')} {refIndex + 1}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="min-w-0">
-                                            <label className="text-[9px] leading-none text-indigo-200/50">{text('simulator_shot_label')}</label>
+                                            <label className="text-[9px] leading-none text-indigo-200/50">
+                                                {isNoBrandMode ? text('no_brand_reference_free_label') : text('simulator_shot_label')}
+                                            </label>
                                             <select
                                                 value={mapping.simShotId ?? ''}
                                                 onChange={(event) => updateSlotMapping(slotIndex, { simShotId: event.target.value || null })}
@@ -991,21 +1000,21 @@ export const AppGenerationSection = ({
                                     <textarea
                                         value={
                                             selectedApp
-                                                ? promptRefId
+                                                ? !isNoBrandMode && promptRefId
                                                     ? promptsByRefId[promptRefId] ?? ''
                                                     : slotPromptBySlotIndex[slotIndex] ?? ''
                                                 : ''
                                         }
                                         onChange={(event) => {
                                             if (!selectedApp) return;
-                                            if (promptRefId) {
+                                            if (!isNoBrandMode && promptRefId) {
                                                 setPrompt(promptRefId, event.target.value);
                                             } else {
                                                 setSlotPrompt(slotIndex, event.target.value);
                                             }
                                         }}
                                         onInput={handleAutoGrowInput}
-                                        placeholder={text('prompt_placeholder')}
+                                        placeholder={isNoBrandMode ? text('no_brand_screenshot_prompt_placeholder') : text('prompt_placeholder')}
                                         rows={2}
                                         disabled={isReadOnly || !selectedApp}
                                         className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"

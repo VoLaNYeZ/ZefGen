@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check, Loader2, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
-import type { AppIdea, AppIdeaCategory } from '../../types/zefgen';
+import type { AppIdea, AppIdeaCategory, AppItem, IdeaAppAssignment } from '../../types/zefgen';
 
 type Draft = Partial<Omit<AppIdea, 'id' | 'user_id' | 'updated_at' | 'created_at'>>;
 
@@ -10,6 +10,8 @@ const normalize = (value: unknown) => String(value ?? '').trim();
 export function IdeasPage(props: {
     ideas: AppIdea[];
     categories: AppIdeaCategory[];
+    ideaAssignments: IdeaAppAssignment[];
+    apps: AppItem[];
     loading: boolean;
     error: string | null;
     refresh: () => void;
@@ -27,6 +29,8 @@ export function IdeasPage(props: {
     const {
         ideas,
         categories,
+        ideaAssignments,
+        apps,
         loading,
         error,
         refresh,
@@ -56,6 +60,35 @@ export function IdeasPage(props: {
     }, []);
 
     const categoryById = React.useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
+    const appById = React.useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps]);
+    const appliedAppsByIdeaId = React.useMemo(() => {
+        const map = new Map<
+            string,
+            Array<{
+                appId: string;
+                alias: string;
+                name: string;
+            }>
+        >();
+        for (const row of ideaAssignments) {
+            const ideaId = normalize(row.idea_id);
+            const appId = normalize(row.app_id);
+            if (!ideaId || !appId) continue;
+            const app = appById.get(appId);
+            if (!app) continue;
+            const bucket = map.get(ideaId) ?? [];
+            bucket.push({
+                appId,
+                alias: String(app.alias || '').toUpperCase() || '—',
+                name: String(app.name || ''),
+            });
+            map.set(ideaId, bucket);
+        }
+        for (const list of map.values()) {
+            list.sort((a, b) => a.alias.localeCompare(b.alias, undefined, { numeric: true, sensitivity: 'base' }));
+        }
+        return map;
+    }, [ideaAssignments, appById]);
     const ideaIndexById = React.useMemo(() => {
         const map = new Map<string, number>();
         ideas.forEach((idea, i) => map.set(idea.id, i + 1));
@@ -248,10 +281,12 @@ export function IdeasPage(props: {
             const categoryId = normalize(draft.category_id ?? idea.category_id);
             const category = categoryById.get(categoryId);
             const description = normalize(draft.description ?? idea.description);
-            const hay = [category?.name, description].filter(Boolean).join(' ').toLowerCase();
+            const applied = appliedAppsByIdeaId.get(idea.id) || [];
+            const appliedSearch = applied.map((item) => `${item.alias} ${item.name}`).join(' ');
+            const hay = [category?.name, description, appliedSearch].filter(Boolean).join(' ').toLowerCase();
             return hay.includes(q);
         });
-    }, [ideas, search, draftById, categoryById]);
+    }, [ideas, search, draftById, categoryById, appliedAppsByIdeaId]);
 
     const anyBusy = loading || newBusy || Object.values(rowBusyById).some(Boolean);
     const searchInput =
@@ -264,7 +299,7 @@ export function IdeasPage(props: {
         'min-w-0 focus-within:bg-slate-950/20 focus-within:ring-1 focus-within:ring-inset focus-within:ring-indigo-400/25';
     const gridStyle = React.useMemo<React.CSSProperties>(
         () => ({
-            gridTemplateColumns: '48px 240px minmax(0,1fr) 104px',
+            gridTemplateColumns: '48px 220px minmax(0,1fr) 220px 104px',
         }),
         []
     );
@@ -321,7 +356,7 @@ export function IdeasPage(props: {
                 </div>
 
                 <div className="border-t border-white/10 overflow-x-auto">
-                    <div className="min-w-[760px]">
+                    <div className="min-w-[980px]">
                         <div
                             className="sticky top-0 z-10 grid divide-x divide-white/5 border-b border-white/10 bg-slate-950/50 backdrop-blur"
                             style={gridStyle}
@@ -334,6 +369,9 @@ export function IdeasPage(props: {
                             </div>
                             <div className="flex items-center px-3 py-2 text-[10px] font-semibold tracking-[0.12em] text-indigo-200/55">
                                 {text('ideas_description')}
+                            </div>
+                            <div className="flex items-center px-3 py-2 text-[10px] font-semibold tracking-[0.12em] text-indigo-200/55">
+                                {text('ideas_applied_to')}
                             </div>
                             <div className="flex items-center justify-center px-2 py-2 text-[10px] font-semibold tracking-[0.12em] text-indigo-200/55">
                                 {text('ideas_actions')}
@@ -351,6 +389,15 @@ export function IdeasPage(props: {
                                 const field = <K extends keyof Omit<AppIdea, 'id' | 'user_id' | 'updated_at' | 'created_at'>>(
                                     key: K
                                 ) => (key in draft ? (draft as any)[key] : (idea as any)[key]) as AppIdea[K];
+                                const appliedApps = appliedAppsByIdeaId.get(idea.id) || [];
+                                const appliedAliases = appliedApps.map((item) => item.alias);
+                                const appliedSummary =
+                                    appliedAliases.length > 3
+                                        ? `${appliedAliases.slice(0, 3).join(', ')} +${appliedAliases.length - 3}`
+                                        : appliedAliases.join(', ');
+                                const appliedTooltip = appliedApps
+                                    .map((item) => `${item.alias} · ${item.name}`)
+                                    .join(' | ');
 
                                 return (
                                     <div
@@ -386,6 +433,12 @@ export function IdeasPage(props: {
                                                 disabled={busy}
                                                 className={cellTextarea}
                                             />
+                                        </div>
+                                        <div
+                                            className="flex h-10 min-w-0 items-center px-3 text-[11px] text-indigo-100/80"
+                                            title={appliedTooltip || undefined}
+                                        >
+                                            <span className="truncate">{appliedSummary || '—'}</span>
                                         </div>
                                         <div className={`flex items-center justify-center gap-2 px-2 ${cellBox}`}>
                                             <button
@@ -460,6 +513,7 @@ export function IdeasPage(props: {
                                             className={cellTextarea}
                                         />
                                     </div>
+                                    <div className="flex h-10 min-w-0 items-center px-3 text-[11px] text-indigo-100/55">—</div>
                                     <div className={`flex items-center justify-center gap-2 px-2 ${cellBox}`}>
                                         <button
                                             type="button"

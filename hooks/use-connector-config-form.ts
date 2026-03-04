@@ -9,6 +9,10 @@ import {
     invokeGenerateLegalLinks,
     type GenerateLegalLinksResponse,
 } from '../data/connector-legal-links';
+import {
+    generateAppstoreDescription,
+    type GenerateAppstoreDescriptionResponse,
+} from '../data/appstore-description';
 import type { GenerationJobKind } from './use-generation-jobs';
 
 const APP_NAME_MAX_LENGTH = 30;
@@ -63,6 +67,11 @@ type LegalLinksPrecheckResult = {
     latestFingerprint: string | null;
 };
 
+type RegenerateAppstoreDescriptionOptions = {
+    silentOnShortSpec?: boolean;
+    persistGenerated?: boolean;
+};
+
 export const useConnectorConfigForm = (payload: {
     session: Session | null;
     selectedApp: AppItem | null;
@@ -75,6 +84,7 @@ export const useConnectorConfigForm = (payload: {
     const [saving, setSaving] = React.useState(false);
     const [secretBusy, setSecretBusy] = React.useState(false);
     const [generateLinksBusy, setGenerateLinksBusy] = React.useState(false);
+    const [generateDescriptionBusy, setGenerateDescriptionBusy] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
 
     const [projectBrief, setProjectBrief] = React.useState('');
@@ -144,6 +154,7 @@ export const useConnectorConfigForm = (payload: {
         setSaving(false);
         setSecretBusy(false);
         setGenerateLinksBusy(false);
+        setGenerateDescriptionBusy(false);
         setError(null);
         setProjectBrief('');
         setIdeaId(null);
@@ -338,7 +349,7 @@ export const useConnectorConfigForm = (payload: {
 
     React.useEffect(() => {
         if (!session || !selectedApp) return;
-        if (loading || saving || secretBusy || generateLinksBusy) return;
+        if (loading || saving || secretBusy || generateLinksBusy || generateDescriptionBusy) return;
 
         const normalizedVars = normalizeVariables(variables);
         const currentHash = hashVariables(normalizedVars);
@@ -370,6 +381,7 @@ export const useConnectorConfigForm = (payload: {
     }, [
         clearAutosaveTimer,
         generateLinksBusy,
+        generateDescriptionBusy,
         loading,
         savePatch,
         saving,
@@ -431,6 +443,83 @@ export const useConnectorConfigForm = (payload: {
             }
         },
         [getRequestContext, isCurrentRequestContext, reportError, selectedApp, session]
+    );
+
+    const regenerateAppstoreDescription = React.useCallback(
+        async (
+            options?: RegenerateAppstoreDescriptionOptions
+        ): Promise<GenerateAppstoreDescriptionResponse | null> => {
+            if (!session || !selectedApp) return null;
+            const requestContext = getRequestContext();
+            if (!isCurrentRequestContext(requestContext)) return null;
+
+            setGenerateDescriptionBusy(true);
+            setError(null);
+            try {
+                const response = await generateAppstoreDescription({
+                    clientSpec: String(projectBrief || ''),
+                    appStoreName: String((variables as any)?.appstore_name || '').trim(),
+                    companyName: String((variables as any)?.company_name || '').trim(),
+                    accessTokenHint: String(session.access_token || ''),
+                });
+                if (!isCurrentRequestContext(requestContext)) return response;
+
+                if (response.status === 'generated') {
+                    const shouldPersistGenerated = options?.persistGenerated !== false;
+                    if (shouldPersistGenerated) {
+                        const generatedText = String(response.text || '').trim();
+                        const nextVariables = normalizeVariables({
+                            ...(variables || {}),
+                            appstore_description: generatedText,
+                        });
+                        setVariables(nextVariables);
+                        const saved = await savePatch(
+                            { variables: nextVariables },
+                            { source: 'manual', reportError: false }
+                        );
+                        if (!saved) {
+                            throw new Error('Failed to save generated App Store description.');
+                        }
+                    }
+                } else if (response.status === 'skipped_short_spec') {
+                    if (!options?.silentOnShortSpec) {
+                        const msg =
+                            String(response.reason || '').trim() ||
+                            'Client spec is too short to generate App Store description.';
+                        setError(msg);
+                        reportError?.(msg);
+                    }
+                } else {
+                    const msg = String(response.error || '').trim() || 'Failed to generate App Store description.';
+                    setError(msg);
+                    reportError?.(msg);
+                }
+                return response;
+            } catch (e: any) {
+                if (!isCurrentRequestContext(requestContext)) return null;
+                const msg = String(e?.message || e);
+                setError(msg);
+                reportError?.(msg);
+                return {
+                    status: 'error',
+                    error: msg,
+                };
+            } finally {
+                if (isCurrentRequestContext(requestContext)) {
+                    setGenerateDescriptionBusy(false);
+                }
+            }
+        },
+        [
+            getRequestContext,
+            isCurrentRequestContext,
+            projectBrief,
+            reportError,
+            savePatch,
+            selectedApp,
+            session,
+            variables,
+        ]
     );
 
     const generateLegalLinks = React.useCallback(
@@ -685,6 +774,7 @@ export const useConnectorConfigForm = (payload: {
         saving,
         secretBusy,
         generateLinksBusy,
+        generateDescriptionBusy,
         error,
         projectBrief,
         setProjectBrief,
@@ -697,6 +787,7 @@ export const useConnectorConfigForm = (payload: {
         refresh,
         savePatch,
         precheckLegalLinksRegeneration,
+        regenerateAppstoreDescription,
         generateLegalLinks,
         cancelPendingLegalLinksGeneration,
         upsertSecret,

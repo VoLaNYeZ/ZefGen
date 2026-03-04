@@ -17,6 +17,7 @@ const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder
 ];
 
 const APP_NAME_MAX_LENGTH = 30;
+const APPSTORE_DESCRIPTION_MIN_SPEC_LENGTH = 100;
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
 const WIDE_VARIABLE_KEYS = new Set(['firebase_plist_snippet', 'appstore_description']);
 const BOOTSTRAP_LEGAL_URL_PLACEHOLDER = 'https://google.com';
@@ -168,6 +169,15 @@ export function ConnectorVariablesSecretsPanel(props: {
         ? String(text('connector_generate_blocked_missing') || '').replace('{items}', missingGenerateInputs.join(', '))
         : text('connector_generate_links_hint');
 
+    const projectBriefLength = React.useMemo(
+        () => String(connectorForm.projectBrief || '').trim().length,
+        [connectorForm.projectBrief]
+    );
+    const appstoreDescriptionRegenerateBlocked = projectBriefLength < APPSTORE_DESCRIPTION_MIN_SPEC_LENGTH;
+    const appstoreDescriptionRegenerateTitle = appstoreDescriptionRegenerateBlocked
+        ? text('connector_appstore_desc_short_spec_hint')
+        : text('connector_appstore_desc_regenerate');
+
     const compactVariables = React.useMemo(
         () => DEFAULT_VARIABLES.filter((f) => !WIDE_VARIABLE_KEYS.has(f.key)),
         []
@@ -207,8 +217,28 @@ export function ConnectorVariablesSecretsPanel(props: {
         setSecretValue('');
     };
 
+    const persistGeneratedDescription = React.useCallback(
+        async (descriptionText: string) => {
+            const nextText = String(descriptionText || '');
+            const nextVariables = {
+                ...(connectorForm.variables || {}),
+                appstore_description: nextText,
+            };
+            connectorForm.setVariable('appstore_description', nextText);
+            return connectorForm.savePatch({ variables: nextVariables });
+        },
+        [connectorForm]
+    );
+
     const handleGenerateLinks = async () => {
-        if (!isEnabled || connectorForm.generateLinksBusy || generateBlocked) return;
+        if (
+            !isEnabled ||
+            connectorForm.generateLinksBusy ||
+            connectorForm.generateDescriptionBusy ||
+            generateBlocked
+        ) {
+            return;
+        }
         setGenerateNotice(null);
 
         const precheck = await connectorForm.precheckLegalLinksRegeneration({
@@ -223,7 +253,12 @@ export function ConnectorVariablesSecretsPanel(props: {
             : false;
         if (precheck.requiresConfirm && !shouldRegenerate) return;
 
+        const descriptionFirstAttemptPromise = connectorForm.regenerateAppstoreDescription({
+            silentOnShortSpec: true,
+            persistGenerated: false,
+        });
         const first = await connectorForm.generateLegalLinks(shouldRegenerate);
+        const firstDescription = await descriptionFirstAttemptPromise;
         if (!first) return;
 
         // Race-safe fallback: backend still guards with confirm_required.
@@ -234,11 +269,73 @@ export function ConnectorVariablesSecretsPanel(props: {
                 return;
             }
 
+            // Ignore first description attempt in confirm race path and rerun after explicit confirm.
+            const descriptionConfirmedAttemptPromise = connectorForm.regenerateAppstoreDescription({
+                silentOnShortSpec: true,
+                persistGenerated: false,
+            });
             const second = await connectorForm.generateLegalLinks(true);
+            const secondDescription = await descriptionConfirmedAttemptPromise;
             if (!second || second.status !== 'generated') return;
+            if (secondDescription?.status === 'generated') {
+                const saved = await persistGeneratedDescription(secondDescription.text);
+                if (!saved) {
+                    setGenerateNotice(
+                        `${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`
+                    );
+                    return;
+                }
+            }
+            if (secondDescription?.status === 'skipped_short_spec') {
+                setGenerateNotice(
+                    `${text('connector_generate_links_success')} ${text('connector_appstore_desc_skipped_short_spec')}`
+                );
+                return;
+            }
+            if (secondDescription?.status === 'error') {
+                setGenerateNotice(
+                    `${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`
+                );
+                return;
+            }
+            setGenerateNotice(text('connector_generate_links_success'));
+            return;
         }
 
+        if (firstDescription?.status === 'generated') {
+            const saved = await persistGeneratedDescription(firstDescription.text);
+            if (!saved) {
+                setGenerateNotice(`${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`);
+                return;
+            }
+        }
+        if (firstDescription?.status === 'skipped_short_spec') {
+            setGenerateNotice(
+                `${text('connector_generate_links_success')} ${text('connector_appstore_desc_skipped_short_spec')}`
+            );
+            return;
+        }
+        if (firstDescription?.status === 'error') {
+            setGenerateNotice(`${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`);
+            return;
+        }
         setGenerateNotice(text('connector_generate_links_success'));
+    };
+
+    const handleRegenerateDescriptionOnly = async () => {
+        if (!isEnabled || connectorForm.generateDescriptionBusy || appstoreDescriptionRegenerateBlocked) return;
+        setGenerateNotice(null);
+        const result = await connectorForm.regenerateAppstoreDescription();
+        if (!result) return;
+        if (result.status === 'generated') {
+            setGenerateNotice(text('connector_appstore_desc_generated'));
+            return;
+        }
+        if (result.status === 'skipped_short_spec') {
+            setGenerateNotice(text('connector_appstore_desc_skipped_short_spec'));
+            return;
+        }
+        setGenerateNotice(text('connector_appstore_desc_failed'));
     };
 
     if (!isEnabled) {
@@ -276,6 +373,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 connectorForm.loading ||
                                 connectorForm.saving ||
                                 connectorForm.generateLinksBusy ||
+                                connectorForm.generateDescriptionBusy ||
                                 generateBlocked
                             }
                             title={generateButtonTitle}
@@ -520,21 +618,62 @@ export function ConnectorVariablesSecretsPanel(props: {
                             </div>
                         </div>
 
-                        {wideVariables.map((f) => (
-                            <label key={f.key} className="grid gap-1 sm:col-span-2">
-                                <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
-                                <textarea
-                                    value={String(connectorForm.variables?.[f.key] ?? '')}
-                                    onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
-                                    rows={4}
-                                    disabled={!isEnabled}
-                                    className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
-                                        f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
-                                    }`}
-                                    placeholder={f.placeholder ? String(f.placeholder) : undefined}
-                                />
-                            </label>
-                        ))}
+                        {wideVariables.map((f) => {
+                            const value = String(connectorForm.variables?.[f.key] ?? '');
+                            const isAppstoreDescription = f.key === 'appstore_description';
+                            return (
+                                <label key={f.key} className="grid gap-1 sm:col-span-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
+                                        {isAppstoreDescription ? (
+                                            <div className="flex items-center gap-1.5">
+                                                <span title={appstoreDescriptionRegenerateTitle} className="inline-flex">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handleRegenerateDescriptionOnly()}
+                                                        disabled={
+                                                            !isEnabled ||
+                                                            connectorForm.generateDescriptionBusy ||
+                                                            connectorForm.generateLinksBusy ||
+                                                            appstoreDescriptionRegenerateBlocked
+                                                        }
+                                                        title={appstoreDescriptionRegenerateTitle}
+                                                        className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-1 rounded-full border border-indigo-400/35 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                                                    >
+                                                        {connectorForm.generateDescriptionBusy
+                                                            ? text('connector_appstore_desc_busy')
+                                                            : text('connector_appstore_desc_regenerate')}
+                                                    </button>
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void copyValue('variable.appstore_description', value)}
+                                                    disabled={!value}
+                                                    className="ui-btn-fit ui-btn-fit-dense inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-slate-950/20 text-indigo-100/70 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                                    title={text('connector_appstore_desc_copy')}
+                                                >
+                                                    {copiedKey === 'variable.appstore_description' ? (
+                                                        <Check size={13} />
+                                                    ) : (
+                                                        <Copy size={13} />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                    <textarea
+                                        value={value}
+                                        onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
+                                        rows={4}
+                                        disabled={!isEnabled}
+                                        className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
+                                            f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
+                                        }`}
+                                        placeholder={f.placeholder ? String(f.placeholder) : undefined}
+                                    />
+                                </label>
+                            );
+                        })}
                     </div>
                 </div>
 
