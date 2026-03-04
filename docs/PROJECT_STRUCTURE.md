@@ -89,6 +89,10 @@ The App-level workflow inside the gooey folder is ordered as:
 10. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
 11. No Brand only: Move app to regular brand (`components/app/AppShell.tsx`)
 
+No Brand nuance:
+- In No Brand mode, Steps 1 and 2 are swapped: Client spec is Step 1 and Icon generation is Step 2.
+- Icon prompt supports an AI helper button that derives a prompt idea from the first client-spec lines (`/api/generate-icon-prompt`, default model `gpt-5.2`).
+
 The sticky Deliverables rail is anchored to Steps 8–10 only.
 
 ## Integration Step (Badges → Setup Data Mapping)
@@ -151,6 +155,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
 - `data/connector-legal-links.ts` - Legal links precheck/fingerprint + Edge Function invoke (`generate-legal-links`).
 - `data/appstore-description.ts` - App Store description generation API client (`/api/generate-appstore-description`) with auth refresh/retry.
+- `data/icon-prompt.ts` - No Brand icon prompt generation API client (`/api/generate-icon-prompt`) with auth refresh/retry.
 - `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
 - `data/appstore-accounts.ts` - App Store accounts pool CRUD (`appstore_accounts`).
@@ -164,6 +169,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `api/provider-status.ts` - Environment/provider diagnostics endpoint.
 - `api/generate-screenshot.ts` - Server-side screenshot generation proxy.
 - `api/generate-appstore-description.ts` - Server-side App Store description generator (OpenAI-backed, bearer-protected).
+- `api/generate-icon-prompt.ts` - Server-side No Brand icon-prompt generator (OpenAI-backed, bearer-protected).
 - `api/create-github-repo.ts` - GitHub repository creation endpoint.
 - `api/delete-github-repo.ts` - GitHub repository deletion endpoint.
 
@@ -359,6 +365,6 @@ Data flow: UI component → hook → data layer → Supabase.
 
 ## Local Dev Notes
 - `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
-- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `generate-appstore-description`, `create-github-repo`, `delete-github-repo`, `workspace-sessions`) so you can iterate without `vercel dev`.
+- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `generate-appstore-description`, `generate-icon-prompt`, `create-github-repo`, `delete-github-repo`, `workspace-sessions`) so you can iterate without `vercel dev`.
 - The local middleware also exposes `GET /api/provider-status` for quick env diagnostics.
 - To run the full Vercel routing layer locally (for `/api/*` + rewrites), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.

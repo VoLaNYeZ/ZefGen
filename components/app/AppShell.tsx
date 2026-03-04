@@ -27,6 +27,7 @@ import { useGeneratedAssets } from '../../hooks/use-generated-assets';
 import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
 import { signOut } from '../../data/auth';
 import { moveAppToBrand } from '../../data/apps';
+import { generateNoBrandIconPrompt } from '../../data/icon-prompt';
 import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../../data/app-indicators';
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
@@ -126,6 +127,7 @@ export function AppShell({ session }: AppShellProps) {
     const [heartbeatBrandId, setHeartbeatBrandId] = useState<string | null>(null);
     const [isClaimingEditLock, setIsClaimingEditLock] = useState(false);
     const [noBrandIconPromptDraft, setNoBrandIconPromptDraft] = useState('');
+    const [noBrandIconPromptAutogenBusy, setNoBrandIconPromptAutogenBusy] = useState(false);
     const [moveTargetBrandId, setMoveTargetBrandId] = useState<string>('');
     const [moveToBrandLoading, setMoveToBrandLoading] = useState(false);
 
@@ -298,6 +300,10 @@ export function AppShell({ session }: AppShellProps) {
         }
         setNoBrandIconPromptDraft(String(selectedApp.icon_prompt || ''));
     }, [selectedApp?.id, selectedApp?.icon_prompt, isNoBrandMode]);
+
+    useEffect(() => {
+        setNoBrandIconPromptAutogenBusy(false);
+    }, [selectedApp?.id, isNoBrandMode]);
 
     useEffect(() => {
         if (!selectedApp || !isNoBrandMode) {
@@ -1243,6 +1249,62 @@ export function AppShell({ session }: AppShellProps) {
         [selectedApp, isNoBrandMode, patchApp]
     );
 
+    const handleNoBrandIconPromptAutogen = useCallback(async () => {
+        if (!session || !selectedApp || !isNoBrandMode) return;
+        const clientSpec = String(connectorForm.projectBrief || '').trim();
+        if (!clientSpec) {
+            reportActionError(text('no_brand_icon_prompt_autogen_need_spec'));
+            return;
+        }
+
+        setNoBrandIconPromptAutogenBusy(true);
+        try {
+            const response = await generateNoBrandIconPrompt({
+                clientSpec,
+                appName: String(selectedApp.name || '').trim(),
+                appAlias: String(selectedApp.alias || '').trim(),
+                accessTokenHint: String(session.access_token || ''),
+            });
+
+            if (response.status === 'skipped_short_spec') {
+                reportActionError(text('no_brand_icon_prompt_autogen_need_spec'));
+                return;
+            }
+            if (response.status === 'error') {
+                reportActionError(String(response.error || text('upload_failed')));
+                return;
+            }
+
+            const nextPrompt = String(response.text || '').trim();
+            if (!nextPrompt) {
+                reportActionError(text('upload_failed'));
+                return;
+            }
+
+            setNoBrandIconPromptDraft(nextPrompt);
+            const patched = await patchApp(selectedApp.id, { icon_prompt: nextPrompt });
+            if (!patched) {
+                reportActionError(text('upload_failed'));
+                return;
+            }
+            setNoBrandIconPromptDraft(String(patched.icon_prompt || nextPrompt));
+            showAliasNotice(text('no_brand_icon_prompt_autogen_applied'));
+        } catch (error: any) {
+            reportActionError(String(error?.message || text('upload_failed')));
+        } finally {
+            setNoBrandIconPromptAutogenBusy(false);
+        }
+    }, [
+        session,
+        selectedApp,
+        isNoBrandMode,
+        connectorForm.projectBrief,
+        patchApp,
+        reportActionError,
+        text,
+        showAliasNotice,
+    ]);
+
     const handleMoveNoBrandAppToBrand = useCallback(() => {
         void (async () => {
             if (!session || !selectedApp || !selectedBrand || !isNoBrandMode) return;
@@ -1484,6 +1546,8 @@ export function AppShell({ session }: AppShellProps) {
     const step9HasAnyGenerated = connectorEnabled && (generatedScreenshotSlots.length > 0 || enhancedScreenshotSlots.length > 0);
     const step9Done = step9HasPrompt || step9HasAnyGenerated;
     const step10Done = connectorEnabled && Boolean(exportStatus?.is_completed);
+    const iconStepNumber = isNoBrandMode ? 2 : 1;
+    const ideaStepNumber = isNoBrandMode ? 1 : 2;
 
     const generationModuleProps = {
         selectedApp,
@@ -1586,6 +1650,9 @@ export function AppShell({ session }: AppShellProps) {
         handleNoBrandIconPromptChange,
         handleNoBrandIconPromptSave: (value: string) =>
             runWriteAction(() => handleNoBrandIconPromptSave(value)),
+        handleNoBrandIconPromptAutogen: () =>
+            runWriteAction(handleNoBrandIconPromptAutogen),
+        noBrandIconPromptAutogenBusy: noBrandIconPromptAutogenBusy,
         handleAutoGrowInput,
         openLightbox,
         text,
@@ -2202,22 +2269,36 @@ export function AppShell({ session }: AppShellProps) {
                                                                     <div className="my-4 h-px bg-indigo-900/30" aria-hidden="true" />
                                                                 </>
                                                             ) : null}
+                                                            {isNoBrandMode && (
+                                                                <StepBlock step={ideaStepNumber} done={step2Done}>
+                                                                    <ConnectorClientSpecPanel
+                                                                        connectorForm={connectorForm}
+                                                                        isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
+                                                                        ideas={appIdeas}
+                                                                        ideaCategories={appIdeaCategories}
+                                                                        onOpenIdeas={openIdeas}
+                                                                        text={text}
+                                                                    />
+                                                                </StepBlock>
+                                                            )}
                                                             {!assetsCollapsed && (
-                                                                <StepBlock step={1} done={step1Done}>
+                                                                <StepBlock step={iconStepNumber} done={step1Done}>
                                                                     <IconGenerationModule {...generationModuleProps} />
                                                                 </StepBlock>
                                                             )}
 
-                                                            <StepBlock step={2} done={step2Done}>
-                                                                <ConnectorClientSpecPanel
-                                                                    connectorForm={connectorForm}
-                                                                    isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
-                                                                    ideas={appIdeas}
-                                                                    ideaCategories={appIdeaCategories}
-                                                                    onOpenIdeas={openIdeas}
-                                                                    text={text}
-                                                                />
-                                                            </StepBlock>
+                                                            {!isNoBrandMode && (
+                                                                <StepBlock step={ideaStepNumber} done={step2Done}>
+                                                                    <ConnectorClientSpecPanel
+                                                                        connectorForm={connectorForm}
+                                                                        isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
+                                                                        ideas={appIdeas}
+                                                                        ideaCategories={appIdeaCategories}
+                                                                        onOpenIdeas={openIdeas}
+                                                                        text={text}
+                                                                    />
+                                                                </StepBlock>
+                                                            )}
 
                                                             <StepBlock step={3} done={setupStepDone}>
                                                                 <ConnectorVariablesSecretsPanel

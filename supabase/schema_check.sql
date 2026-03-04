@@ -52,6 +52,10 @@ union all select 'app_ideas.category_id', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'app_ideas' and column_name = 'category_id'
 )
+union all select 'app_ideas.title', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'app_ideas' and column_name = 'title'
+)
 union all select 'brand_references.kind', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'brand_references' and column_name = 'kind'
