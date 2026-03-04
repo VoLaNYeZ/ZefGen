@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type { AppIdea, IdeaAppAssignment } from '../types/zefgen';
 
-const IDEA_SELECT = 'id, user_id, category_id, description, updated_at, created_at';
+const IDEA_SELECT = 'id, user_id, category_id, title, description, updated_at, created_at';
 const CATEGORY_SELECT = 'id, slug, name, order_index, created_at';
 const IDEA_ASSIGNMENT_SELECT = 'app_id, idea_id';
 

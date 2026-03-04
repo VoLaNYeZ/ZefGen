@@ -124,6 +124,8 @@ type AppGenerationSectionProps = {
     noBrandIconPromptValue?: string;
     handleNoBrandIconPromptChange?: (value: string) => void;
     handleNoBrandIconPromptSave?: (value: string) => void;
+    handleNoBrandIconPromptAutogen?: () => void;
+    noBrandIconPromptAutogenBusy?: boolean;
     handleAutoGrowInput: (event: React.FormEvent<HTMLTextAreaElement>) => void;
     openLightbox: (
         src: string,
@@ -224,6 +226,8 @@ export const AppGenerationSection = ({
     noBrandIconPromptValue = '',
     handleNoBrandIconPromptChange,
     handleNoBrandIconPromptSave,
+    handleNoBrandIconPromptAutogen,
+    noBrandIconPromptAutogenBusy = false,
     handleAutoGrowInput,
     openLightbox,
     text,
@@ -354,7 +358,27 @@ export const AppGenerationSection = ({
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
                         <div className="space-y-4">
                             <div className="max-w-[520px] space-y-2">
-                                <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('icon_prompt_label')}</label>
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="text-[10px] font-semibold tracking-[0.12em] text-indigo-200/60">
+                                        {text('icon_prompt_label')}
+                                    </label>
+                                    {isNoBrandMode ? (
+                                        <button
+                                            type="button"
+                                            onClick={handleNoBrandIconPromptAutogen}
+                                            disabled={isReadOnly || !selectedApp || noBrandIconPromptAutogenBusy}
+                                            className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                                !isReadOnly && selectedApp && !noBrandIconPromptAutogenBusy
+                                                    ? 'border-cyan-300/35 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25'
+                                                    : 'border-white/10 text-indigo-200/40'
+                                            }`}
+                                        >
+                                            {noBrandIconPromptAutogenBusy
+                                                ? text('no_brand_icon_prompt_autogen_loading')
+                                                : text('no_brand_icon_prompt_autogen')}
+                                        </button>
+                                    ) : null}
+                                </div>
                                 <textarea
                                     value={iconPromptValue}
                                     onChange={(event) => {

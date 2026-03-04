@@ -96,6 +96,7 @@ create table if not exists public.app_ideas (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
     category_id uuid not null references public.app_idea_categories(id) on delete restrict,
+    title text not null default '',
     description text not null default '',
     updated_at timestamptz not null default now(),
     created_at timestamptz not null default now()
