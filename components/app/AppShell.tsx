@@ -2276,6 +2276,8 @@ export function AppShell({ session }: AppShellProps) {
                                                                         isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
                                                                         ideas={appIdeas}
                                                                         ideaCategories={appIdeaCategories}
+                                                                        ideaAssignments={appIdeaAssignments}
+                                                                        selectedAppId={selectedApp?.id || null}
                                                                         onOpenIdeas={openIdeas}
                                                                         text={text}
                                                                     />
@@ -2294,6 +2296,8 @@ export function AppShell({ session }: AppShellProps) {
                                                                         isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
                                                                         ideas={appIdeas}
                                                                         ideaCategories={appIdeaCategories}
+                                                                        ideaAssignments={appIdeaAssignments}
+                                                                        selectedAppId={selectedApp?.id || null}
                                                                         onOpenIdeas={openIdeas}
                                                                         text={text}
                                                                     />
@@ -2498,6 +2502,7 @@ export function AppShell({ session }: AppShellProps) {
                                     createIdea={createAppIdea}
                                     updateIdea={updateAppIdea}
                                     deleteIdea={deleteAppIdea}
+                                    onOpenApp={openWorkspaceForApp}
                                     reportError={reportActionError}
                                     text={text}
                                 />
