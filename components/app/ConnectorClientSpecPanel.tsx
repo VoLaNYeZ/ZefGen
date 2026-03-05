@@ -7,8 +7,8 @@ const formatIdeaPreview = (description: string) => {
     const normalized = String(description || '').replace(/\s+/g, ' ').trim();
     if (!normalized) return '—';
     const words = normalized.split(' ');
-    if (words.length <= 10) return normalized;
-    return `${words.slice(0, 10).join(' ')}...`;
+    const short = words.length <= 6 ? normalized : `${words.slice(0, 6).join(' ')}...`;
+    return short.length > 48 ? `${short.slice(0, 47)}...` : short;
 };
 
 const normalize = (value: unknown) => String(value ?? '').trim();
@@ -197,13 +197,13 @@ export function ConnectorClientSpecPanel(props: {
                     </div>
                 ) : (
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <label className="grid gap-1">
+                        <label className="grid min-w-0 gap-1">
                             <span className="text-[11px] text-indigo-200/55">{text('idea_picker_category')}</span>
                             <select
                                 value={selectedCategoryId}
                                 onChange={(e) => onChangeCategory(e.target.value)}
                                 disabled={!isEnabled || ideaApplyBusy || availableCategories.length === 0}
-                                className="h-10 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs text-indigo-100/90 outline-none focus:border-indigo-400/40 disabled:opacity-60"
+                                className="h-10 w-full min-w-0 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs text-indigo-100/90 outline-none focus:border-indigo-400/40 disabled:opacity-60"
                             >
                                 <option value="">{text('idea_picker_select_category')}</option>
                                 {availableCategories.map((category) => (
@@ -214,13 +214,13 @@ export function ConnectorClientSpecPanel(props: {
                             </select>
                         </label>
 
-                        <label className="grid gap-1">
+                        <label className="grid min-w-0 gap-1">
                             <span className="text-[11px] text-indigo-200/55">{text('idea_picker_idea')}</span>
                             <select
                                 value={selectedIdeaId}
                                 onChange={(e) => void onChangeIdea(e.target.value)}
                                 disabled={!isEnabled || !selectedCategoryId || ideaApplyBusy}
-                                className="h-10 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs text-indigo-100/90 outline-none focus:border-indigo-400/40 disabled:opacity-60"
+                                className="h-10 w-full min-w-0 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs text-indigo-100/90 outline-none focus:border-indigo-400/40 disabled:opacity-60"
                             >
                                 <option value="">
                                     {selectedCategoryId ? text('idea_picker_select_idea') : text('idea_picker_select_category')}
@@ -232,7 +232,7 @@ export function ConnectorClientSpecPanel(props: {
                                     const title = normalize((idea as any).title);
                                     const preview = formatIdeaPreview(idea.description);
                                     const label = title
-                                        ? `#${n ?? '—'} · ${title} — ${preview}`
+                                        ? `#${n ?? '—'} · ${title.length > 36 ? `${title.slice(0, 35)}...` : title}`
                                         : `#${n ?? '—'} · ${preview}`;
                                     return (
                                         <option key={idea.id} value={idea.id} title={`${label}${categoryName ? ` · ${categoryName}` : ''}`}>

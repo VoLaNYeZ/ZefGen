@@ -35,6 +35,13 @@ const copyToClipboard = async (value: string) => {
 
 const normalize = (value: unknown) => String(value ?? '').trim();
 
+const maskSecretForView = (value: unknown) => {
+    const raw = String(value ?? '');
+    if (!raw) return '';
+    const dots = Math.max(6, Math.min(12, raw.length));
+    return '•'.repeat(dots);
+};
+
 const statusFromFlags = (payload: { usability: boolean; was_used_before: boolean }): UsabilityStatus => {
     if (payload.was_used_before) return 'used_before';
     return payload.usability ? 'usable' : 'unusable';
@@ -1347,7 +1354,11 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`group relative min-w-0 ${cellBox}`}>
                                         <input
-                                            value={String(field('password') ?? '')}
+                                            value={
+                                                isEditMode
+                                                    ? String(field('password') ?? '')
+                                                    : maskSecretForView(field('password'))
+                                            }
                                             onChange={(e) => setDraftField(a.id, { password: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
                                             readOnly={!isEditMode}
@@ -1366,7 +1377,11 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`group relative min-w-0 ${cellBox}`}>
                                         <input
-                                            value={String(field('email_password') ?? '')}
+                                            value={
+                                                isEditMode
+                                                    ? String(field('email_password') ?? '')
+                                                    : maskSecretForView(field('email_password'))
+                                            }
                                             onChange={(e) => setDraftField(a.id, { email_password: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
                                             readOnly={!isEditMode}
