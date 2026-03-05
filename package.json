@@ -9,6 +9,7 @@
     "dev:vercel": "vercel dev",
     "build": "vite build",
     "preview": "vite preview",
+    "test:appstore-description": "node --test tests/appstore-description-helpers.test.mjs",
     "prepare": "npm run hooks:install",
     "deploy:legal-links": "supabase functions deploy generate-legal-links --project-ref onzswbbqaikkjpmvzplb --use-api --no-verify-jwt",
     "check:credentials": "node scripts/check-credentials.mjs",

@@ -313,8 +313,9 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - If `project_brief` (`Client spec`) has fewer than 100 chars, description generation returns `skipped_short_spec`.
   - This does not block legal links generation.
 - Prompting:
-  - 5 in-code prompt templates.
+  - 3 in-code long-form prompt templates.
   - One template is selected randomly per run (uniform distribution).
+  - Output is validated server-side for length, paragraph structure, bullet overuse, and generic CTA endings before it is saved.
 - Field-level actions (Step 3 Variables):
   - `appstore_description` has `Regenerate` (description-only) and `Copy`.
   - `Regenerate` is disabled when `Client spec < 100`.
@@ -350,7 +351,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - If the token/account has insufficient credit, Replicate responds with 402 and the UI surfaces a billing/token ownership hint.
 - OpenAI:
   - Requires `OPENAI_API_KEY` in the prod environment.
-  - Optional model override for appstore descriptions: `OPENAI_APPSTORE_MODEL` (default: `gpt-5-mini`).
+  - Optional model override for appstore descriptions: `OPENAI_APPSTORE_MODEL` (default: `gpt-5.2`).
 
 ## How to Add Features
 Use this path when introducing a new domain feature (data + UI).

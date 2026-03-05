@@ -71,8 +71,6 @@ const NO_REFERENCE_CLAUSE =
     `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
 const NO_BRAND_ANCHOR_CLAUSE =
     `Image 1 is a neutral size anchor only. Keep image 1 ratio/framing for exact output dimensions, but do not copy its visual style or content. Image 2 is the app UI source of truth.`;
-const NO_BRAND_STYLE_REFERENCE_CLAUSE =
-    `Image 1 is a style/composition reference. Preserve its visual direction and framing while keeping image 2 as the app UI source of truth.`;
 
 const compareAssetsByVersion = (a: GeneratedAsset, b: GeneratedAsset) => {
     const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
@@ -1026,20 +1024,11 @@ export const useGeneratedAssets = ({
 
     const buildSameStyleGenerateSystemPrompt = useCallback(() => {
         return [
-            `Goal: an iOS App Store screenshot ready to upload to App Store Connect.`,
-            `Image 1 is the style/composition reference: preserve its framing, mood, lighting, and visual direction.`,
-            `Image 2 is the app-content source of truth: preserve the app UI from image 2 (same on-screen structure, readability, and key details).`,
-            `Absolute priority: keep the SAME app from image 2. Do not redesign it, do not replace screens, and do not swap it to a different app concept.`,
-            `Never copy UI, text, icons, navigation, or screen content from image 1.`,
-            `If image 1 conflicts with image 2, image 2 wins for all app interface elements.`,
-            `If the iOS status bar exists in image 2, keep it exactly as-is (do not remove or rewrite).`,
-            `Blend image 2 UI naturally into image 1-style composition.`,
-            `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the main composition upward to fill it.`,
-            `No device frames/mockups/hands/bezels/floating phones.`,
-            `No added text anywhere: no headlines, captions, badges, stickers, labels, logos, watermarks, or any extra UI.`,
-            `Never print any resolution/metadata text anywhere.`,
-            `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
-            `Keep it sharp and clean (no blur, no artifacts).`,
+            `Use image 1 as style/composition source (layout, colors, lighting, typography feel).`,
+            `Replace app UI in image 1 with app UI from image 2.`,
+            `Keep text structure/style from image 1 unless user prompt asks to change text.`,
+            `Keep image 2 UI details accurate and readable.`,
+            `Output full-bleed at requested aspect ratio and size.`,
         ].join(' ');
     }, []);
 
@@ -2657,7 +2646,7 @@ export const useGeneratedAssets = ({
                 throw new Error(text('select_style_reference'));
             }
             compositionImageUrl = styleReferenceUrl;
-            compositionClause = NO_BRAND_STYLE_REFERENCE_CLAUSE;
+            compositionClause = null;
         } else {
             compositionImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
             compositionClause = NO_BRAND_ANCHOR_CLAUSE;
