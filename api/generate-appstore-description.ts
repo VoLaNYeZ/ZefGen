@@ -15,7 +15,6 @@ type PromptTemplate = {
     build: (payload: {
         clientSpec: string;
         appStoreName: string;
-        companyName: string;
         appCategoryHint: string;
     }) => string;
 };
@@ -23,6 +22,8 @@ type PromptTemplate = {
 const MIN_CLIENT_SPEC_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 4000;
 const DEFAULT_MODEL = 'gpt-5-mini';
+const SPEC_MAX_CHARS = 8_000;
+const SPEC_FALLBACK_CHARS = 4_000;
 
 const json = (res: any, status: number, payload: any) => {
     res.statusCode = status;
@@ -64,106 +65,134 @@ const verifySupabaseToken = async (token: string) => {
     return resp.ok;
 };
 
+const SPEC_EXCLUDE_PATTERNS: RegExp[] = [
+    /\b\d+\+?\s*(templates?|variants?|categories?|tones?)\b/i,
+    /\b(char|chars|character|characters)\s*(limit|range|count)?\b/i,
+    /\bjobs?-to-be-done\b/i,
+    /\bplaceholder|fallback|mvp|modal|tab\s*bar|default\b/i,
+    /\blocal\s*storage|on-device|device\s*storage|daily\s*limit\b/i,
+    /\{(?:name|context|cta|signoff)\}/i,
+];
+
+const INTERNAL_LEAK_PATTERNS: RegExp[] = [
+    /\b\d+\+?\s*(templates?|variants?|categories?|tones?)\b/i,
+    /\bjobs?-to-be-done\b/i,
+    /\bplaceholder|fallback|mvp|default true|daily limit\b/i,
+    /\{(?:name|context|cta|signoff)\}/i,
+    /\bchar(?:acter)?s?\s*[-–]?\s*\d+\b/i,
+    /\btab\s*bar|modal|profile injection|flow(s)?\b/i,
+];
+
+const sanitizeClientSpecForPrompt = (rawSpec: string) => {
+    const source = String(rawSpec || '').replace(/\r/g, '').slice(0, SPEC_MAX_CHARS);
+    const lines = source
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !SPEC_EXCLUDE_PATTERNS.some((rx) => rx.test(line)));
+    const sanitized = lines.join('\n').slice(0, SPEC_MAX_CHARS).trim();
+    if (sanitized.length >= MIN_CLIENT_SPEC_LENGTH) return sanitized;
+    return source.slice(0, SPEC_FALLBACK_CHARS).trim();
+};
+
+const hasInternalLeakSignals = (text: string) => {
+    const value = String(text || '');
+    return INTERNAL_LEAK_PATTERNS.some((rx) => rx.test(value));
+};
+
 const PROMPT_TEMPLATES: PromptTemplate[] = [
     {
         key: '1',
-        build: ({ clientSpec, appStoreName, companyName, appCategoryHint }) => `You are an expert App Store copywriter.
+        build: ({ clientSpec, appStoreName, appCategoryHint }) => `You are an elite App Store copywriter for consumer iOS apps.
 
-Write one App Store description in English.
+Write one App Store description in English for this app:
 App name: ${appStoreName || 'Unknown app'}
-Company: ${companyName || 'Unknown company'}
 Category hint: ${appCategoryHint || 'General utility'}
 
-Requirements:
-- 1200-2200 characters.
-- Confident, benefit-driven, conversion-oriented style.
-- Start with a strong opening paragraph.
-- Then provide a compact feature section with short bullet points using '-' only.
-- End with a short trust/closing paragraph.
-- No markdown headings, no code fences, no emojis.
-- Do not invent legal claims you cannot infer from the spec.
+Format and quality requirements:
+- Audience-first marketing copy only.
+- 1 short hook paragraph, then 4-7 simple bullet points, then a short closing line.
+- Keep text naturally readable and persuasive, not technical.
+- No markdown headings, no numbered sections, no code fences, no emojis.
+- Do NOT expose internal implementation details, architecture, counts, fallback logic, defaults, placeholders, or operational limits.
+- Do NOT include developer/company identity unless explicitly required by user-facing value.
+- Keep under 2200 characters.
 
 Client spec:
 ${clientSpec}`,
     },
     {
         key: '2',
-        build: ({ clientSpec, appStoreName, companyName, appCategoryHint }) => `Generate a polished App Store description in English for this iOS app.
+        build: ({ clientSpec, appStoreName, appCategoryHint }) => `Create a conversion-focused App Store description in English.
 
 App: ${appStoreName || 'Unknown app'}
-Publisher: ${companyName || 'Unknown company'}
 Category hint: ${appCategoryHint || 'General utility'}
 
-Output format requirements:
-- Plain text only.
-- First paragraph: value proposition and target user.
-- Second section: 5-7 bullets with concrete capabilities.
-- Third paragraph: why this app is practical for daily use.
-- Max length: 4000 characters.
-- Avoid repetitive phrases and avoid generic filler.
-- No markdown titles, no hashtags, no code blocks.
+Rules:
+- Write for end users, not for product managers.
+- Focus on outcomes, convenience, and emotional relief.
+- Keep it specific but never reveal hidden internal mechanics.
+- Never mention counts of templates/tones/categories/variants.
+- Never mention placeholders, fallback behavior, character limits, defaults, or technical fields.
+- Plain text only with short paragraphs and '-' bullets.
 
 Client spec:
 ${clientSpec}`,
     },
     {
         key: '3',
-        build: ({ clientSpec, appStoreName, companyName, appCategoryHint }) => `Write an App Store description (English) that sounds premium but clear.
+        build: ({ clientSpec, appStoreName, appCategoryHint }) => `Write premium but simple App Store copy in English.
 
 Product name: ${appStoreName || 'Unknown app'}
-Service provider: ${companyName || 'Unknown company'}
 Category hint: ${appCategoryHint || 'General utility'}
 
 Constraints:
-- Use plain text.
-- Keep it specific to the provided spec.
-- Mention core jobs-to-be-done, primary flows, and outcomes.
-- Include a short bullet list of standout features.
-- Include a short closing CTA.
+- Highlight practical user benefits and everyday use cases.
+- Keep the tone polished, concise, and trustworthy.
+- Avoid business/internal wording and avoid implementation talk.
 - No markdown headings or code fences.
-- No unsupported superlatives like "best" or "#1".
+- Do not repeat or mirror the spec verbatim.
+- Final output should feel like App Store listing text, not a requirements document.
 
 Spec to use:
 ${clientSpec}`,
     },
     {
         key: '4',
-        build: ({ clientSpec, appStoreName, companyName, appCategoryHint }) => `Create one English App Store description optimized for readability and trust.
+        build: ({ clientSpec, appStoreName, appCategoryHint }) => `Create an App Store description in English optimized for clarity and appeal.
 
 App name: ${appStoreName || 'Unknown app'}
-Company: ${companyName || 'Unknown company'}
 Category hint: ${appCategoryHint || 'General utility'}
 
 Style guide:
-- Use short paragraphs and concise bullets.
-- Explain the app's core problem and solution quickly.
-- Highlight practical use cases derived from the client spec.
-- Keep language natural and non-technical for end users.
-- Plain text only, no markdown headings, no fenced blocks.
-- Keep under 4000 characters.
+- Start with a direct value statement.
+- Use compact '-' bullet points for key benefits.
+- End with a short call-to-action sentence.
+- Keep language simple and human, no product-management jargon.
+- Exclude internal details, thresholds, defaults, and behind-the-scenes mechanics.
+- Plain text only.
 
 Client spec:
 ${clientSpec}`,
     },
     {
         key: '5',
-        build: ({ clientSpec, appStoreName, companyName, appCategoryHint }) => `You are writing final store copy for iOS.
+        build: ({ clientSpec, appStoreName, appCategoryHint }) => `You are writing final iOS App Store description copy.
 
 App title: ${appStoreName || 'Unknown app'}
-Company title: ${companyName || 'Unknown company'}
 Category hint: ${appCategoryHint || 'General utility'}
 
-Produce exactly one App Store description in English with this structure:
-1) Hook paragraph.
-2) Feature bullets (4-8 lines, '-' prefix only).
-3) Closing paragraph with user value and confidence.
+Output structure:
+1) Strong opening sentence/paragraph.
+2) 4-7 bullets of user-facing benefits and scenarios.
+3) Short closing line.
 
 Hard rules:
-- Output plain text only.
-- No markdown headings, no code fences, no HTML.
-- Keep tone clear, persuasive, and specific.
-- Respect the provided spec and avoid fabricated details.
-- Maximum 4000 characters.
+- Plain text only (no headings, no code fences, no HTML).
+- No technical or internal leakage from source spec.
+- No “MVP”, “jobs-to-be-done”, placeholder syntax, counts, defaults, limits, or implementation notes.
+- No company/developer naming unless strictly necessary for end users.
+- Keep it concise and natural.
 
 Client spec:
 ${clientSpec}`,
@@ -263,7 +292,6 @@ const normalizeOpenAIChatErrorMessage = (payload: { message: string; model: stri
 const generateWithOpenAI = async (payload: {
     clientSpec: string;
     appStoreName: string;
-    companyName: string;
     appCategoryHint: string;
     model: string;
     promptKey: PromptTemplate['key'];
@@ -318,9 +346,55 @@ const generateWithOpenAI = async (payload: {
         throw new Error('OpenAI returned empty description text.');
     }
 
+    let finalText = text;
+    if (hasInternalLeakSignals(finalText)) {
+        const rewriteBody = buildChatCompletionsBody({
+            model: payload.model,
+            messages: [
+                {
+                    role: 'system',
+                    content:
+                        'Rewrite App Store descriptions into consumer-facing copy only. Remove all internal product details and technical disclosures. Output only final plain text.',
+                },
+                {
+                    role: 'user',
+                    content: `Rewrite this draft for App Store users.
+
+App: ${payload.appStoreName || 'Unknown app'}
+Category hint: ${payload.appCategoryHint || 'General utility'}
+
+Rewrite rules:
+- Keep only user-facing value and core benefits.
+- Remove internal details (counts, limits, defaults, placeholders, fallback logic, architecture, internal field names, implementation notes).
+- Keep plain text with short paragraphs and optional '-' bullets.
+- Keep it concise and natural.
+
+Draft:
+${finalText}`,
+                },
+            ],
+        });
+
+        const rewriteResp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(rewriteBody),
+        });
+        const rewriteData = await rewriteResp.json().catch(() => ({}));
+        if (rewriteResp.ok) {
+            const rewritten = sanitizeDescription(coerceTextContent(rewriteData));
+            if (rewritten) {
+                finalText = rewritten;
+            }
+        }
+    }
+
     return {
         status: 'generated' as const,
-        text,
+        text: finalText,
         promptKey: payload.promptKey,
         model: payload.model,
     };
@@ -359,22 +433,20 @@ export default async function handler(req: any, res: any) {
         }
 
         const appStoreName = String(parsed.appStoreName || '').trim();
-        const companyName = String(parsed.companyName || '').trim();
         const appCategoryHint = String(parsed.appCategoryHint || '').trim();
+        const sanitizedClientSpec = sanitizeClientSpecForPrompt(clientSpec);
 
         const model = String(process.env.OPENAI_APPSTORE_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
         const promptTemplate = pickPromptTemplate();
         const prompt = promptTemplate.build({
-            clientSpec,
+            clientSpec: sanitizedClientSpec,
             appStoreName,
-            companyName,
             appCategoryHint,
         });
 
         const generated = await generateWithOpenAI({
-            clientSpec,
+            clientSpec: sanitizedClientSpec,
             appStoreName,
-            companyName,
             appCategoryHint,
             model,
             promptKey: promptTemplate.key,
