@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 export type SlotMapping = {
     brandRefId: string | null;
     simShotId: string | null;
+    styleRefAssetId: string | null;
 };
 
 export const useSlotMappings = (selectedAppId: string | null) => {

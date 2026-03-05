@@ -520,19 +520,26 @@ export function AppShell({ session }: AppShellProps) {
     const { slotMappings, setSlotMappings } = useSlotMappings(selectedAppId);
 
     const getSlotMapping = (slotIndex: number) => {
-        const stored = (slotMappings as Record<number, Partial<{ brandRefId: string | null; simShotId: string | null }>>)[slotIndex] || {};
+        const stored = (
+            slotMappings as Record<
+                number,
+                Partial<{ brandRefId: string | null; simShotId: string | null; styleRefAssetId: string | null }>
+            >
+        )[slotIndex] || {};
         const hasBrandRefId = Object.prototype.hasOwnProperty.call(stored, 'brandRefId');
         const hasSimShotId = Object.prototype.hasOwnProperty.call(stored, 'simShotId');
+        const hasStyleRefAssetId = Object.prototype.hasOwnProperty.call(stored, 'styleRefAssetId');
         const resolvedBrandRefId = hasBrandRefId ? (stored.brandRefId ?? null) : brandScreenshotReferences[slotIndex - 1]?.id ?? null;
         return {
             // Important: allow explicit null (stored value) to persist. Only fallback when the key is missing.
             brandRefId: isNoBrandMode ? null : resolvedBrandRefId,
             simShotId: hasSimShotId ? (stored.simShotId ?? null) : selectedAppScreenshots[slotIndex - 1]?.id ?? null,
+            styleRefAssetId: hasStyleRefAssetId ? (stored.styleRefAssetId ?? null) : null,
         };
     };
     const updateSlotMapping = (
         slotIndex: number,
-        patch: { brandRefId?: string | null; simShotId?: string | null }
+        patch: { brandRefId?: string | null; simShotId?: string | null; styleRefAssetId?: string | null }
     ) => {
         const normalizedPatch = isNoBrandMode ? { ...patch, brandRefId: null } : patch;
         setSlotMappings((prev) => ({
@@ -629,6 +636,7 @@ export function AppShell({ session }: AppShellProps) {
         setSystemPromptOverride,
         resetSystemPromptOverride,
         targetSlotCount,
+        noBrandStyleReferenceOptions,
         existingSlotCount,
         slotsToCreate,
         canGenerateIcon,
@@ -1581,6 +1589,7 @@ export function AppShell({ session }: AppShellProps) {
         canGenerateIcon,
         canGenerateScreenshots,
         targetSlotCount,
+        noBrandStyleReferenceOptions,
         getSlotMapping,
         updateSlotMapping,
         promptsByRefId,

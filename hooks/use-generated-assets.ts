@@ -21,6 +21,8 @@ import {
     GENERATED_BUCKET,
     MAX_SCREENSHOT_VERSIONS,
     NO_BRAND_ICON_SEED_PATH,
+    NO_BRAND_SCREENSHOT_ANCHOR_65_PATH,
+    NO_BRAND_SCREENSHOT_ANCHOR_69_PATH,
     SCREENSHOT_SIZES,
 } from '../constants/zefgen';
 import { createId } from '../utils/id';
@@ -55,12 +57,14 @@ import { isNoBrand } from '../utils/no-brand';
 type SlotMapping = {
     brandRefId: string | null;
     simShotId: string | null;
+    styleRefAssetId: string | null;
 };
 
 type ScreenshotKind = 'screenshot' | 'screenshot_enhanced';
 type IconKind = 'icon' | 'icon_enhanced';
 type SystemPromptMode = 'generate' | 'enhance';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
+type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
 const compareAssetsByVersion = (a: GeneratedAsset, b: GeneratedAsset) => {
     const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
@@ -405,6 +409,40 @@ export const useGeneratedAssets = ({
         () => generatedAssets.filter((asset) => asset.app_id === selectedApp?.id),
         [generatedAssets, selectedApp?.id]
     );
+
+    const noBrandStyleReferenceOptions = useMemo<NoBrandStyleReferenceOption[]>(() => {
+        const setNameById = new Map<string, string>();
+        for (const set of screenshotSets) {
+            setNameById.set(String(set.id), String(set.name || '').trim());
+        }
+
+        const styleCandidates = selectedGeneratedAssets
+            .filter(
+                (asset) =>
+                    (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced') &&
+                    asset.slot_index !== null
+            )
+            .slice()
+            .sort((a, b) => {
+                const timeDiff = new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+                if (timeDiff !== 0) return timeDiff;
+                const versionDiff = (b.version_index ?? 1) - (a.version_index ?? 1);
+                if (versionDiff !== 0) return versionDiff;
+                return String(b.id).localeCompare(String(a.id));
+            });
+
+        return styleCandidates.map((asset) => {
+            const kindLabel = asset.kind === 'screenshot_enhanced' ? text('tab_enhanced') : text('tab_generated');
+            const slotLabel = `${text('slot')} ${asset.slot_index ?? '-'}`;
+            const versionLabel = `v${asset.version_index ?? 1}`;
+            const rawSetName = setNameById.get(String((asset as any).screenshot_set_id ?? '')) || text('set_original');
+            const setLabel = String(rawSetName || text('set_original')).trim();
+            return {
+                assetId: asset.id,
+                label: `${slotLabel} · ${kindLabel} ${versionLabel} · ${setLabel}`,
+            };
+        });
+    }, [selectedGeneratedAssets, screenshotSets, text]);
 
     useEffect(() => {
         if (!session || !selectedApp?.id) return;
@@ -1861,6 +1899,16 @@ export const useGeneratedAssets = ({
         }
     }, []);
 
+    const getNoBrandScreenshotAnchorUrl = useCallback((sizeLabel: '6.5' | '6.9') => {
+        const path = sizeLabel === '6.9' ? NO_BRAND_SCREENSHOT_ANCHOR_69_PATH : NO_BRAND_SCREENSHOT_ANCHOR_65_PATH;
+        if (typeof window === 'undefined') return path;
+        try {
+            return new URL(path, window.location.origin).toString();
+        } catch {
+            return path;
+        }
+    }, []);
+
     const handleUploadCustomIconFiles = useCallback(
         async (files: File[]) => {
             if (!session || !selectedBrand || !selectedApp) return;
@@ -2385,7 +2433,9 @@ export const useGeneratedAssets = ({
         }
 
         const mapping = getSlotMapping(slotIndex);
-        const effectiveBrandRefId = isNoBrand(selectedBrand) ? null : mapping.brandRefId;
+        const isNoBrandMode = isNoBrand(selectedBrand);
+        const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
+        const selectedStyleRefAssetId = isNoBrandMode ? mapping.styleRefAssetId : null;
         const simShotId = mapping.simShotId;
         if (!simShotId) {
             throw new Error(text('select_sim_screenshot'));
@@ -2400,25 +2450,6 @@ export const useGeneratedAssets = ({
             appScreenshotUrls[sourceShot.id] ??
             (await getSignedUrl(APP_SCREENSHOT_BUCKET, sourceShot.image_path));
 
-        const noReferenceClause =
-            `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
-
-        let brandRefImageUrl = simulatorImageUrl;
-        let userPrompt = '';
-        if (effectiveBrandRefId) {
-            const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
-            if (!brandRef) {
-                throw new Error(text('select_brand_reference'));
-            }
-            brandRefImageUrl =
-                brandRefUrls[brandRef.id] ??
-                (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
-            userPrompt = (promptsByRefId[effectiveBrandRefId] ?? '').trim();
-        } else {
-            const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
-            userPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
-        }
-
         const existingSlot = generatedScreenshotSlots.find((item) => item.slotIndex === slotIndex) || null;
         if (existingSlot && existingSlot.versions.length >= MAX_SCREENSHOT_VERSIONS) {
             throw new Error(text('version_limit_reached'));
@@ -2431,25 +2462,78 @@ export const useGeneratedAssets = ({
         const sizeLabel = (existingSlot?.versions?.[0]?.size_label as '6.5' | '6.9' | null) ?? generationSize;
         const size = SCREENSHOT_SIZES[sizeLabel];
 
+        const noReferenceClause =
+            `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
+        const noBrandAnchorClause =
+            `Image 1 is a neutral size anchor only. Keep image 1 ratio/framing for exact output dimensions, but do not copy its visual style or content. Image 2 is the app UI source of truth.`;
+        const noBrandStyleReferenceClause =
+            `Image 1 is a style/composition reference. Preserve its visual direction and framing while keeping image 2 as the app UI source of truth.`;
+
+        let compositionImageUrl = simulatorImageUrl;
+        let appUiImageUrl = simulatorImageUrl;
+        let compositionClause: string | null = null;
+        let userPrompt = '';
+        if (effectiveBrandRefId) {
+            const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
+            if (!brandRef) {
+                throw new Error(text('select_brand_reference'));
+            }
+            compositionImageUrl =
+                brandRefUrls[brandRef.id] ??
+                (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+            appUiImageUrl = simulatorImageUrl;
+            userPrompt = (promptsByRefId[effectiveBrandRefId] ?? '').trim();
+        } else {
+            const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            userPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
+            if (isNoBrandMode) {
+                let styleReferenceUrl: string | null = null;
+                if (selectedStyleRefAssetId) {
+                    const styleReferenceAsset =
+                        selectedGeneratedAssets.find(
+                            (asset) =>
+                                asset.id === selectedStyleRefAssetId &&
+                                (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
+                        ) ?? null;
+                    if (styleReferenceAsset) {
+                        try {
+                            styleReferenceUrl = await resolveGeneratedUrl(styleReferenceAsset);
+                        } catch {
+                            reportError(text('no_brand_style_reference_unavailable'));
+                        }
+                    } else {
+                        reportError(text('no_brand_style_reference_unavailable'));
+                    }
+                }
+
+                if (styleReferenceUrl) {
+                    compositionImageUrl = styleReferenceUrl;
+                    appUiImageUrl = simulatorImageUrl;
+                    compositionClause = noBrandStyleReferenceClause;
+                } else {
+                    compositionImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
+                    appUiImageUrl = simulatorImageUrl;
+                    compositionClause = noBrandAnchorClause;
+                }
+            } else {
+                compositionClause = noReferenceClause;
+            }
+        }
+
         const { effectivePrompt: basePrompt } = getSystemPromptForSlot(slotIndex, 'generate');
         const prompt = [
             basePrompt,
-            !effectiveBrandRefId ? noReferenceClause : null,
+            compositionClause,
             userPrompt ? userPrompt : null,
         ]
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
             .join('\n\n');
 
-        // For screenshot generation, reference should drive composition/ratio (image 1),
-        // while simulator should drive app UI content (image 2).
-        const image1 = effectiveBrandRefId ? brandRefImageUrl : simulatorImageUrl;
-        const image2 = effectiveBrandRefId ? simulatorImageUrl : brandRefImageUrl;
-
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
             prompt,
-            simulatorImageUrl: image1,
-            brandRefImageUrl: image2,
+            simulatorImageUrl: compositionImageUrl,
+            brandRefImageUrl: appUiImageUrl,
             width: size.width,
             height: size.height,
             signal: ctx?.signal,
@@ -2470,7 +2554,9 @@ export const useGeneratedAssets = ({
         } else {
             blob = base64ToBlob(result.b64, result.mimeType);
         }
-        const jpgFile = await renderBlobToJpegAutoFit(blob, size.width, size.height);
+        const jpgFile = isNoBrandMode
+            ? await renderBlobToJpeg(blob, size.width, size.height, 'contain')
+            : await renderBlobToJpegAutoFit(blob, size.width, size.height);
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
 
         if (ctx?.signal?.aborted) throw new Error('Canceled');
@@ -2564,7 +2650,8 @@ export const useGeneratedAssets = ({
         const { slotIndex, base, enhancePrompt } = payload;
 
         const mapping = getSlotMapping(slotIndex);
-        const effectiveBrandRefId = isNoBrand(selectedBrand) ? null : mapping.brandRefId;
+        const isNoBrandMode = isNoBrand(selectedBrand);
+        const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
 
         const baseAsset = selectedGeneratedAssets.find((asset) => asset.id === base.assetId) || null;
         if (!baseAsset || (baseAsset.kind !== 'screenshot' && baseAsset.kind !== 'screenshot_enhanced')) {
@@ -2639,7 +2726,9 @@ export const useGeneratedAssets = ({
         } else {
             blob = base64ToBlob(result.b64, result.mimeType);
         }
-        const jpgFile = await renderBlobToJpegAutoFit(blob, size.width, size.height);
+        const jpgFile = isNoBrandMode
+            ? await renderBlobToJpeg(blob, size.width, size.height, 'contain')
+            : await renderBlobToJpegAutoFit(blob, size.width, size.height);
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots-enhanced/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
 
         if (ctx?.signal?.aborted) throw new Error('Canceled');
@@ -3281,6 +3370,7 @@ export const useGeneratedAssets = ({
         setSystemPromptOverride,
         resetSystemPromptOverride,
         targetSlotCount,
+        noBrandStyleReferenceOptions,
         existingSlotCount,
         slotsToCreate,
         canGenerateIcon,

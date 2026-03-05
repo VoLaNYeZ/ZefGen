@@ -22,6 +22,11 @@ type GeneratedSlot = {
     versions: GeneratedAsset[];
 };
 
+type NoBrandStyleReferenceOption = {
+    assetId: string;
+    label: string;
+};
+
 export const IconGenerationModule = (props: Omit<AppGenerationSectionProps, 'mode'>) => (
     <AppGenerationSection {...props} mode="icon" />
 );
@@ -66,8 +71,9 @@ type AppGenerationSectionProps = {
     canGenerateIcon: boolean;
     canGenerateScreenshots: boolean;
     targetSlotCount: number;
-    getSlotMapping: (slotIndex: number) => { brandRefId: string | null; simShotId: string | null };
-    updateSlotMapping: (slotIndex: number, patch: { brandRefId?: string | null; simShotId?: string | null }) => void;
+    noBrandStyleReferenceOptions: NoBrandStyleReferenceOption[];
+    getSlotMapping: (slotIndex: number) => { brandRefId: string | null; simShotId: string | null; styleRefAssetId: string | null };
+    updateSlotMapping: (slotIndex: number, patch: { brandRefId?: string | null; simShotId?: string | null; styleRefAssetId?: string | null }) => void;
     promptsByRefId: Record<string, string>;
     setPrompt: (refId: string, value: string) => void;
     slotPromptBySlotIndex: Record<number, string>;
@@ -171,6 +177,7 @@ export const AppGenerationSection = ({
     canGenerateIcon,
     canGenerateScreenshots,
     targetSlotCount,
+    noBrandStyleReferenceOptions,
     getSlotMapping,
     updateSlotMapping,
     promptsByRefId,
@@ -1043,6 +1050,29 @@ export const AppGenerationSection = ({
                                                 ))}
                                             </select>
                                         </div>
+                                        {isNoBrandMode && (
+                                            <div className="min-w-0">
+                                                <label className="text-[9px] leading-none text-indigo-200/50">
+                                                    {text('no_brand_style_reference_label')}
+                                                </label>
+                                                <select
+                                                    value={mapping.styleRefAssetId ?? ''}
+                                                    onChange={(event) =>
+                                                        updateSlotMapping(slotIndex, {
+                                                            styleRefAssetId: event.target.value || null,
+                                                        })
+                                                    }
+                                                    className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                >
+                                                    <option value="">{text('no_brand_style_reference_none')}</option>
+                                                    {noBrandStyleReferenceOptions.map((option) => (
+                                                        <option key={option.assetId} value={option.assetId}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <textarea

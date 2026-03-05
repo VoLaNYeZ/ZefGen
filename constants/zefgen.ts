@@ -12,6 +12,8 @@ export const WORKSPACE_SOFT_LOCK_VIEW_MODE_ENABLED = true;
 export const WORKSPACE_COLLAB_POLL_MS = 10_000;
 export const WORKSPACE_COLLAB_TTL_SECONDS = 30;
 export const NO_BRAND_ICON_SEED_PATH = '/no-brand-icon-seed.jpg';
+export const NO_BRAND_SCREENSHOT_ANCHOR_65_PATH = '/no-brand-screenshot-anchor-65.png';
+export const NO_BRAND_SCREENSHOT_ANCHOR_69_PATH = '/no-brand-screenshot-anchor-69.png';
 
 export const SCREENSHOT_SIZES = {
     '6.5': { width: 1242, height: 2688 },
