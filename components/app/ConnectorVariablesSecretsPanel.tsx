@@ -638,11 +638,16 @@ export function ConnectorVariablesSecretsPanel(props: {
                                                             appstoreDescriptionRegenerateBlocked
                                                         }
                                                         title={appstoreDescriptionRegenerateTitle}
-                                                        className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-1 rounded-full border border-indigo-400/35 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                                                        className="ui-btn-fit ui-btn-fit-dense inline-flex min-w-[150px] items-center justify-center gap-1.5 rounded-full border border-indigo-400/35 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                                                     >
-                                                        {connectorForm.generateDescriptionBusy
-                                                            ? text('connector_appstore_desc_busy')
-                                                            : text('connector_appstore_desc_regenerate')}
+                                                        {connectorForm.generateDescriptionBusy ? (
+                                                            <>
+                                                                <Loader2 size={12} className="animate-spin" />
+                                                                <span>{text('connector_appstore_desc_busy')}</span>
+                                                            </>
+                                                        ) : (
+                                                            text('connector_appstore_desc_regenerate')
+                                                        )}
                                                     </button>
                                                 </span>
                                                 <button
@@ -661,16 +666,33 @@ export function ConnectorVariablesSecretsPanel(props: {
                                             </div>
                                         ) : null}
                                     </div>
-                                    <textarea
-                                        value={value}
-                                        onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
-                                        rows={4}
-                                        disabled={!isEnabled}
-                                        className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
-                                            f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
-                                        }`}
-                                        placeholder={f.placeholder ? String(f.placeholder) : undefined}
-                                    />
+                                    {isAppstoreDescription ? (
+                                        <div className="h-4">
+                                            <span
+                                                className={`inline-flex items-center gap-1 text-[10px] text-indigo-100/75 transition-opacity ${
+                                                    connectorForm.generateDescriptionBusy ? 'opacity-100' : 'opacity-0'
+                                                }`}
+                                            >
+                                                <Loader2 size={10} className="animate-spin" />
+                                                <span>{text('connector_appstore_desc_busy')}</span>
+                                            </span>
+                                        </div>
+                                    ) : null}
+                                    <div className="relative">
+                                        <textarea
+                                            value={value}
+                                            onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
+                                            rows={4}
+                                            disabled={!isEnabled}
+                                            className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
+                                                f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
+                                            }`}
+                                            placeholder={f.placeholder ? String(f.placeholder) : undefined}
+                                        />
+                                        {isAppstoreDescription && connectorForm.generateDescriptionBusy ? (
+                                            <div className="pointer-events-none absolute inset-0 rounded-2xl border border-indigo-300/20 bg-gradient-to-r from-transparent via-indigo-300/10 to-transparent animate-pulse" />
+                                        ) : null}
+                                    </div>
                                 </label>
                             );
                         })}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Trash2, ChevronDown, ChevronRight, Upload, ImagePlus } from 'lucide-react';
+import { Download, Trash2, ChevronDown, ChevronRight, Upload, ImagePlus, Loader2 } from 'lucide-react';
 import type {
     AppItem,
     AppScreenshot,
@@ -367,44 +367,66 @@ export const AppGenerationSection = ({
                                             type="button"
                                             onClick={handleNoBrandIconPromptAutogen}
                                             disabled={isReadOnly || !selectedApp || noBrandIconPromptAutogenBusy}
-                                            className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                                            className={`ui-btn-fit ui-btn-fit-dense inline-flex min-w-[170px] items-center justify-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                 !isReadOnly && selectedApp && !noBrandIconPromptAutogenBusy
                                                     ? 'border-cyan-300/35 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25'
                                                     : 'border-white/10 text-indigo-200/40'
                                             }`}
                                         >
-                                            {noBrandIconPromptAutogenBusy
-                                                ? text('no_brand_icon_prompt_autogen_loading')
-                                                : text('no_brand_icon_prompt_autogen')}
+                                            {noBrandIconPromptAutogenBusy ? (
+                                                <>
+                                                    <Loader2 size={12} className="animate-spin" />
+                                                    <span>{text('no_brand_icon_prompt_autogen_loading')}</span>
+                                                </>
+                                            ) : (
+                                                text('no_brand_icon_prompt_autogen')
+                                            )}
                                         </button>
                                     ) : null}
                                 </div>
-                                <textarea
-                                    value={iconPromptValue}
-                                    onChange={(event) => {
-                                        if (isNoBrandMode) {
-                                            handleNoBrandIconPromptChange?.(event.target.value);
-                                            return;
-                                        }
-                                        if (brandIconReference) {
-                                            handleBrandPromptChange(brandIconReference.id, event.target.value);
-                                        }
-                                    }}
-                                    onInput={handleAutoGrowInput}
-                                    onBlur={(event) => {
-                                        if (isNoBrandMode) {
-                                            handleNoBrandIconPromptSave?.(event.target.value);
-                                            return;
-                                        }
-                                        if (brandIconReference) {
-                                            handleBrandPromptSave(brandIconReference.id, event.target.value);
-                                        }
-                                    }}
-                                    placeholder={iconPromptPlaceholder}
-                                    rows={3}
-                                    disabled={!canEditIconPrompt}
-                                    className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
-                                />
+                                {isNoBrandMode ? (
+                                    <div className="h-4">
+                                        <span
+                                            className={`inline-flex items-center gap-1 text-[10px] text-cyan-100/80 transition-opacity ${
+                                                noBrandIconPromptAutogenBusy ? 'opacity-100' : 'opacity-0'
+                                            }`}
+                                        >
+                                            <Loader2 size={10} className="animate-spin" />
+                                            <span>{text('no_brand_icon_prompt_autogen_loading')}</span>
+                                        </span>
+                                    </div>
+                                ) : null}
+                                <div className="relative">
+                                    <textarea
+                                        value={iconPromptValue}
+                                        onChange={(event) => {
+                                            if (isNoBrandMode) {
+                                                handleNoBrandIconPromptChange?.(event.target.value);
+                                                return;
+                                            }
+                                            if (brandIconReference) {
+                                                handleBrandPromptChange(brandIconReference.id, event.target.value);
+                                            }
+                                        }}
+                                        onInput={handleAutoGrowInput}
+                                        onBlur={(event) => {
+                                            if (isNoBrandMode) {
+                                                handleNoBrandIconPromptSave?.(event.target.value);
+                                                return;
+                                            }
+                                            if (brandIconReference) {
+                                                handleBrandPromptSave(brandIconReference.id, event.target.value);
+                                            }
+                                        }}
+                                        placeholder={iconPromptPlaceholder}
+                                        rows={3}
+                                        disabled={!canEditIconPrompt}
+                                        className="auto-grow w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                    />
+                                    {isNoBrandMode && noBrandIconPromptAutogenBusy ? (
+                                        <div className="pointer-events-none absolute inset-0 rounded-xl border border-cyan-300/25 bg-gradient-to-r from-transparent via-cyan-300/10 to-transparent animate-pulse" />
+                                    ) : null}
+                                </div>
 
                                 {(() => {
                                     const sys = getIconSystemPrompt();
@@ -474,6 +496,7 @@ export const AppGenerationSection = ({
                                             className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                             disabled={isReadOnly || !selectedApp || iconGenerating}
                                         >
+                                            <option value="replicate:nano-banana-2">{text('provider_replicate_nano_banana_2')}</option>
                                             <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
                                             <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
                                             <option value="openai:gpt-image-1.5">{text('provider_openai_gpt_image_15')}</option>
@@ -907,6 +930,7 @@ export const AppGenerationSection = ({
                                     className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                     disabled={isReadOnly || !selectedApp || screenshotsGenerating}
                                 >
+                                    <option value="replicate:nano-banana-2">{text('provider_replicate_nano_banana_2')}</option>
                                     <option value="replicate:nano-banana-pro">{text('provider_replicate_nano_banana_pro')}</option>
                                     <option value="replicate:seedream-4">{text('provider_replicate_seedream_4')}</option>
                                     <option value="openai:gpt-image-1.5">{text('provider_openai_gpt_image_15')}</option>

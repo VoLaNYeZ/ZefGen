@@ -92,6 +92,55 @@ const sanitizeIconPrompt = (value: string) => {
     return out;
 };
 
+type ChatMessage = {
+    role: 'system' | 'user';
+    content: string;
+};
+
+const isGpt5FamilyModel = (model: string) => /^gpt-5(?:[.-]|$)/i.test(String(model || '').trim());
+
+const canUseChatSampling = (model: string, reasoningEffort?: 'none' | 'low' | 'medium' | 'high') => {
+    const normalized = String(model || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (!normalized.startsWith('gpt-5')) return true;
+    const isGpt51Or52 = /^gpt-5\.(1|2)(?:$|[-:])/.test(normalized);
+    return isGpt51Or52 && reasoningEffort === 'none';
+};
+
+const buildChatCompletionsBody = (payload: {
+    model: string;
+    messages: ChatMessage[];
+    temperature?: number;
+    reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+}) => {
+    const body: any = {
+        model: payload.model,
+        messages: payload.messages,
+    };
+    if (payload.reasoningEffort) {
+        body.reasoning_effort = payload.reasoningEffort;
+    }
+    if (typeof payload.temperature === 'number' && canUseChatSampling(payload.model, payload.reasoningEffort)) {
+        body.temperature = payload.temperature;
+    }
+    return body;
+};
+
+const normalizeOpenAIChatErrorMessage = (payload: { message: string; model: string; param?: string }) => {
+    const raw = String(payload.message || '').trim();
+    if (!raw) return '';
+    const hintedParam = String(payload.param || '').trim();
+    const detectedParam = (hintedParam || raw.match(/\b(temperature|top_p|logprobs|frequency_penalty|presence_penalty)\b/i)?.[1] || '').trim();
+    const looksUnsupported = /isn'?t available|not supported|unsupported|does not support/i.test(raw);
+    if (detectedParam && looksUnsupported) {
+        return `OpenAI model "${payload.model}" does not support "${detectedParam}" for Chat Completions. Use a GPT-5-compatible payload (no sampling params unless reasoning_effort='none' on gpt-5.1/gpt-5.2).`;
+    }
+    if (isGpt5FamilyModel(payload.model) && /temperature|top_p|logprobs|frequency_penalty|presence_penalty/i.test(raw)) {
+        return `OpenAI model "${payload.model}" rejected a sampling parameter. GPT-5 Chat Completions should omit sampling params unless reasoning_effort='none' on gpt-5.1/gpt-5.2.`;
+    }
+    return raw;
+};
+
 const generateWithOpenAI = async (payload: {
     clientSpecLines: string[];
     appName: string;
@@ -122,35 +171,38 @@ Requirements:
 - No text, no letters, no numbers inside the icon.
 - Do not return explanations, labels, JSON, or markdown.`;
 
+    const requestBody = buildChatCompletionsBody({
+        model: payload.model,
+        messages: [
+            {
+                role: 'system',
+                content:
+                    'You write high-quality icon prompts for image models. Return only the final prompt text.',
+            },
+            {
+                role: 'user',
+                content: userPrompt,
+            },
+        ],
+        // Deterministic-safe default for GPT-5 compatibility: no sampling params.
+    });
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-            model: payload.model,
-            temperature: 0.7,
-            messages: [
-                {
-                    role: 'system',
-                    content:
-                        'You write high-quality icon prompts for image models. Return only the final prompt text.',
-                },
-                {
-                    role: 'user',
-                    content: userPrompt,
-                },
-            ],
-        }),
+        body: JSON.stringify(requestBody),
     });
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-        const message = String((data as any)?.error?.message || `OpenAI request failed (${response.status}).`).slice(
-            0,
-            500
-        );
+        const message = normalizeOpenAIChatErrorMessage({
+            message: String((data as any)?.error?.message || `OpenAI request failed (${response.status}).`),
+            model: payload.model,
+            param: String((data as any)?.error?.param || ''),
+        }).slice(0, 500);
         const err = new Error(message);
         (err as any).statusCode = response.status;
         throw err;
