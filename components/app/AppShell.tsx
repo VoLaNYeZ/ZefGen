@@ -633,6 +633,8 @@ export function AppShell({ session }: AppShellProps) {
         setIconSystemPromptOverride,
         resetIconSystemPromptOverride,
         getSystemPromptForSlot,
+        getSystemPromptTemplateForSlot,
+        setSystemPromptTemplateForSlot,
         setSystemPromptOverride,
         resetSystemPromptOverride,
         targetSlotCount,
@@ -1641,6 +1643,9 @@ export function AppShell({ session }: AppShellProps) {
         setIconSystemPromptOverride: (value: string) => runWriteAction(() => setIconSystemPromptOverride(value)),
         resetIconSystemPromptOverride: () => runWriteAction(resetIconSystemPromptOverride),
         getSystemPromptForSlot,
+        getSystemPromptTemplateForSlot,
+        setSystemPromptTemplateForSlot: (slotIndex: number, value: 'ref_like' | 'same_style_like' | 'no_ref_like') =>
+            runWriteAction(() => setSystemPromptTemplateForSlot(slotIndex, value)),
         setSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance', value: string) =>
             runWriteAction(() => setSystemPromptOverride(slotIndex, mode, value)),
         resetSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance') =>

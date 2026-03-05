@@ -117,6 +117,8 @@ type AppGenerationSectionProps = {
         slotIndex: number,
         mode: 'generate' | 'enhance'
     ) => { defaultPrompt: string; effectivePrompt: string; isOverridden: boolean };
+    getSystemPromptTemplateForSlot: (slotIndex: number) => 'ref_like' | 'same_style_like' | 'no_ref_like';
+    setSystemPromptTemplateForSlot: (slotIndex: number, value: 'ref_like' | 'same_style_like' | 'no_ref_like') => void;
     setSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance', value: string) => void;
     resetSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance') => void;
     pickedIconAssetId: string | null;
@@ -220,6 +222,8 @@ export const AppGenerationSection = ({
     setIconSystemPromptOverride,
     resetIconSystemPromptOverride,
     getSystemPromptForSlot,
+    getSystemPromptTemplateForSlot,
+    setSystemPromptTemplateForSlot,
     setSystemPromptOverride,
     resetSystemPromptOverride,
     pickedIconAssetId,
@@ -1050,47 +1054,51 @@ export const AppGenerationSection = ({
                                                 ))}
                                             </select>
                                         </div>
-                                        {isNoBrandMode && (
-                                            <div className="min-w-0">
-                                                <label className="text-[9px] leading-none text-indigo-200/50">
-                                                    {text('no_brand_style_reference_label')}
-                                                </label>
-                                                <select
-                                                    value={mapping.styleRefAssetId ?? ''}
-                                                    onChange={(event) =>
-                                                        updateSlotMapping(slotIndex, {
-                                                            styleRefAssetId: event.target.value || null,
-                                                        })
-                                                    }
-                                                    className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                                >
-                                                    <option value="">{text('no_brand_style_reference_none')}</option>
-                                                    {noBrandStyleReferenceOptions.map((option) => (
-                                                        <option key={option.assetId} value={option.assetId}>
-                                                            {option.label}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        )}
+                                        <div className="min-w-0">
+                                            <label className="text-[9px] leading-none text-indigo-200/50">
+                                                {text('no_brand_style_reference_label')}
+                                            </label>
+                                            <select
+                                                value={mapping.styleRefAssetId ?? ''}
+                                                onChange={(event) =>
+                                                    updateSlotMapping(slotIndex, {
+                                                        styleRefAssetId: event.target.value || null,
+                                                    })
+                                                }
+                                                className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            >
+                                                <option value="">{text('no_brand_style_reference_none')}</option>
+                                                {noBrandStyleReferenceOptions.map((option) => (
+                                                    <option key={option.assetId} value={option.assetId}>
+                                                        {option.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     </div>
 
                                     <textarea
-                                        value={
-                                            selectedApp
-                                                ? !isNoBrandMode && promptRefId
-                                                    ? promptsByRefId[promptRefId] ?? ''
-                                                    : slotPromptBySlotIndex[slotIndex] ?? ''
-                                                : ''
-                                        }
-                                        onChange={(event) => {
-                                            if (!selectedApp) return;
-                                            if (!isNoBrandMode && promptRefId) {
-                                                setPrompt(promptRefId, event.target.value);
-                                            } else {
-                                                setSlotPrompt(slotIndex, event.target.value);
-                                            }
-                                        }}
+                                        {...(() => {
+                                            const template = getSystemPromptTemplateForSlot(slotIndex);
+                                            const useBrandPrompt = !isNoBrandMode && template === 'ref_like' && Boolean(promptRefId);
+                                            const value =
+                                                selectedApp
+                                                    ? useBrandPrompt
+                                                        ? promptsByRefId[promptRefId as string] ?? ''
+                                                        : slotPromptBySlotIndex[slotIndex] ?? ''
+                                                    : '';
+                                            return {
+                                                value,
+                                                onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                                    if (!selectedApp) return;
+                                                    if (useBrandPrompt) {
+                                                        setPrompt(promptRefId as string, event.target.value);
+                                                    } else {
+                                                        setSlotPrompt(slotIndex, event.target.value);
+                                                    }
+                                                },
+                                            };
+                                        })()}
                                         onInput={handleAutoGrowInput}
                                         placeholder={isNoBrandMode ? text('no_brand_screenshot_prompt_placeholder') : text('prompt_placeholder')}
                                         rows={2}
@@ -1100,6 +1108,7 @@ export const AppGenerationSection = ({
 
                                     {(() => {
                                         const sys = getSystemPromptForSlot(slotIndex, 'generate');
+                                        const sysTemplate = getSystemPromptTemplateForSlot(slotIndex);
                                         const isOpen = Boolean(systemPromptOpenBySlotIndex[slotIndex]);
                                         return (
                                             <div className="rounded-lg border border-indigo-500/15 bg-slate-950/40">
@@ -1131,6 +1140,46 @@ export const AppGenerationSection = ({
 
                                                 {isOpen && (
                                                     <div className="border-t border-indigo-500/10 p-2 space-y-1.5">
+                                                        <div className="flex items-center gap-1 flex-wrap">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSystemPromptTemplateForSlot(slotIndex, 'ref_like')}
+                                                                disabled={isReadOnly || !selectedApp || isNoBrandMode}
+                                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                    sysTemplate === 'ref_like'
+                                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                                        : isNoBrandMode
+                                                                            ? 'border-white/10 text-indigo-200/30'
+                                                                            : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {text('system_prompt_ref_like')}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSystemPromptTemplateForSlot(slotIndex, 'same_style_like')}
+                                                                disabled={isReadOnly || !selectedApp || !activeScreenshotSetId}
+                                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                    sysTemplate === 'same_style_like'
+                                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {text('system_prompt_samestyle_like')}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSystemPromptTemplateForSlot(slotIndex, 'no_ref_like')}
+                                                                disabled={isReadOnly || !selectedApp || !activeScreenshotSetId}
+                                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                    sysTemplate === 'no_ref_like'
+                                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {text('system_prompt_noref_like')}
+                                                            </button>
+                                                        </div>
                                                         <div className="flex items-center justify-end">
                                                             <button
                                                                 type="button"

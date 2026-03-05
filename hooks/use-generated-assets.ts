@@ -63,6 +63,7 @@ type SlotMapping = {
 type ScreenshotKind = 'screenshot' | 'screenshot_enhanced';
 type IconKind = 'icon' | 'icon_enhanced';
 type SystemPromptMode = 'generate' | 'enhance';
+type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
@@ -252,6 +253,7 @@ export const useGeneratedAssets = ({
     const [systemPromptOverridesByKey, setSystemPromptOverridesByKey] = useState<
         Record<string, { generate?: string; enhance?: string }>
     >({});
+    const [systemPromptTemplateByKey, setSystemPromptTemplateByKey] = useState<Record<string, SystemPromptTemplate>>({});
     const [iconSystemPromptOverrideByAppId, setIconSystemPromptOverrideByAppId] = useState<Record<string, string>>({});
     const slotHeadlineHistoryRef = useRef<
         Record<
@@ -851,6 +853,12 @@ export const useGeneratedAssets = ({
         []
     );
 
+    const getSystemPromptTemplateStorageKey = useCallback(
+        (payload: { appId: string; screenshotSetId: string; slotIndex: number }) =>
+            `zefgen.sysPromptTemplate.${payload.appId}.${payload.screenshotSetId}.${payload.slotIndex}`,
+        []
+    );
+
     const getIconSystemPromptStorageKey = useCallback(
         (appId: string) => `zefgen.iconSystemPrompt.${appId}`,
         []
@@ -887,6 +895,27 @@ export const useGeneratedAssets = ({
 
         setSystemPromptOverridesByKey((prev) => ({ ...prev, ...next }));
     }, [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptStorageKey]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!selectedApp?.id || !activeScreenshotSetId) return;
+
+        const next: Record<string, SystemPromptTemplate> = {};
+        for (let slotIndex = 1; slotIndex <= 6; slotIndex += 1) {
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            const lsKey = getSystemPromptTemplateStorageKey({
+                appId: selectedApp.id,
+                screenshotSetId: activeScreenshotSetId,
+                slotIndex,
+            });
+            const raw = window.localStorage.getItem(lsKey);
+            if (raw === 'ref_like' || raw === 'same_style_like' || raw === 'no_ref_like') {
+                next[key] = raw;
+            }
+        }
+
+        setSystemPromptTemplateByKey((prev) => ({ ...prev, ...next }));
+    }, [selectedApp?.id, activeScreenshotSetId, getScreenshotSlotKey, getSystemPromptTemplateStorageKey]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -995,6 +1024,25 @@ export const useGeneratedAssets = ({
         ].join(' ');
     }, []);
 
+    const buildSameStyleGenerateSystemPrompt = useCallback(() => {
+        return [
+            `Goal: an iOS App Store screenshot ready to upload to App Store Connect.`,
+            `Image 1 is the style/composition reference: preserve its framing, mood, lighting, and visual direction.`,
+            `Image 2 is the app-content source of truth: preserve the app UI from image 2 (same on-screen structure, readability, and key details).`,
+            `Absolute priority: keep the SAME app from image 2. Do not redesign it, do not replace screens, and do not swap it to a different app concept.`,
+            `Never copy UI, text, icons, navigation, or screen content from image 1.`,
+            `If image 1 conflicts with image 2, image 2 wins for all app interface elements.`,
+            `If the iOS status bar exists in image 2, keep it exactly as-is (do not remove or rewrite).`,
+            `Blend image 2 UI naturally into image 1-style composition.`,
+            `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the main composition upward to fill it.`,
+            `No device frames/mockups/hands/bezels/floating phones.`,
+            `No added text anywhere: no headlines, captions, badges, stickers, labels, logos, watermarks, or any extra UI.`,
+            `Never print any resolution/metadata text anywhere.`,
+            `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
+            `Keep it sharp and clean (no blur, no artifacts).`,
+        ].join(' ');
+    }, []);
+
     const buildDefaultIconSystemPrompt = useCallback(() => {
         return [
             `Keep all symbols that distinguish this emblem.`,
@@ -1055,6 +1103,68 @@ export const useGeneratedAssets = ({
         }
     }, [selectedApp?.id, getIconSystemPromptStorageKey]);
 
+    const getSystemPromptTemplateForSlot = useCallback(
+        (slotIndex: number): SystemPromptTemplate => {
+            const mapping = getSlotMapping(slotIndex);
+            const isNoBrandMode = Boolean(selectedBrand && isNoBrand(selectedBrand));
+            const setId = activeScreenshotSetId;
+            const key = getScreenshotSlotKey(slotIndex, setId);
+            const stored = systemPromptTemplateByKey[key];
+
+            const fallback: SystemPromptTemplate = isNoBrandMode
+                ? mapping.styleRefAssetId
+                    ? 'same_style_like'
+                    : 'no_ref_like'
+                : mapping.brandRefId
+                    ? 'ref_like'
+                    : mapping.styleRefAssetId
+                        ? 'same_style_like'
+                        : 'no_ref_like';
+
+            const raw = stored || fallback;
+            if (isNoBrandMode && raw === 'ref_like') return 'no_ref_like';
+            return raw;
+        },
+        [activeScreenshotSetId, getScreenshotSlotKey, getSlotMapping, selectedBrand, systemPromptTemplateByKey]
+    );
+
+    const setSystemPromptTemplateForSlot = useCallback(
+        (slotIndex: number, template: SystemPromptTemplate) => {
+            if (!selectedApp?.id || !activeScreenshotSetId) return;
+            const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+            setSystemPromptTemplateByKey((prev) => ({ ...prev, [key]: template }));
+
+            const lsKey = getSystemPromptTemplateStorageKey({
+                appId: selectedApp.id,
+                screenshotSetId: activeScreenshotSetId,
+                slotIndex,
+            });
+            if (typeof window !== 'undefined') {
+                window.localStorage.setItem(lsKey, template);
+                const genOverrideKey = getSystemPromptStorageKey({
+                    appId: selectedApp.id,
+                    screenshotSetId: activeScreenshotSetId,
+                    slotIndex,
+                    mode: 'generate',
+                });
+                window.localStorage.removeItem(genOverrideKey);
+            }
+
+            // Switching template should immediately show that template's default body.
+            setSystemPromptOverridesByKey((prev) => ({
+                ...prev,
+                [key]: { ...(prev[key] ?? {}), generate: undefined },
+            }));
+        },
+        [
+            selectedApp?.id,
+            activeScreenshotSetId,
+            getScreenshotSlotKey,
+            getSystemPromptTemplateStorageKey,
+            getSystemPromptStorageKey,
+        ]
+    );
+
     const getSystemPromptForSlot = useCallback(
         (slotIndex: number, mode: SystemPromptMode) => {
             const setId = activeScreenshotSetId;
@@ -1079,32 +1189,17 @@ export const useGeneratedAssets = ({
                 width: size.width,
                 height: size.height,
             });
-            const mapping = getSlotMapping(slotIndex);
-            const isNoBrandMode = Boolean(selectedBrand && isNoBrand(selectedBrand));
-            const styleRefAvailable =
-                Boolean(mapping.styleRefAssetId) &&
-                selectedGeneratedAssets.some(
-                    (asset) =>
-                        asset.id === mapping.styleRefAssetId &&
-                        (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
-                );
-            const contextualClause =
-                mode === 'generate'
-                    ? isNoBrandMode
-                        ? styleRefAvailable
-                            ? NO_BRAND_STYLE_REFERENCE_CLAUSE
-                            : NO_BRAND_ANCHOR_CLAUSE
-                        : !mapping.brandRefId
-                            ? NO_REFERENCE_CLAUSE
-                            : null
-                    : null;
-            const baseDefaultPrompt =
-                mode === 'generate' && isNoBrandMode && !styleRefAvailable
-                    ? buildNoBrandAnchorGenerateSystemPrompt()
-                    : genericDefaultPrompt;
-            const defaultPrompt = [baseDefaultPrompt, contextualClause]
-                .filter((value): value is string => typeof value === 'string' && value.length > 0)
-                .join('\n\n');
+            const template = getSystemPromptTemplateForSlot(slotIndex);
+            let defaultPrompt = genericDefaultPrompt;
+            if (mode === 'generate') {
+                if (template === 'ref_like') {
+                    defaultPrompt = genericDefaultPrompt;
+                } else if (template === 'same_style_like') {
+                    defaultPrompt = buildSameStyleGenerateSystemPrompt();
+                } else {
+                    defaultPrompt = buildNoBrandAnchorGenerateSystemPrompt();
+                }
+            }
             const key = getScreenshotSlotKey(slotIndex, setId);
             const override = systemPromptOverridesByKey[key]?.[mode];
             return {
@@ -1118,13 +1213,12 @@ export const useGeneratedAssets = ({
             selectedApp?.id,
             generationSize,
             screenshotProviderId,
-            selectedBrand,
-            selectedGeneratedAssets,
-            getSlotMapping,
             getScreenshotSlotKey,
             systemPromptOverridesByKey,
             buildDefaultSystemPrompt,
             buildNoBrandAnchorGenerateSystemPrompt,
+            buildSameStyleGenerateSystemPrompt,
+            getSystemPromptTemplateForSlot,
         ]
     );
 
@@ -2491,7 +2585,10 @@ export const useGeneratedAssets = ({
         const mapping = getSlotMapping(slotIndex);
         const isNoBrandMode = isNoBrand(selectedBrand);
         const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
-        const selectedStyleRefAssetId = isNoBrandMode ? mapping.styleRefAssetId : null;
+        const selectedStyleRefAssetId = mapping.styleRefAssetId;
+        const selectedTemplate = getSystemPromptTemplateForSlot(slotIndex);
+        const template: SystemPromptTemplate =
+            isNoBrandMode && selectedTemplate === 'ref_like' ? 'no_ref_like' : selectedTemplate;
         const simShotId = mapping.simShotId;
         if (!simShotId) {
             throw new Error(text('select_sim_screenshot'));
@@ -2518,11 +2615,34 @@ export const useGeneratedAssets = ({
         const sizeLabel = (existingSlot?.versions?.[0]?.size_label as '6.5' | '6.9' | null) ?? generationSize;
         const size = SCREENSHOT_SIZES[sizeLabel];
 
+        const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        const slotPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
+
         let compositionImageUrl = simulatorImageUrl;
-        let appUiImageUrl = simulatorImageUrl;
+        const appUiImageUrl = simulatorImageUrl;
         let compositionClause: string | null = null;
-        let userPrompt = '';
-        if (effectiveBrandRefId) {
+        let userPrompt = slotPrompt;
+
+        const resolveStyleReferenceUrl = async () => {
+            if (!selectedStyleRefAssetId) return null;
+            const styleReferenceAsset =
+                selectedGeneratedAssets.find(
+                    (asset) =>
+                        asset.id === selectedStyleRefAssetId &&
+                        (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
+                ) ?? null;
+            if (!styleReferenceAsset) return null;
+            try {
+                return await resolveGeneratedUrl(styleReferenceAsset);
+            } catch {
+                return null;
+            }
+        };
+
+        if (template === 'ref_like') {
+            if (!effectiveBrandRefId) {
+                throw new Error(text('select_brand_reference'));
+            }
             const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
             if (!brandRef) {
                 throw new Error(text('select_brand_reference'));
@@ -2530,43 +2650,17 @@ export const useGeneratedAssets = ({
             compositionImageUrl =
                 brandRefUrls[brandRef.id] ??
                 (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
-            appUiImageUrl = simulatorImageUrl;
             userPrompt = (promptsByRefId[effectiveBrandRefId] ?? '').trim();
-        } else {
-            const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
-            userPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
-            if (isNoBrandMode) {
-                let styleReferenceUrl: string | null = null;
-                if (selectedStyleRefAssetId) {
-                    const styleReferenceAsset =
-                        selectedGeneratedAssets.find(
-                            (asset) =>
-                                asset.id === selectedStyleRefAssetId &&
-                                (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
-                        ) ?? null;
-                    if (styleReferenceAsset) {
-                        try {
-                            styleReferenceUrl = await resolveGeneratedUrl(styleReferenceAsset);
-                        } catch {
-                            reportError(text('no_brand_style_reference_unavailable'));
-                        }
-                    } else {
-                        reportError(text('no_brand_style_reference_unavailable'));
-                    }
-                }
-
-                if (styleReferenceUrl) {
-                    compositionImageUrl = styleReferenceUrl;
-                    appUiImageUrl = simulatorImageUrl;
-                    compositionClause = NO_BRAND_STYLE_REFERENCE_CLAUSE;
-                } else {
-                    compositionImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
-                    appUiImageUrl = simulatorImageUrl;
-                    compositionClause = NO_BRAND_ANCHOR_CLAUSE;
-                }
-            } else {
-                compositionClause = NO_REFERENCE_CLAUSE;
+        } else if (template === 'same_style_like') {
+            const styleReferenceUrl = await resolveStyleReferenceUrl();
+            if (!styleReferenceUrl) {
+                throw new Error(text('select_style_reference'));
             }
+            compositionImageUrl = styleReferenceUrl;
+            compositionClause = NO_BRAND_STYLE_REFERENCE_CLAUSE;
+        } else {
+            compositionImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
+            compositionClause = NO_BRAND_ANCHOR_CLAUSE;
         }
 
         const { effectivePrompt: basePrompt } = getSystemPromptForSlot(slotIndex, 'generate');
@@ -2603,9 +2697,10 @@ export const useGeneratedAssets = ({
         } else {
             blob = base64ToBlob(result.b64, result.mimeType);
         }
-        const jpgFile = isNoBrandMode
-            ? await renderBlobToJpeg(blob, size.width, size.height, 'contain')
-            : await renderBlobToJpegAutoFit(blob, size.width, size.height);
+        const jpgFile =
+            template === 'ref_like'
+                ? await renderBlobToJpegAutoFit(blob, size.width, size.height)
+                : await renderBlobToJpeg(blob, size.width, size.height, 'cover');
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
 
         if (ctx?.signal?.aborted) throw new Error('Canceled');
@@ -2701,6 +2796,9 @@ export const useGeneratedAssets = ({
         const mapping = getSlotMapping(slotIndex);
         const isNoBrandMode = isNoBrand(selectedBrand);
         const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
+        const selectedTemplate = getSystemPromptTemplateForSlot(slotIndex);
+        const template: SystemPromptTemplate =
+            isNoBrandMode && selectedTemplate === 'ref_like' ? 'no_ref_like' : selectedTemplate;
 
         const baseAsset = selectedGeneratedAssets.find((asset) => asset.id === base.assetId) || null;
         if (!baseAsset || (baseAsset.kind !== 'screenshot' && baseAsset.kind !== 'screenshot_enhanced')) {
@@ -2772,9 +2870,10 @@ export const useGeneratedAssets = ({
         } else {
             blob = base64ToBlob(result.b64, result.mimeType);
         }
-        const jpgFile = isNoBrandMode
-            ? await renderBlobToJpeg(blob, size.width, size.height, 'contain')
-            : await renderBlobToJpegAutoFit(blob, size.width, size.height);
+        const jpgFile =
+            template === 'ref_like'
+                ? await renderBlobToJpegAutoFit(blob, size.width, size.height)
+                : await renderBlobToJpeg(blob, size.width, size.height, 'cover');
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots-enhanced/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
 
         if (ctx?.signal?.aborted) throw new Error('Canceled');
@@ -3413,6 +3512,8 @@ export const useGeneratedAssets = ({
         setIconSystemPromptOverride,
         resetIconSystemPromptOverride,
         getSystemPromptForSlot,
+        getSystemPromptTemplateForSlot,
+        setSystemPromptTemplateForSlot,
         setSystemPromptOverride,
         resetSystemPromptOverride,
         targetSlotCount,
