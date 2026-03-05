@@ -18,6 +18,7 @@ const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder
 
 const APP_NAME_MAX_LENGTH = 30;
 const APPSTORE_DESCRIPTION_MIN_SPEC_LENGTH = 100;
+const APPSTORE_DESCRIPTION_MAX_LENGTH = 4000;
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
 const WIDE_VARIABLE_KEYS = new Set(['firebase_plist_snippet', 'appstore_description']);
 const BOOTSTRAP_LEGAL_URL_PLACEHOLDER = 'https://google.com';
@@ -621,6 +622,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                         {wideVariables.map((f) => {
                             const value = String(connectorForm.variables?.[f.key] ?? '');
                             const isAppstoreDescription = f.key === 'appstore_description';
+                            const appstoreDescriptionLength = isAppstoreDescription ? value.length : 0;
                             return (
                                 <label key={f.key} className="grid gap-1 sm:col-span-2">
                                     <div className="flex items-center justify-between gap-2">
@@ -681,8 +683,16 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     <div className="relative">
                                         <textarea
                                             value={value}
-                                            onChange={(e) => connectorForm.setVariable(f.key, e.target.value)}
+                                            onChange={(e) =>
+                                                connectorForm.setVariable(
+                                                    f.key,
+                                                    isAppstoreDescription
+                                                        ? e.target.value.slice(0, APPSTORE_DESCRIPTION_MAX_LENGTH)
+                                                        : e.target.value
+                                                )
+                                            }
                                             rows={4}
+                                            maxLength={isAppstoreDescription ? APPSTORE_DESCRIPTION_MAX_LENGTH : undefined}
                                             disabled={!isEnabled}
                                             className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
                                                 f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
@@ -693,6 +703,11 @@ export function ConnectorVariablesSecretsPanel(props: {
                                             <div className="pointer-events-none absolute inset-0 rounded-2xl border border-indigo-300/20 bg-gradient-to-r from-transparent via-indigo-300/10 to-transparent animate-pulse" />
                                         ) : null}
                                     </div>
+                                    {isAppstoreDescription ? (
+                                        <div className="text-right text-[10px] text-indigo-200/55">
+                                            {appstoreDescriptionLength}/{APPSTORE_DESCRIPTION_MAX_LENGTH}
+                                        </div>
+                                    ) : null}
                                 </label>
                             );
                         })}
