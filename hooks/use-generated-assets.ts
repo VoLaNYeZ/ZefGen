@@ -66,6 +66,13 @@ type SystemPromptMode = 'generate' | 'enhance';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
+const NO_REFERENCE_CLAUSE =
+    `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
+const NO_BRAND_ANCHOR_CLAUSE =
+    `Image 1 is a neutral size anchor only. Keep image 1 ratio/framing for exact output dimensions, but do not copy its visual style or content. Image 2 is the app UI source of truth.`;
+const NO_BRAND_STYLE_REFERENCE_CLAUSE =
+    `Image 1 is a style/composition reference. Preserve its visual direction and framing while keeping image 2 as the app UI source of truth.`;
+
 const compareAssetsByVersion = (a: GeneratedAsset, b: GeneratedAsset) => {
     const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
     if (versionDiff !== 0) return versionDiff;
@@ -970,6 +977,24 @@ export const useGeneratedAssets = ({
         []
     );
 
+    const buildNoBrandAnchorGenerateSystemPrompt = useCallback(() => {
+        return [
+            `Goal: an iOS App Store screenshot ready to upload to App Store Connect.`,
+            `Image 1 is a neutral size anchor only. Use it only to enforce framing/aspect/full-bleed dimensions.`,
+            `Do NOT copy any visual style, subject, palette, texture, or layout cues from image 1.`,
+            `Image 2 is the only app-content source of truth: preserve the app UI from image 2 (same on-screen structure, readability, and key details).`,
+            `Create a clean App Store-ready composition around image 2 while keeping image 2 details accurate.`,
+            `Absolute priority: keep the SAME app from image 2. Do not redesign it, do not replace screens, and do not swap it to a different app concept.`,
+            `If the iOS status bar exists in image 2, keep it exactly as-is (do not remove or rewrite).`,
+            `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the main composition upward to fill it.`,
+            `No device frames/mockups/hands/bezels/floating phones.`,
+            `No added text anywhere: no headlines, captions, badges, stickers, labels, logos, watermarks, or any extra UI.`,
+            `Never print any resolution/metadata text anywhere.`,
+            `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
+            `Keep it sharp and clean (no blur, no artifacts).`,
+        ].join(' ');
+    }, []);
+
     const buildDefaultIconSystemPrompt = useCallback(() => {
         return [
             `Keep all symbols that distinguish this emblem.`,
@@ -1035,24 +1060,51 @@ export const useGeneratedAssets = ({
             const setId = activeScreenshotSetId;
             if (!selectedApp?.id || !setId) {
                 const size = SCREENSHOT_SIZES[generationSize];
-                const defaultPrompt = buildDefaultSystemPrompt({
+                const baseDefaultPrompt = buildDefaultSystemPrompt({
                     providerId: screenshotProviderId,
                     mode,
                     sizeLabel: generationSize,
                     width: size.width,
                     height: size.height,
                 });
+                const defaultPrompt = baseDefaultPrompt;
                 return { defaultPrompt, effectivePrompt: defaultPrompt, isOverridden: false };
             }
 
             const size = SCREENSHOT_SIZES[generationSize];
-            const defaultPrompt = buildDefaultSystemPrompt({
+            const genericDefaultPrompt = buildDefaultSystemPrompt({
                 providerId: screenshotProviderId,
                 mode,
                 sizeLabel: generationSize,
                 width: size.width,
                 height: size.height,
             });
+            const mapping = getSlotMapping(slotIndex);
+            const isNoBrandMode = Boolean(selectedBrand && isNoBrand(selectedBrand));
+            const styleRefAvailable =
+                Boolean(mapping.styleRefAssetId) &&
+                selectedGeneratedAssets.some(
+                    (asset) =>
+                        asset.id === mapping.styleRefAssetId &&
+                        (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
+                );
+            const contextualClause =
+                mode === 'generate'
+                    ? isNoBrandMode
+                        ? styleRefAvailable
+                            ? NO_BRAND_STYLE_REFERENCE_CLAUSE
+                            : NO_BRAND_ANCHOR_CLAUSE
+                        : !mapping.brandRefId
+                            ? NO_REFERENCE_CLAUSE
+                            : null
+                    : null;
+            const baseDefaultPrompt =
+                mode === 'generate' && isNoBrandMode && !styleRefAvailable
+                    ? buildNoBrandAnchorGenerateSystemPrompt()
+                    : genericDefaultPrompt;
+            const defaultPrompt = [baseDefaultPrompt, contextualClause]
+                .filter((value): value is string => typeof value === 'string' && value.length > 0)
+                .join('\n\n');
             const key = getScreenshotSlotKey(slotIndex, setId);
             const override = systemPromptOverridesByKey[key]?.[mode];
             return {
@@ -1066,9 +1118,13 @@ export const useGeneratedAssets = ({
             selectedApp?.id,
             generationSize,
             screenshotProviderId,
+            selectedBrand,
+            selectedGeneratedAssets,
+            getSlotMapping,
             getScreenshotSlotKey,
             systemPromptOverridesByKey,
             buildDefaultSystemPrompt,
+            buildNoBrandAnchorGenerateSystemPrompt,
         ]
     );
 
@@ -2462,13 +2518,6 @@ export const useGeneratedAssets = ({
         const sizeLabel = (existingSlot?.versions?.[0]?.size_label as '6.5' | '6.9' | null) ?? generationSize;
         const size = SCREENSHOT_SIZES[sizeLabel];
 
-        const noReferenceClause =
-            `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
-        const noBrandAnchorClause =
-            `Image 1 is a neutral size anchor only. Keep image 1 ratio/framing for exact output dimensions, but do not copy its visual style or content. Image 2 is the app UI source of truth.`;
-        const noBrandStyleReferenceClause =
-            `Image 1 is a style/composition reference. Preserve its visual direction and framing while keeping image 2 as the app UI source of truth.`;
-
         let compositionImageUrl = simulatorImageUrl;
         let appUiImageUrl = simulatorImageUrl;
         let compositionClause: string | null = null;
@@ -2509,14 +2558,14 @@ export const useGeneratedAssets = ({
                 if (styleReferenceUrl) {
                     compositionImageUrl = styleReferenceUrl;
                     appUiImageUrl = simulatorImageUrl;
-                    compositionClause = noBrandStyleReferenceClause;
+                    compositionClause = NO_BRAND_STYLE_REFERENCE_CLAUSE;
                 } else {
                     compositionImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
                     appUiImageUrl = simulatorImageUrl;
-                    compositionClause = noBrandAnchorClause;
+                    compositionClause = NO_BRAND_ANCHOR_CLAUSE;
                 }
             } else {
-                compositionClause = noReferenceClause;
+                compositionClause = NO_REFERENCE_CLAUSE;
             }
         }
 
@@ -2672,9 +2721,6 @@ export const useGeneratedAssets = ({
 
         const baseImageUrl = await resolveGeneratedUrl(baseAsset);
 
-        const noReferenceClause =
-            `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
-
         let brandRefImageUrl = baseImageUrl;
         if (effectiveBrandRefId) {
             const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
@@ -2690,7 +2736,7 @@ export const useGeneratedAssets = ({
         const extra = String(enhancePrompt || '').trim();
         const prompt = [
             enhanceBasePrompt,
-            !effectiveBrandRefId ? noReferenceClause : null,
+            !effectiveBrandRefId ? NO_REFERENCE_CLAUSE : null,
             extra ? extra : null,
         ]
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
