@@ -23,6 +23,7 @@ export function IdeasPage(props: {
         patch: Partial<Omit<AppIdea, 'id' | 'user_id' | 'created_at'>>;
     }) => Promise<AppIdea | null | undefined>;
     deleteIdea: (args: { id: string }) => Promise<void>;
+    onOpenApp?: (appId: string) => void;
     reportError?: (message: string) => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -37,6 +38,7 @@ export function IdeasPage(props: {
         createIdea,
         updateIdea,
         deleteIdea,
+        onOpenApp,
         reportError,
         text,
     } = props;
@@ -400,7 +402,7 @@ export function IdeasPage(props: {
                                     key: K
                                 ) => (key in draft ? (draft as any)[key] : (idea as any)[key]) as AppIdea[K];
                                 const appliedApps = appliedAppsByIdeaId.get(idea.id) || [];
-                                const appliedAliases = appliedApps.map((item) => item.alias);
+                                const appliedAliases = appliedApps.map((item) => item.name || item.alias);
                                 const appliedSummary =
                                     appliedAliases.length > 3
                                         ? `${appliedAliases.slice(0, 3).join(', ')} +${appliedAliases.length - 3}`
@@ -408,6 +410,7 @@ export function IdeasPage(props: {
                                 const appliedTooltip = appliedApps
                                     .map((item) => `${item.alias} · ${item.name}`)
                                     .join(' | ');
+                                const appliedShown = appliedApps.slice(0, 3);
 
                                 return (
                                     <div
@@ -457,7 +460,30 @@ export function IdeasPage(props: {
                                             className="flex h-10 min-w-0 items-center px-3 text-[11px] text-indigo-100/80"
                                             title={appliedTooltip || undefined}
                                         >
-                                            <span className="truncate">{appliedSummary || '—'}</span>
+                                            {appliedApps.length === 0 ? (
+                                                <span className="truncate">—</span>
+                                            ) : onOpenApp ? (
+                                                <div className="flex min-w-0 flex-wrap items-center gap-x-1">
+                                                    {appliedShown.map((item, index) => (
+                                                        <React.Fragment key={item.appId}>
+                                                            {index > 0 ? <span className="text-indigo-200/35">,</span> : null}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => onOpenApp(item.appId)}
+                                                                className="max-w-[120px] truncate text-indigo-100/90 underline decoration-indigo-300/35 underline-offset-2 hover:text-white"
+                                                                title={`${item.alias} · ${item.name}`}
+                                                            >
+                                                                {item.name || item.alias}
+                                                            </button>
+                                                        </React.Fragment>
+                                                    ))}
+                                                    {appliedApps.length > appliedShown.length ? (
+                                                        <span className="text-indigo-200/55">+{appliedApps.length - appliedShown.length}</span>
+                                                    ) : null}
+                                                </div>
+                                            ) : (
+                                                <span className="truncate">{appliedSummary || '—'}</span>
+                                            )}
                                         </div>
                                         <div className={`flex items-center justify-center gap-2 px-2 ${cellBox}`}>
                                             <button

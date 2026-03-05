@@ -1,7 +1,7 @@
 import React from 'react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
-import type { AppIdea, AppIdeaCategory } from '../../types/zefgen';
+import type { AppIdea, AppIdeaCategory, IdeaAppAssignment } from '../../types/zefgen';
 
 const formatIdeaPreview = (description: string) => {
     const normalized = String(description || '').replace(/\s+/g, ' ').trim();
@@ -18,10 +18,12 @@ export function ConnectorClientSpecPanel(props: {
     isEnabled: boolean;
     ideas: AppIdea[];
     ideaCategories: AppIdeaCategory[];
+    ideaAssignments: IdeaAppAssignment[];
+    selectedAppId: string | null;
     onOpenIdeas?: () => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { connectorForm, isEnabled, ideas, ideaCategories, onOpenIdeas, text } = props;
+    const { connectorForm, isEnabled, ideas, ideaCategories, ideaAssignments, selectedAppId, onOpenIdeas, text } = props;
 
     const [selectedCategoryId, setSelectedCategoryId] = React.useState('');
     const [selectedIdeaId, setSelectedIdeaId] = React.useState('');
@@ -32,11 +34,46 @@ export function ConnectorClientSpecPanel(props: {
         () => new Map(ideaCategories.map((category) => [category.id, category])),
         [ideaCategories]
     );
+    const assignedAppIdsByIdeaId = React.useMemo(() => {
+        const map = new Map<string, Set<string>>();
+        for (const row of ideaAssignments || []) {
+            const ideaId = normalize(row.idea_id);
+            const appId = normalize(row.app_id);
+            if (!ideaId || !appId) continue;
+            const bucket = map.get(ideaId) ?? new Set<string>();
+            bucket.add(appId);
+            map.set(ideaId, bucket);
+        }
+        return map;
+    }, [ideaAssignments]);
     const ideaIndexById = React.useMemo(() => {
         const map = new Map<string, number>();
         ideas.forEach((idea, i) => map.set(idea.id, i + 1));
         return map;
     }, [ideas]);
+    const isTakenByAnotherApp = React.useCallback(
+        (idea: AppIdea) => {
+            const assigned = assignedAppIdsByIdeaId.get(idea.id);
+            if (!assigned || assigned.size === 0) return false;
+            const currentAppId = normalize(selectedAppId);
+            for (const assignedAppId of assigned) {
+                if (!currentAppId || assignedAppId !== currentAppId) return true;
+            }
+            return false;
+        },
+        [assignedAppIdsByIdeaId, selectedAppId]
+    );
+    const availableIdeas = React.useMemo(() => {
+        const pinnedIdeaId = normalize(connectorForm.ideaId || selectedIdeaId || '');
+        return ideas.filter((idea) => {
+            if (idea.id === pinnedIdeaId) return true;
+            return !isTakenByAnotherApp(idea);
+        });
+    }, [connectorForm.ideaId, ideas, isTakenByAnotherApp, selectedIdeaId]);
+    const availableCategories = React.useMemo(() => {
+        const ids = new Set(availableIdeas.map((idea) => idea.category_id));
+        return ideaCategories.filter((category) => ids.has(category.id));
+    }, [availableIdeas, ideaCategories]);
 
     React.useEffect(() => {
         if (connectorForm.loading) {
@@ -60,8 +97,19 @@ export function ConnectorClientSpecPanel(props: {
 
     const ideasForSelectedCategory = React.useMemo(() => {
         if (!selectedCategoryId) return [];
-        return ideas.filter((idea) => idea.category_id === selectedCategoryId);
-    }, [ideas, selectedCategoryId]);
+        return availableIdeas.filter((idea) => idea.category_id === selectedCategoryId);
+    }, [availableIdeas, selectedCategoryId]);
+
+    React.useEffect(() => {
+        if (!selectedCategoryId) return;
+        if (availableCategories.some((category) => category.id === selectedCategoryId)) return;
+        const selectedIdea = selectedIdeaId ? ideasById.get(selectedIdeaId) : null;
+        if (selectedIdea && availableIdeas.some((idea) => idea.id === selectedIdea.id)) {
+            setSelectedCategoryId(selectedIdea.category_id);
+            return;
+        }
+        setSelectedCategoryId(availableCategories[0]?.id || '');
+    }, [availableCategories, availableIdeas, ideasById, selectedCategoryId, selectedIdeaId]);
 
     const onChangeCategory = (nextCategoryId: string) => {
         setSelectedCategoryId(nextCategoryId);
@@ -134,6 +182,19 @@ export function ConnectorClientSpecPanel(props: {
                             </button>
                         ) : null}
                     </div>
+                ) : availableIdeas.length === 0 ? (
+                    <div className="mt-4 rounded-2xl border border-indigo-400/20 bg-slate-950/20 p-4">
+                        <p className="text-sm text-indigo-200/70">{text('idea_picker_no_available')}</p>
+                        {onOpenIdeas ? (
+                            <button
+                                type="button"
+                                onClick={onOpenIdeas}
+                                className="mt-3 inline-flex items-center gap-2 rounded-full border border-indigo-400/35 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20"
+                            >
+                                {text('idea_picker_open_ideas')}
+                            </button>
+                        ) : null}
+                    </div>
                 ) : (
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <label className="grid gap-1">
@@ -141,11 +202,11 @@ export function ConnectorClientSpecPanel(props: {
                             <select
                                 value={selectedCategoryId}
                                 onChange={(e) => onChangeCategory(e.target.value)}
-                                disabled={!isEnabled || ideaApplyBusy}
+                                disabled={!isEnabled || ideaApplyBusy || availableCategories.length === 0}
                                 className="h-10 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs text-indigo-100/90 outline-none focus:border-indigo-400/40 disabled:opacity-60"
                             >
                                 <option value="">{text('idea_picker_select_category')}</option>
-                                {ideaCategories.map((category) => (
+                                {availableCategories.map((category) => (
                                     <option key={category.id} value={category.id}>
                                         {category.name}
                                     </option>
