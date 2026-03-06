@@ -89,7 +89,7 @@ export const useConnectorConfigForm = (payload: {
 
     const [projectBrief, setProjectBrief] = React.useState('');
     const [ideaId, setIdeaId] = React.useState<string | null>(null);
-    const [variables, setVariables] = React.useState<Record<string, any>>({});
+    const [variables, setVariablesState] = React.useState<Record<string, any>>({});
     const [secretMetas, setSecretMetas] = React.useState<any[]>([]);
     const autosaveTimerRef = React.useRef<number | null>(null);
     const lastSavedVariablesHashRef = React.useRef<string>('');
@@ -100,10 +100,23 @@ export const useConnectorConfigForm = (payload: {
     const queueJobsRef = React.useRef(queueJobs);
     const activeAppIdRef = React.useRef<string>('');
     const appContextVersionRef = React.useRef(0);
+    const variablesRef = React.useRef<Record<string, any>>({});
+
+    const setVariables = React.useCallback((next: React.SetStateAction<Record<string, any>>) => {
+        setVariablesState((prev) => {
+            const resolved = normalizeVariables(typeof next === 'function' ? next(prev) : next);
+            variablesRef.current = resolved;
+            return resolved;
+        });
+    }, []);
 
     React.useEffect(() => {
         queueJobsRef.current = queueJobs;
     }, [queueJobs]);
+
+    React.useEffect(() => {
+        variablesRef.current = normalizeVariables(variables);
+    }, [variables]);
 
     const getRequestContext = React.useCallback((): RequestContext => {
         return {
@@ -396,6 +409,18 @@ export const useConnectorConfigForm = (payload: {
         setVariables((prev) => ({ ...prev, [k]: clampVariableValue(k, v) }));
     }, []);
 
+    const saveMergedVariablesPatch = React.useCallback(
+        async (partialVariables: Record<string, any>, options?: SavePatchOptions) => {
+            const nextVariables = normalizeVariables({
+                ...variablesRef.current,
+                ...(partialVariables || {}),
+            });
+            setVariables(nextVariables);
+            return savePatch({ variables: nextVariables }, options);
+        },
+        [savePatch, setVariables]
+    );
+
     const precheckLegalLinksRegeneration = React.useCallback(
         async (payload: { companyName: string; appStoreName: string; accountEmail: string }): Promise<LegalLinksPrecheckResult | null> => {
             if (!session || !selectedApp) return null;
@@ -468,13 +493,8 @@ export const useConnectorConfigForm = (payload: {
                     const shouldPersistGenerated = options?.persistGenerated !== false;
                     if (shouldPersistGenerated) {
                         const generatedText = String(response.text || '').trim();
-                        const nextVariables = normalizeVariables({
-                            ...(variables || {}),
-                            appstore_description: generatedText,
-                        });
-                        setVariables(nextVariables);
-                        const saved = await savePatch(
-                            { variables: nextVariables },
+                        const saved = await saveMergedVariablesPatch(
+                            { appstore_description: generatedText },
                             { source: 'manual', reportError: false }
                         );
                         if (!saved) {
@@ -518,7 +538,7 @@ export const useConnectorConfigForm = (payload: {
             savePatch,
             selectedApp,
             session,
-            variables,
+            saveMergedVariablesPatch,
         ]
     );
 
@@ -783,6 +803,7 @@ export const useConnectorConfigForm = (payload: {
         variables,
         setVariables,
         setVariable,
+        saveMergedVariablesPatch,
         secretMetas,
         refresh,
         savePatch,

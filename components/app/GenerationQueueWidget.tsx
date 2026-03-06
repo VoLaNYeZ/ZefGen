@@ -2,8 +2,20 @@ import React from 'react';
 import { CheckCircle2, XCircle, Loader2, X, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import type { GenerationJob } from '../../hooks/use-generation-jobs';
 
+const AUTO_EXPAND_STORAGE_KEY = 'zefgen.generationQueueAutoExpand';
+
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+const readAutoExpandPreference = () => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem(AUTO_EXPAND_STORAGE_KEY) !== '0';
+};
+
+const writeAutoExpandPreference = (value: boolean) => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(AUTO_EXPAND_STORAGE_KEY, value ? '1' : '0');
+};
 
 const formatMs = (ms: number) => {
     const s = Math.max(0, Math.floor(ms / 1000));
@@ -50,7 +62,8 @@ export const GenerationQueueWidget = (props: {
 }) => {
     const { jobs, onDismissJob, onClearFinished, onCancelJob } = props;
     const runningCount = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
-    const [open, setOpen] = React.useState(false);
+    const [autoExpandEnabled, setAutoExpandEnabled] = React.useState(() => readAutoExpandPreference());
+    const [open, setOpen] = React.useState(() => (runningCount > 0 ? readAutoExpandPreference() : false));
     const [now, setNow] = React.useState(() => Date.now());
 
     const lastProgressByJobIdRef = React.useRef<Record<string, number>>({});
@@ -151,8 +164,17 @@ export const GenerationQueueWidget = (props: {
     );
 
     React.useEffect(() => {
-        if (runningCount > 0) setOpen(true);
-    }, [runningCount]);
+        if (runningCount > 0 && autoExpandEnabled) setOpen(true);
+    }, [runningCount, autoExpandEnabled]);
+
+    const toggleOpen = React.useCallback(() => {
+        setOpen((prev) => {
+            const next = !prev;
+            setAutoExpandEnabled(next);
+            writeAutoExpandPreference(next);
+            return next;
+        });
+    }, []);
 
     if (!jobs.length) return null;
 
@@ -161,7 +183,7 @@ export const GenerationQueueWidget = (props: {
             <div className="rounded-2xl border border-indigo-400/25 bg-slate-950/80 backdrop-blur-md shadow-[0_18px_55px_-40px_rgba(99,102,241,0.8)] overflow-hidden">
                 <button
                     type="button"
-                    onClick={() => setOpen((v) => !v)}
+                    onClick={toggleOpen}
                     className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left"
                 >
                     <div className="flex items-center gap-2">

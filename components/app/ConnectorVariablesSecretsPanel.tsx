@@ -120,6 +120,14 @@ export function ConnectorVariablesSecretsPanel(props: {
         return String(account?.email || '').trim();
     }, [account?.email]);
 
+    const accountCopyLine = React.useMemo(() => {
+        const alias = String(selectedApp?.alias || '').trim();
+        const name = String(selectedApp?.name || '').trim();
+        const email = resolvedAccountEmail;
+        if (!alias || !name || !email) return '';
+        return `[${alias}] ${name} [iOS] ${email}`;
+    }, [resolvedAccountEmail, selectedApp?.alias, selectedApp?.name]);
+
     const missingGenerateInputs = React.useMemo(() => {
         const missing: string[] = [];
         if (!resolvedCompanyName) missing.push(text('connector_company_name'));
@@ -221,12 +229,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     const persistGeneratedDescription = React.useCallback(
         async (descriptionText: string) => {
             const nextText = String(descriptionText || '');
-            const nextVariables = {
-                ...(connectorForm.variables || {}),
-                appstore_description: nextText,
-            };
-            connectorForm.setVariable('appstore_description', nextText);
-            return connectorForm.savePatch({ variables: nextVariables });
+            return connectorForm.saveMergedVariablesPatch({ appstore_description: nextText });
         },
         [connectorForm]
     );
@@ -406,6 +409,26 @@ export function ConnectorVariablesSecretsPanel(props: {
             )}
 
             <div className="mt-5 grid gap-3">
+                {accountCopyLine ? (
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-3">
+                        <div className="flex items-center gap-2">
+                            <input
+                                value={accountCopyLine}
+                                readOnly
+                                className="w-full rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-indigo-100/90 outline-none"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => void copyValue('account.copy_line', accountCopyLine)}
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-slate-950/20 text-indigo-100/70 hover:border-indigo-400/40 hover:text-white"
+                                title={text('copy')}
+                            >
+                                {copiedKey === 'account.copy_line' ? <Check size={14} /> : <Copy size={14} />}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+
                 <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-4">
                     <div className="flex items-start justify-between gap-3">
                         <div>

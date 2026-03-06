@@ -13,6 +13,15 @@ const formatIdeaPreview = (description: string) => {
 
 const normalize = (value: unknown) => String(value ?? '').trim();
 
+const deriveHomeScreenName = (title: string) => {
+    const normalized = normalize(title);
+    if (!normalized) return '';
+    const separatorMatch = normalized.match(/[:|·•]/);
+    if (!separatorMatch || typeof separatorMatch.index !== 'number') return normalized;
+    const prefix = normalized.slice(0, separatorMatch.index).trim();
+    return prefix || normalized;
+};
+
 export function ConnectorClientSpecPanel(props: {
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     isEnabled: boolean;
@@ -142,7 +151,7 @@ export function ConnectorClientSpecPanel(props: {
         if (ideaTitle) {
             nextVariables.appstore_name = ideaTitle;
             nextVariables.app_new_name = ideaTitle;
-            nextVariables.home_screen_name = ideaTitle;
+            nextVariables.home_screen_name = deriveHomeScreenName(ideaTitle);
             connectorForm.setVariables(nextVariables);
         }
         connectorForm.setProjectBrief(ideaDescription);
