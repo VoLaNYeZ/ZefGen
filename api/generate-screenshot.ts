@@ -15,8 +15,9 @@ const OPENAI_IMAGE_MODEL = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1
 type GenerateScreenshotRequestBody = {
     providerId: ProviderId;
     prompt: string;
-    simulatorImageUrl: string;
-    brandRefImageUrl: string;
+    simulatorImageUrl?: string;
+    brandRefImageUrl?: string;
+    imageInputUrls?: string[];
     width: number;
     height: number;
     // Replicate providers can return a direct output URL to speed up UI (no base64 in JSON).
@@ -159,8 +160,7 @@ const verifySupabaseToken = async (token: string) => {
 
 const runReplicateNanoBananaPro = async (payload: {
     prompt: string;
-    simulatorImageUrl: string;
-    brandRefImageUrl: string;
+    imageInputUrls: string[];
     responseMode?: 'b64' | 'url';
 }) => {
     const token = process.env.REPLICATE_API_TOKEN;
@@ -175,7 +175,7 @@ const runReplicateNanoBananaPro = async (payload: {
         const output = await replicate.run('google/nano-banana-pro', {
             input: {
                 prompt: payload.prompt,
-                image_input: [payload.simulatorImageUrl, payload.brandRefImageUrl],
+                image_input: payload.imageInputUrls,
                 aspect_ratio: 'match_input_image',
                 resolution: '2K',
                 output_format: 'jpg',
@@ -227,8 +227,7 @@ const runReplicateNanoBananaPro = async (payload: {
 
 const runReplicateNanoBanana2 = async (payload: {
     prompt: string;
-    simulatorImageUrl: string;
-    brandRefImageUrl: string;
+    imageInputUrls: string[];
     responseMode?: 'b64' | 'url';
 }) => {
     const token = process.env.REPLICATE_API_TOKEN;
@@ -243,7 +242,7 @@ const runReplicateNanoBanana2 = async (payload: {
         const output = await replicate.run('google/nano-banana-2', {
             input: {
                 prompt: payload.prompt,
-                image_input: [payload.simulatorImageUrl, payload.brandRefImageUrl],
+                image_input: payload.imageInputUrls,
                 aspect_ratio: 'match_input_image',
                 resolution: '2K',
                 output_format: 'jpg',
@@ -296,8 +295,7 @@ const runReplicateNanoBanana2 = async (payload: {
 
 const runReplicateSeedream4 = async (payload: {
     prompt: string;
-    simulatorImageUrl: string;
-    brandRefImageUrl: string;
+    imageInputUrls: string[];
     width: number;
     height: number;
     responseMode?: 'b64' | 'url';
@@ -318,7 +316,7 @@ const runReplicateSeedream4 = async (payload: {
                 width: payload.width,
                 height: payload.height,
                 prompt: payload.prompt,
-                image_input: [payload.simulatorImageUrl, payload.brandRefImageUrl],
+                image_input: payload.imageInputUrls,
                 sequential_image_generation: 'disabled',
                 max_images: 1,
             },
@@ -368,8 +366,7 @@ const runReplicateSeedream4 = async (payload: {
 
 const runOpenAI = async (payload: {
     prompt: string;
-    simulatorImageUrl: string;
-    brandRefImageUrl: string;
+    imageInputUrls: string[];
     width: number;
     height: number;
 }) => {
@@ -388,10 +385,10 @@ const runOpenAI = async (payload: {
     form.append('size', resolveOpenAIImageSize(payload.width, payload.height));
     form.append('output_format', 'png');
 
-    const simulatorBlob = await fetchAsBlob(payload.simulatorImageUrl);
-    const brandRefBlob = await fetchAsBlob(payload.brandRefImageUrl);
-    form.append('image[]', simulatorBlob, 'simulator.png');
-    form.append('image[]', brandRefBlob, 'brand-reference.png');
+    for (let i = 0; i < payload.imageInputUrls.length; i += 1) {
+        const blob = await fetchAsBlob(payload.imageInputUrls[i]);
+        form.append('image[]', blob, `image-${i + 1}.png`);
+    }
 
     const resp = await fetch('https://api.openai.com/v1/images/edits', {
         method: 'POST',
@@ -445,12 +442,22 @@ export default async function handler(req: any, res: any) {
             !parsed ||
             !isNonEmptyString(parsed.providerId) ||
             !isNonEmptyString(parsed.prompt) ||
-            !isNonEmptyString(parsed.simulatorImageUrl) ||
-            !isNonEmptyString(parsed.brandRefImageUrl) ||
             typeof parsed.width !== 'number' ||
             typeof parsed.height !== 'number'
         ) {
             return json(res, 400, { error: 'Missing required fields.' });
+        }
+
+        const imageInputUrls = Array.isArray(parsed.imageInputUrls)
+            ? parsed.imageInputUrls.filter((value): value is string => isNonEmptyString(value))
+            : [];
+        const legacyImageUrls =
+            isNonEmptyString(parsed.simulatorImageUrl) && isNonEmptyString(parsed.brandRefImageUrl)
+                ? [parsed.simulatorImageUrl, parsed.brandRefImageUrl]
+                : [];
+        const effectiveImageInputUrls = imageInputUrls.length ? imageInputUrls : legacyImageUrls;
+        if (!effectiveImageInputUrls.length) {
+            return json(res, 400, { error: 'Missing input images.' });
         }
 
         const providerId = parsed.providerId as ProviderId;
@@ -470,22 +477,19 @@ export default async function handler(req: any, res: any) {
         if (providerId === 'replicate:nano-banana-2') {
             result = await runReplicateNanoBanana2({
                 prompt: parsed.prompt,
-                simulatorImageUrl: parsed.simulatorImageUrl,
-                brandRefImageUrl: parsed.brandRefImageUrl,
+                imageInputUrls: effectiveImageInputUrls,
                 responseMode,
             });
         } else if (providerId === 'replicate:nano-banana-pro') {
             result = await runReplicateNanoBananaPro({
                 prompt: parsed.prompt,
-                simulatorImageUrl: parsed.simulatorImageUrl,
-                brandRefImageUrl: parsed.brandRefImageUrl,
+                imageInputUrls: effectiveImageInputUrls,
                 responseMode,
             });
         } else if (providerId === 'replicate:seedream-4') {
             result = await runReplicateSeedream4({
                 prompt: parsed.prompt,
-                simulatorImageUrl: parsed.simulatorImageUrl,
-                brandRefImageUrl: parsed.brandRefImageUrl,
+                imageInputUrls: effectiveImageInputUrls,
                 width: parsed.width,
                 height: parsed.height,
                 responseMode,
@@ -493,8 +497,7 @@ export default async function handler(req: any, res: any) {
         } else {
             result = await runOpenAI({
                 prompt: parsed.prompt,
-                simulatorImageUrl: parsed.simulatorImageUrl,
-                brandRefImageUrl: parsed.brandRefImageUrl,
+                imageInputUrls: effectiveImageInputUrls,
                 width: parsed.width,
                 height: parsed.height,
             });

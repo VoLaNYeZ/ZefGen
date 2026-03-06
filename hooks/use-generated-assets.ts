@@ -67,10 +67,6 @@ type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
-const NO_REFERENCE_CLAUSE =
-    `No composition reference is provided. Treat image 2 as the UI source and invent a clean App Store-style composition/background around it.`;
-const NO_BRAND_ANCHOR_CLAUSE =
-    `Image 1 is a neutral size anchor only. Keep image 1 ratio/framing for exact output dimensions, but do not copy its visual style or content. Image 2 is the app UI source of truth.`;
 
 const compareAssetsByVersion = (a: GeneratedAsset, b: GeneratedAsset) => {
     const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
@@ -1006,28 +1002,33 @@ export const useGeneratedAssets = ({
 
     const buildNoBrandAnchorGenerateSystemPrompt = useCallback(() => {
         return [
-            `Goal: an iOS App Store screenshot ready to upload to App Store Connect.`,
-            `Image 1 is a neutral size anchor only. Use it only to enforce framing/aspect/full-bleed dimensions.`,
-            `Do NOT copy any visual style, subject, palette, texture, or layout cues from image 1.`,
-            `Image 2 is the only app-content source of truth: preserve the app UI from image 2 (same on-screen structure, readability, and key details).`,
-            `Create a clean App Store-ready composition around image 2 while keeping image 2 details accurate.`,
-            `Absolute priority: keep the SAME app from image 2. Do not redesign it, do not replace screens, and do not swap it to a different app concept.`,
-            `If the iOS status bar exists in image 2, keep it exactly as-is (do not remove or rewrite).`,
-            `Keep a clean empty header band at the top (empty background for later text). Do NOT move/enlarge the main composition upward to fill it.`,
-            `No device frames/mockups/hands/bezels/floating phones.`,
-            `No added text anywhere: no headlines, captions, badges, stickers, labels, logos, watermarks, or any extra UI.`,
-            `Never print any resolution/metadata text anywhere.`,
-            `Match the requested output size and aspect ratio exactly (full-bleed, no padding).`,
-            `Keep it sharp and clean (no blur, no artifacts).`,
+            `Image 1 is size anchor only (ratio lock).`,
+            `Image 2 is app UI source of truth.`,
+            `Build clean App Store composition around image 2.`,
+            `Keep image 2 UI accurate and readable.`,
+            `Output full-bleed at requested size/aspect ratio.`,
+        ].join(' ');
+    }, []);
+
+    const buildRefLikeGenerateSystemPrompt = useCallback(() => {
+        return [
+            `Image 1 is size anchor only (ratio lock).`,
+            `Image 2 is style/composition reference.`,
+            `Image 3 is app UI source of truth.`,
+            `Keep style/layout feeling from image 2, but replace app UI with image 3 UI.`,
+            `Keep image 3 UI accurate and readable.`,
+            `Output full-bleed at requested size/aspect ratio.`,
         ].join(' ');
     }, []);
 
     const buildSameStyleGenerateSystemPrompt = useCallback(() => {
         return [
-            `Use image 1 as style/composition source (layout, colors, lighting, typography feel).`,
-            `Replace app UI in image 1 with app UI from image 2.`,
-            `Keep text structure/style from image 1 unless user prompt asks to change text.`,
-            `Keep image 2 UI details accurate and readable.`,
+            `Image 1 is size anchor only (ratio lock).`,
+            `Image 2 is style/composition source.`,
+            `Image 3 is app UI source of truth.`,
+            `Replace app UI from image 2 with image 3 UI while keeping image 2 style/layout.`,
+            `Keep text style/structure from image 2 unless user prompt asks to change text.`,
+            `Keep image 3 UI details accurate and readable.`,
             `Output full-bleed at requested aspect ratio and size.`,
         ].join(' ');
     }, []);
@@ -1182,7 +1183,7 @@ export const useGeneratedAssets = ({
             let defaultPrompt = genericDefaultPrompt;
             if (mode === 'generate') {
                 if (template === 'ref_like') {
-                    defaultPrompt = genericDefaultPrompt;
+                    defaultPrompt = buildRefLikeGenerateSystemPrompt();
                 } else if (template === 'same_style_like') {
                     defaultPrompt = buildSameStyleGenerateSystemPrompt();
                 } else {
@@ -1206,6 +1207,7 @@ export const useGeneratedAssets = ({
             systemPromptOverridesByKey,
             buildDefaultSystemPrompt,
             buildNoBrandAnchorGenerateSystemPrompt,
+            buildRefLikeGenerateSystemPrompt,
             buildSameStyleGenerateSystemPrompt,
             getSystemPromptTemplateForSlot,
         ]
@@ -2494,8 +2496,9 @@ export const useGeneratedAssets = ({
     const requestGeneratedScreenshot = async (payload: {
         providerId: ScreenshotProviderId;
         prompt: string;
-        simulatorImageUrl: string;
-        brandRefImageUrl: string;
+        simulatorImageUrl?: string;
+        brandRefImageUrl?: string;
+        imageInputUrls?: string[];
         width: number;
         height: number;
         signal?: AbortSignal;
@@ -2509,6 +2512,21 @@ export const useGeneratedAssets = ({
                 ? 'url'
                 : 'b64';
 
+        const imageInputUrls = Array.isArray(payload.imageInputUrls)
+            ? payload.imageInputUrls.filter((value): value is string => typeof value === 'string' && value.length > 0)
+            : [];
+        const legacyImageUrls =
+            typeof payload.simulatorImageUrl === 'string' &&
+            payload.simulatorImageUrl.length > 0 &&
+            typeof payload.brandRefImageUrl === 'string' &&
+            payload.brandRefImageUrl.length > 0
+                ? [payload.simulatorImageUrl, payload.brandRefImageUrl]
+                : [];
+        const effectiveImageInputUrls = imageInputUrls.length ? imageInputUrls : legacyImageUrls;
+        if (!effectiveImageInputUrls.length) {
+            throw new Error('Missing input images.');
+        }
+
         const response = await fetchWithRetry('/api/generate-screenshot', {
             method: 'POST',
             headers: {
@@ -2519,8 +2537,9 @@ export const useGeneratedAssets = ({
             body: JSON.stringify({
                 providerId: payload.providerId,
                 prompt: payload.prompt,
-                simulatorImageUrl: payload.simulatorImageUrl,
-                brandRefImageUrl: payload.brandRefImageUrl,
+                imageInputUrls: effectiveImageInputUrls,
+                simulatorImageUrl: effectiveImageInputUrls[0],
+                brandRefImageUrl: effectiveImageInputUrls[1],
                 width: payload.width,
                 height: payload.height,
                 responseMode,
@@ -2607,9 +2626,8 @@ export const useGeneratedAssets = ({
         const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
         const slotPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
 
-        let compositionImageUrl = simulatorImageUrl;
-        const appUiImageUrl = simulatorImageUrl;
-        let compositionClause: string | null = null;
+        const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
+        const inputImageUrls: string[] = [anchorImageUrl];
         let userPrompt = slotPrompt;
 
         const resolveStyleReferenceUrl = async () => {
@@ -2636,36 +2654,32 @@ export const useGeneratedAssets = ({
             if (!brandRef) {
                 throw new Error(text('select_brand_reference'));
             }
-            compositionImageUrl =
+            const brandReferenceUrl =
                 brandRefUrls[brandRef.id] ??
                 (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+            inputImageUrls.push(brandReferenceUrl, simulatorImageUrl);
             userPrompt = (promptsByRefId[effectiveBrandRefId] ?? '').trim();
         } else if (template === 'same_style_like') {
             const styleReferenceUrl = await resolveStyleReferenceUrl();
             if (!styleReferenceUrl) {
                 throw new Error(text('select_style_reference'));
             }
-            compositionImageUrl = styleReferenceUrl;
-            compositionClause = null;
+            inputImageUrls.push(styleReferenceUrl, simulatorImageUrl);
         } else {
-            compositionImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
-            compositionClause = NO_BRAND_ANCHOR_CLAUSE;
+            inputImageUrls.push(simulatorImageUrl);
         }
 
         const { effectivePrompt: basePrompt } = getSystemPromptForSlot(slotIndex, 'generate');
-        const prompt = [
-            basePrompt,
-            compositionClause,
-            userPrompt ? userPrompt : null,
-        ]
+        const prompt = [basePrompt, userPrompt ? userPrompt : null]
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
             .join('\n\n');
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
             prompt,
-            simulatorImageUrl: compositionImageUrl,
-            brandRefImageUrl: appUiImageUrl,
+            imageInputUrls: inputImageUrls,
+            simulatorImageUrl: inputImageUrls[0],
+            brandRefImageUrl: inputImageUrls[1] ?? inputImageUrls[0],
             width: size.width,
             height: size.height,
             signal: ctx?.signal,
@@ -2686,10 +2700,7 @@ export const useGeneratedAssets = ({
         } else {
             blob = base64ToBlob(result.b64, result.mimeType);
         }
-        const jpgFile =
-            template === 'ref_like'
-                ? await renderBlobToJpegAutoFit(blob, size.width, size.height)
-                : await renderBlobToJpeg(blob, size.width, size.height, 'cover');
+        const jpgFile = await renderBlobToJpeg(blob, size.width, size.height, 'cover');
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
 
         if (ctx?.signal?.aborted) throw new Error('Canceled');
@@ -2807,38 +2818,60 @@ export const useGeneratedAssets = ({
         const size = SCREENSHOT_SIZES[sizeLabel];
 
         const baseImageUrl = await resolveGeneratedUrl(baseAsset);
+        const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
+        const inputImageUrls: string[] = [anchorImageUrl];
 
-        let brandRefImageUrl = baseImageUrl;
-        if (effectiveBrandRefId) {
+        const resolveStyleReferenceUrl = async () => {
+            const selectedStyleRefAssetId = mapping.styleRefAssetId;
+            if (!selectedStyleRefAssetId) return null;
+            const styleReferenceAsset =
+                selectedGeneratedAssets.find(
+                    (asset) =>
+                        asset.id === selectedStyleRefAssetId &&
+                        (asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
+                ) ?? null;
+            if (!styleReferenceAsset) return null;
+            try {
+                return await resolveGeneratedUrl(styleReferenceAsset);
+            } catch {
+                return null;
+            }
+        };
+
+        if (template === 'ref_like') {
+            if (!effectiveBrandRefId) {
+                throw new Error(text('select_brand_reference'));
+            }
             const brandRef = brandScreenshotReferences.find((ref) => ref.id === effectiveBrandRefId) ?? null;
             if (!brandRef) {
                 throw new Error(text('select_brand_reference'));
             }
-            brandRefImageUrl =
+            const brandRefImageUrl =
                 brandRefUrls[brandRef.id] ??
                 (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
+            inputImageUrls.push(brandRefImageUrl, baseImageUrl);
+        } else if (template === 'same_style_like') {
+            const styleReferenceUrl = await resolveStyleReferenceUrl();
+            if (!styleReferenceUrl) {
+                throw new Error(text('select_style_reference'));
+            }
+            inputImageUrls.push(styleReferenceUrl, baseImageUrl);
+        } else {
+            inputImageUrls.push(baseImageUrl);
         }
 
         const { effectivePrompt: enhanceBasePrompt } = getSystemPromptForSlot(slotIndex, 'enhance');
         const extra = String(enhancePrompt || '').trim();
-        const prompt = [
-            enhanceBasePrompt,
-            !effectiveBrandRefId ? NO_REFERENCE_CLAUSE : null,
-            extra ? extra : null,
-        ]
+        const prompt = [enhanceBasePrompt, extra ? extra : null]
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
             .join('\n\n');
-
-        // For screenshot enhance, keep the same image contract as generation:
-        // image 1 = composition reference, image 2 = app UI source.
-        const image1 = effectiveBrandRefId ? brandRefImageUrl : baseImageUrl;
-        const image2 = effectiveBrandRefId ? baseImageUrl : brandRefImageUrl;
 
         const result = await requestGeneratedScreenshot({
             providerId: screenshotProviderId,
             prompt,
-            simulatorImageUrl: image1,
-            brandRefImageUrl: image2,
+            imageInputUrls: inputImageUrls,
+            simulatorImageUrl: inputImageUrls[0],
+            brandRefImageUrl: inputImageUrls[1] ?? inputImageUrls[0],
             width: size.width,
             height: size.height,
             signal: ctx?.signal,
@@ -2859,10 +2892,7 @@ export const useGeneratedAssets = ({
         } else {
             blob = base64ToBlob(result.b64, result.mimeType);
         }
-        const jpgFile =
-            template === 'ref_like'
-                ? await renderBlobToJpegAutoFit(blob, size.width, size.height)
-                : await renderBlobToJpeg(blob, size.width, size.height, 'cover');
+        const jpgFile = await renderBlobToJpeg(blob, size.width, size.height, 'cover');
         const path = `${session.user.id}/apps/${selectedApp.id}/generated/screenshots-enhanced/slot-${slotIndex}/v${nextVersion}-${createId()}.jpg`;
 
         if (ctx?.signal?.aborted) throw new Error('Canceled');
