@@ -600,7 +600,7 @@ export const AppGenerationSection = ({
                             return (
                                 <div
                                     key={slotIndex}
-                                    className="snap-start shrink-0 w-[260px] rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3"
+                                    className="min-w-0 w-full rounded-2xl border border-indigo-900/40 bg-slate-950/30 p-3 space-y-3"
                                 >
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="min-w-0">

@@ -2193,7 +2193,7 @@ export const useGeneratedAssets = ({
                         ? 'Nano 2 ETA ~2m'
                     : iconProviderId === 'replicate:nano-banana-pro'
                         ? 'Nano ETA ~2m'
-                        : 'Giga ETA ~2m';
+                        : 'GPT Images ETA ~2m';
             setJobMessage(jobId, `${eta} · generating`);
 
             const failed: number[] = [];
@@ -2317,7 +2317,7 @@ export const useGeneratedAssets = ({
                     ? 'Nano 2 ETA ~2m'
                 : iconProviderId === 'replicate:nano-banana-pro'
                     ? 'Nano ETA ~2m'
-                    : 'Giga ETA ~2m';
+                    : 'GPT Images ETA ~2m';
         setJobMessage(jobId, `${eta} · generating`);
 
         try {
@@ -3034,7 +3034,7 @@ export const useGeneratedAssets = ({
                     ? 'Nano 2 ~2m/slot'
                 : screenshotProviderId === 'replicate:nano-banana-pro'
                     ? 'Nano ~2m/slot'
-                    : 'Giga ~2m/slot';
+                    : 'GPT Images ~2m/slot';
         setJobMessage(jobId, `${eta}`);
 
         const failedSlots: number[] = [];

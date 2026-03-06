@@ -10,6 +10,8 @@ type ProviderId =
     | 'replicate:seedream-4'
     | 'openai:gpt-image-1.5';
 
+const OPENAI_IMAGE_MODEL = String(process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5').trim() || 'gpt-image-1.5';
+
 type GenerateScreenshotRequestBody = {
     providerId: ProviderId;
     prompt: string;
@@ -102,6 +104,38 @@ const fetchAsBlob = async (url: string) => {
     const contentType = resp.headers.get('content-type') || 'application/octet-stream';
     const arrayBuffer = await resp.arrayBuffer();
     return new Blob([arrayBuffer], { type: contentType });
+};
+
+const resolveOpenAIImageSize = (width: number, height: number) => {
+    if (width === 1024 && height === 1024) return '1024x1024';
+    if (height > width) return '1024x1536';
+    return '1536x1024';
+};
+
+const normalizeOpenAIImageErrorMessage = (payload: { message: string; model: string; param?: string }) => {
+    const message = String(payload.message || '').trim();
+    const param = String(payload.param || '').trim();
+    const detectedParam = param || message.match(/['"]([a-z0-9_]+)['"]/i)?.[1] || '';
+
+    if (detectedParam === 'response_format') {
+        return `OpenAI image edits rejected "${detectedParam}" for model "${payload.model}". GPT Images returns base64 image data by default on /v1/images/edits.`;
+    }
+
+    if (/unsupported parameter/i.test(message) || /unknown parameter/i.test(message) || /not allowed/i.test(message)) {
+        return detectedParam
+            ? `OpenAI image edits rejected "${detectedParam}" for model "${payload.model}".`
+            : `OpenAI image edits rejected one of the request parameters for model "${payload.model}".`;
+    }
+
+    if (/does not have access/i.test(message) || /model .* does not exist/i.test(message) || /not found/i.test(message)) {
+        return `OpenAI image model "${payload.model}" is not available for this API key. Check model access and account permissions.`;
+    }
+
+    if (/organization must be verified/i.test(message) || /verify your organization/i.test(message)) {
+        return `OpenAI image generation requires a verified organization for this key. Check your OpenAI organization verification status.`;
+    }
+
+    return message || `OpenAI request failed for model "${payload.model}".`;
 };
 
 const verifySupabaseToken = async (token: string) => {
@@ -347,16 +381,12 @@ const runOpenAI = async (payload: {
     }
 
     const form = new FormData();
-    form.append('model', 'gpt-image-1.5');
+    form.append('model', OPENAI_IMAGE_MODEL);
     form.append('prompt', payload.prompt);
     form.append('input_fidelity', 'high');
-    // OpenAI only supports a limited set of sizes. For icons we can request an exact square.
-    const size =
-        payload.width === 1024 && payload.height === 1024
-            ? '1024x1024'
-            : 'auto';
-    form.append('size', size);
-    form.append('response_format', 'b64_json');
+    form.append('quality', 'high');
+    form.append('size', resolveOpenAIImageSize(payload.width, payload.height));
+    form.append('output_format', 'png');
 
     const simulatorBlob = await fetchAsBlob(payload.simulatorImageUrl);
     const brandRefBlob = await fetchAsBlob(payload.brandRefImageUrl);
@@ -373,13 +403,17 @@ const runOpenAI = async (payload: {
 
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-        const message = (data as any)?.error?.message || `OpenAI request failed (${resp.status}).`;
+        const message = normalizeOpenAIImageErrorMessage({
+            message: String((data as any)?.error?.message || `OpenAI request failed (${resp.status}).`),
+            model: OPENAI_IMAGE_MODEL,
+            param: typeof (data as any)?.error?.param === 'string' ? (data as any).error.param : undefined,
+        });
         const error = new Error(message);
         (error as any).statusCode = resp.status;
         throw error;
     }
 
-    const b64 = (data as any)?.data?.[0]?.b64_json;
+    const b64 = (data as any)?.data?.[0]?.b64_json || (data as any)?.data?.[0]?.image_base64;
     if (!isNonEmptyString(b64)) {
         throw new Error('OpenAI response missing b64_json.');
     }
