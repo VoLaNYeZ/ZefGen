@@ -63,7 +63,7 @@ type SlotMapping = {
 type ScreenshotKind = 'screenshot' | 'screenshot_enhanced';
 type IconKind = 'icon' | 'icon_enhanced';
 type SystemPromptMode = 'generate' | 'enhance';
-type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like';
+type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like' | 'empty';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
@@ -903,7 +903,7 @@ export const useGeneratedAssets = ({
                 slotIndex,
             });
             const raw = window.localStorage.getItem(lsKey);
-            if (raw === 'ref_like' || raw === 'same_style_like' || raw === 'no_ref_like') {
+            if (raw === 'ref_like' || raw === 'same_style_like' || raw === 'no_ref_like' || raw === 'empty') {
                 next[key] = raw;
             }
         }
@@ -1186,6 +1186,8 @@ export const useGeneratedAssets = ({
                     defaultPrompt = buildRefLikeGenerateSystemPrompt();
                 } else if (template === 'same_style_like') {
                     defaultPrompt = buildSameStyleGenerateSystemPrompt();
+                } else if (template === 'empty') {
+                    defaultPrompt = '';
                 } else {
                     defaultPrompt = buildNoBrandAnchorGenerateSystemPrompt();
                 }

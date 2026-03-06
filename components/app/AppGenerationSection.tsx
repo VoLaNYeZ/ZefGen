@@ -117,8 +117,11 @@ type AppGenerationSectionProps = {
         slotIndex: number,
         mode: 'generate' | 'enhance'
     ) => { defaultPrompt: string; effectivePrompt: string; isOverridden: boolean };
-    getSystemPromptTemplateForSlot: (slotIndex: number) => 'ref_like' | 'same_style_like' | 'no_ref_like';
-    setSystemPromptTemplateForSlot: (slotIndex: number, value: 'ref_like' | 'same_style_like' | 'no_ref_like') => void;
+    getSystemPromptTemplateForSlot: (slotIndex: number) => 'ref_like' | 'same_style_like' | 'no_ref_like' | 'empty';
+    setSystemPromptTemplateForSlot: (
+        slotIndex: number,
+        value: 'ref_like' | 'same_style_like' | 'no_ref_like' | 'empty'
+    ) => void;
     setSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance', value: string) => void;
     resetSystemPromptOverride: (slotIndex: number, mode: 'generate' | 'enhance') => void;
     pickedIconAssetId: string | null;
@@ -1178,6 +1181,18 @@ export const AppGenerationSection = ({
                                                                 }`}
                                                             >
                                                                 {text('system_prompt_noref_like')}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSystemPromptTemplateForSlot(slotIndex, 'empty')}
+                                                                disabled={isReadOnly || !selectedApp || !activeScreenshotSetId}
+                                                                className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                                    sysTemplate === 'empty'
+                                                                        ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
+                                                                        : 'border-white/10 text-indigo-200/60 hover:border-indigo-400/40 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {text('system_prompt_empty')}
                                                             </button>
                                                         </div>
                                                         <div className="flex items-center justify-end">
