@@ -121,7 +121,9 @@ export function ConnectorVariablesSecretsPanel(props: {
     }, [account?.email]);
 
     const accountCopyLine = React.useMemo(() => {
-        const alias = String(selectedApp?.alias || '').trim();
+        const alias = String(selectedApp?.alias || '')
+            .trim()
+            .toUpperCase();
         const name = String(selectedApp?.name || '').trim();
         const email = resolvedAccountEmail;
         if (!alias || !name || !email) return '';
