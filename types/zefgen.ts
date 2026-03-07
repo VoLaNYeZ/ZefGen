@@ -158,6 +158,71 @@ export type AppstoreAccount = {
     created_at?: string;
 };
 
+export type AppstoreReviewWebhook = {
+    app_id: string;
+    user_id?: string;
+    public_token: string;
+    secret: string;
+    public_subdomain?: string | null;
+    public_page_published_at?: string | null;
+    key_mode?: 'team' | 'individual' | null;
+    key_id?: string | null;
+    issuer_id?: string | null;
+    public_webhook_url?: string | null;
+    asc_app_id?: string | null;
+    asc_app_name?: string | null;
+    asc_bundle_id?: string | null;
+    apple_webhook_id?: string | null;
+    latest_event_type?: string | null;
+    latest_review_state?: string | null;
+    latest_previous_state?: string | null;
+    latest_event_at?: string | null;
+    last_delivery_at?: string | null;
+    last_delivery_status: 'idle' | 'received' | 'ignored' | 'invalid_signature' | 'error';
+    last_error?: string | null;
+    last_sync_at?: string | null;
+    last_sync_status?: 'idle' | 'connected' | 'error';
+    last_sync_error?: string | null;
+    created_at?: string;
+    updated_at?: string;
+};
+
+export type AppstoreReviewEvent = {
+    id: string;
+    app_id: string;
+    user_id?: string;
+    event_type: string;
+    payload_type: string;
+    state_from?: string | null;
+    state_to?: string | null;
+    event_at: string;
+    delivery_status: 'received' | 'ignored' | 'error';
+    raw_payload?: Record<string, any> | null;
+    created_at?: string;
+};
+
+export type AppstoreConnectAppCandidate = {
+    id: string;
+    name: string;
+    bundle_id: string;
+    sku: string;
+    bundle_match: boolean;
+};
+
+export type AppstoreReviewWebhookStatus = {
+    webhook: AppstoreReviewWebhook | null;
+    events: AppstoreReviewEvent[];
+    bundle_id: string | null;
+    private_key_configured: boolean;
+    default_public_webhook_url: string;
+    effective_public_webhook_url: string;
+    effective_public_page_url: string;
+    internal_listener_url: string;
+    using_shared_default_webhook_url: boolean;
+    credential_issues: string[];
+    page_readiness_issues: string[];
+};
+
 export type AppIdeaCategory = {
     id: string;
     slug: string;

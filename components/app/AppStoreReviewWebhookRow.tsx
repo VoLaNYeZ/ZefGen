@@ -1,0 +1,1262 @@
+import React from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { BellRing, Check, Copy, RefreshCcw, RotateCw, Save, Send, Upload } from 'lucide-react';
+import type { TranslationKey } from '../../i18n';
+import type {
+    AppItem,
+    AppstoreConnectAppCandidate,
+    AppstoreReviewWebhook,
+    AppstoreReviewWebhookStatus,
+} from '../../types/zefgen';
+import {
+    claimAppstoreReviewWebhookPublicSubdomain,
+    ensureAppstoreReviewWebhook,
+    fetchAppstoreReviewEvents,
+    fetchAppstoreReviewWebhook,
+    updateAppstoreReviewWebhook,
+} from '../../data/appstore-review-webhooks';
+import { fetchConnectorAppConfig } from '../../data/connector-app-config';
+import { fetchConnectorSecretMetas, upsertConnectorSecret } from '../../data/connector-secrets';
+import {
+    fetchAppstoreReviewAppleApps,
+    fetchAppstoreReviewWebhookStatus,
+    pingAppstoreReviewWebhook,
+    syncAppstoreReviewWebhook,
+} from '../../data/appstore-review-webhook-api';
+import {
+    APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY,
+    APPSTORE_REVIEW_EVENT_TYPE,
+    buildAppstoreReviewWebhookUrl,
+    buildManagedAppstoreReviewPublicPageUrl,
+    buildManagedAppstoreReviewWebhookUrl,
+    buildSuggestedAppstoreReviewPublicSubdomain,
+    buildDirectAppstoreReviewWebhookUrl,
+    extractManagedAppstoreReviewPublicSubdomain,
+    formatAppstoreReviewState,
+    generateAppstoreReviewWebhookSecret,
+    generateAppstoreReviewWebhookToken,
+    isManagedAppstoreReviewWebhookUrl,
+} from '../../utils/appstore-review-webhook';
+
+const formatTimestamp = (value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleString();
+};
+
+const deliveryKeyForConfig = (config: AppstoreReviewWebhook | null): TranslationKey => {
+    if (!config) return 'appstore_review_webhook_waiting';
+    switch (config.last_delivery_status) {
+        case 'received':
+            return 'appstore_review_webhook_live';
+        case 'ignored':
+            return 'appstore_review_webhook_ping';
+        case 'invalid_signature':
+            return 'appstore_review_webhook_invalid_signature';
+        case 'error':
+            return 'appstore_review_webhook_error';
+        default:
+            return 'appstore_review_webhook_waiting';
+    }
+};
+
+const syncKeyForConfig = (config: AppstoreReviewWebhook | null): TranslationKey => {
+    if (!config) return 'appstore_review_webhook_sync_idle';
+    switch (config.last_sync_status) {
+        case 'connected':
+            return 'appstore_review_webhook_sync_connected';
+        case 'error':
+            return 'appstore_review_webhook_sync_error';
+        default:
+            return 'appstore_review_webhook_sync_idle';
+    }
+};
+
+const stateTone = (value: string | null | undefined) => {
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return 'border-white/10 bg-slate-950/30 text-indigo-100/80';
+    if (['READY_FOR_SALE', 'ACCEPTED', 'PENDING_APPLE_RELEASE', 'PENDING_DEVELOPER_RELEASE'].includes(raw)) {
+        return 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100';
+    }
+    if (['REJECTED', 'METADATA_REJECTED', 'DEVELOPER_REJECTED', 'INVALID_BINARY'].includes(raw)) {
+        return 'border-rose-400/35 bg-rose-500/10 text-rose-100';
+    }
+    if (['IN_REVIEW', 'WAITING_FOR_REVIEW'].includes(raw)) {
+        return 'border-amber-400/35 bg-amber-500/10 text-amber-100';
+    }
+    return 'border-sky-400/30 bg-sky-500/10 text-sky-100';
+};
+
+const syncTone = (value: string | null | undefined) => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === 'connected') return 'text-emerald-200';
+    if (raw === 'error') return 'text-rose-200';
+    return 'text-amber-200';
+};
+
+const sameHost = (left: string, right: string) => {
+    try {
+        return new URL(left).host === new URL(right).host;
+    } catch {
+        return false;
+    }
+};
+
+const buildLocalCredentialIssues = (payload: {
+    webhook: AppstoreReviewWebhook | null;
+    privateKeyConfigured: boolean;
+}) => {
+    const issues: string[] = [];
+    const keyMode = String(payload.webhook?.key_mode || '').trim().toLowerCase();
+    if (!['team', 'individual'].includes(keyMode)) issues.push('Select key mode.');
+    if (!String(payload.webhook?.key_id || '').trim()) issues.push('Enter key ID.');
+    if (keyMode === 'team' && !String(payload.webhook?.issuer_id || '').trim()) issues.push('Enter issuer ID.');
+    if (!payload.privateKeyConfigured) issues.push('Upload the .p8 private key.');
+    return issues;
+};
+
+type BusyAction = 'create' | 'rotate' | 'save' | 'apps' | 'sync' | 'ping' | null;
+
+export function AppStoreReviewWebhookRow(props: {
+    selectedApp: AppItem | null;
+    session: Session | null;
+    text: (key: TranslationKey) => string;
+    reportError: (message: string) => void;
+    isReadOnly?: boolean;
+}) {
+    const { selectedApp, session, text, reportError, isReadOnly = false } = props;
+    const [loading, setLoading] = React.useState(false);
+    const [busyAction, setBusyAction] = React.useState<BusyAction>(null);
+    const [notice, setNotice] = React.useState<string | null>(null);
+    const [status, setStatus] = React.useState<AppstoreReviewWebhookStatus | null>(null);
+    const [appleCandidates, setAppleCandidates] = React.useState<AppstoreConnectAppCandidate[]>([]);
+    const [appleCandidatesLoaded, setAppleCandidatesLoaded] = React.useState(false);
+    const [copiedKey, setCopiedKey] = React.useState<'endpoint' | 'secret' | null>(null);
+    const [keyModeDraft, setKeyModeDraft] = React.useState<'team' | 'individual'>('team');
+    const [keyIdDraft, setKeyIdDraft] = React.useState('');
+    const [issuerIdDraft, setIssuerIdDraft] = React.useState('');
+    const [publicSubdomainDraft, setPublicSubdomainDraft] = React.useState('');
+    const [privateKeyDraft, setPrivateKeyDraft] = React.useState('');
+    const [selectedAppleAppId, setSelectedAppleAppId] = React.useState('');
+    const [hasAppleDraftChanges, setHasAppleDraftChanges] = React.useState(false);
+    const [isPrivateKeyDragActive, setIsPrivateKeyDragActive] = React.useState(false);
+    const [serverStatusWarning, setServerStatusWarning] = React.useState<string | null>(null);
+    const [appStoreNameHint, setAppStoreNameHint] = React.useState('');
+    const requestIdRef = React.useRef(0);
+    const copiedTimerRef = React.useRef<number | null>(null);
+    const hydratedAppIdRef = React.useRef('');
+    const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
+
+    const appId = String(selectedApp?.id || '').trim();
+    const userId = String(session?.user?.id || '').trim();
+    const config = status?.webhook || null;
+    const events = status?.events || [];
+    const bundleId = String(status?.bundle_id || '').trim();
+    const defaultPublicWebhookUrl = String(status?.default_public_webhook_url || '').trim();
+    const suggestedPublicSubdomain = React.useMemo(
+        () => buildSuggestedAppstoreReviewPublicSubdomain(String(appStoreNameHint || '')),
+        [appStoreNameHint]
+    );
+    const legacyExplicitWebhookUrl = React.useMemo(() => {
+        const raw = String(config?.public_webhook_url || '').trim();
+        if (!raw) return '';
+        return isManagedAppstoreReviewWebhookUrl(raw) ? '' : raw;
+    }, [config?.public_webhook_url]);
+    const effectivePublicSubdomain =
+        String(publicSubdomainDraft || '').trim() ||
+        String(config?.public_subdomain || '').trim() ||
+        extractManagedAppstoreReviewPublicSubdomain(config?.public_webhook_url) ||
+        suggestedPublicSubdomain;
+    const managedPublicWebhookUrl =
+        config?.public_token && effectivePublicSubdomain
+            ? buildManagedAppstoreReviewWebhookUrl({
+                  publicToken: config.public_token,
+                  publicSubdomain: effectivePublicSubdomain,
+              })
+            : '';
+    const effectivePublicWebhookUrl =
+        legacyExplicitWebhookUrl ||
+        managedPublicWebhookUrl ||
+        String(status?.effective_public_webhook_url || '').trim();
+    const internalListenerUrl = String(status?.internal_listener_url || '').trim();
+    const pageReadinessIssues = status?.page_readiness_issues || [];
+    const privateKeyConfigured = Boolean(status?.private_key_configured);
+    const latestStateLabel = formatAppstoreReviewState(config?.latest_review_state);
+    const latestPrevStateLabel = formatAppstoreReviewState(config?.latest_previous_state);
+    const lastDeliveryLabel = text(deliveryKeyForConfig(config));
+    const lastSyncLabel = text(syncKeyForConfig(config));
+    const sharedHostWarning =
+        Boolean(effectivePublicWebhookUrl && internalListenerUrl) &&
+        sameHost(String(effectivePublicWebhookUrl || '').trim(), internalListenerUrl);
+    const credentialIssues = status?.credential_issues || [];
+
+    React.useEffect(() => {
+        return () => {
+            if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+        };
+    }, []);
+
+    React.useEffect(() => {
+        hydratedAppIdRef.current = '';
+        requestIdRef.current += 1;
+        setLoading(Boolean(appId && userId));
+        setBusyAction(null);
+        setNotice(null);
+        setStatus(null);
+        setAppleCandidates([]);
+        setAppleCandidatesLoaded(false);
+        setCopiedKey(null);
+        setKeyModeDraft('team');
+        setKeyIdDraft('');
+        setIssuerIdDraft('');
+        setPublicSubdomainDraft('');
+        setPrivateKeyDraft('');
+        setSelectedAppleAppId('');
+        setHasAppleDraftChanges(false);
+        setIsPrivateKeyDragActive(false);
+        setServerStatusWarning(null);
+        setAppStoreNameHint('');
+    }, [appId, userId]);
+
+    React.useEffect(() => {
+        if (!appId || !userId) return;
+        let cancelled = false;
+
+        void (async () => {
+            try {
+                const connectorConfigRes = await fetchConnectorAppConfig({ userId, appId });
+                if (cancelled) return;
+                if (connectorConfigRes.error) throw connectorConfigRes.error;
+                setAppStoreNameHint(String((connectorConfigRes.data as any)?.variables?.appstore_name || '').trim());
+            } catch {
+                if (!cancelled) setAppStoreNameHint('');
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [appId, userId]);
+
+    React.useEffect(() => {
+        if (hasAppleDraftChanges) return;
+        if (String(config?.public_subdomain || '').trim()) return;
+        if (legacyExplicitWebhookUrl) return;
+        if (!suggestedPublicSubdomain) return;
+        setPublicSubdomainDraft((current) => String(current || '').trim() || suggestedPublicSubdomain);
+    }, [config?.public_subdomain, hasAppleDraftChanges, legacyExplicitWebhookUrl, suggestedPublicSubdomain]);
+
+    const hydrateDraftsFromStatus = React.useCallback(
+        (nextStatus: AppstoreReviewWebhookStatus | null, force = false) => {
+            if (!force && hasAppleDraftChanges) return;
+            const webhook = nextStatus?.webhook;
+            setKeyModeDraft(webhook?.key_mode === 'individual' ? 'individual' : 'team');
+            setKeyIdDraft(String(webhook?.key_id || ''));
+            setIssuerIdDraft(String(webhook?.issuer_id || ''));
+            setPublicSubdomainDraft(
+                String(webhook?.public_subdomain || '').trim() ||
+                    extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url) ||
+                    buildSuggestedAppstoreReviewPublicSubdomain(String(appStoreNameHint || ''))
+            );
+            setSelectedAppleAppId(String(webhook?.asc_app_id || ''));
+            if (force) setPrivateKeyDraft('');
+            setHasAppleDraftChanges(false);
+        },
+        [appStoreNameHint, hasAppleDraftChanges]
+    );
+
+    const loadFallbackStatus = React.useCallback(async () => {
+        const [webhookRes, eventsRes, connectorConfigRes, secretMetasRes] = await Promise.all([
+            fetchAppstoreReviewWebhook({ userId, appId }),
+            fetchAppstoreReviewEvents({ userId, appId, limit: 6 }),
+            fetchConnectorAppConfig({ userId, appId }),
+            fetchConnectorSecretMetas({ userId, appId }),
+        ]);
+
+        if (webhookRes.error) throw webhookRes.error;
+        if (eventsRes.error) throw eventsRes.error;
+        if (connectorConfigRes.error) throw connectorConfigRes.error;
+        if (secretMetasRes.error) throw secretMetasRes.error;
+
+        const webhook = (webhookRes.data as AppstoreReviewWebhook) || null;
+        const bundleIdFallback = String((connectorConfigRes.data as any)?.variables?.bundle_id || '').trim() || null;
+        const appStoreNameFallback =
+            String((connectorConfigRes.data as any)?.variables?.appstore_name || '').trim() || null;
+        const privateKeyConfiguredFallback = Boolean(
+            (secretMetasRes.data || []).some(
+                (meta: any) => String(meta?.key || '').trim() === APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY
+            )
+        );
+        const resolvedPublicSubdomainFallback =
+            String(webhook?.public_subdomain || '').trim() ||
+            extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url) ||
+            '';
+        const defaultPublicWebhookUrlFallback = webhook
+            ? buildAppstoreReviewWebhookUrl(webhook.public_token, resolvedPublicSubdomainFallback)
+            : '';
+        const internalListenerUrlFallback = webhook ? buildDirectAppstoreReviewWebhookUrl(webhook.public_token) : '';
+        const effectivePublicWebhookUrlFallback =
+            (String(webhook?.public_webhook_url || '').trim() &&
+            !isManagedAppstoreReviewWebhookUrl(webhook?.public_webhook_url)
+                ? String(webhook?.public_webhook_url || '').trim()
+                : defaultPublicWebhookUrlFallback);
+        const effectivePublicPageUrlFallback = buildManagedAppstoreReviewPublicPageUrl({
+            publicSubdomain: resolvedPublicSubdomainFallback,
+        });
+
+        return {
+            webhook:
+                webhook && resolvedPublicSubdomainFallback && !String(webhook.public_subdomain || '').trim()
+                    ? { ...webhook, public_subdomain: resolvedPublicSubdomainFallback }
+                    : webhook,
+            events: ((eventsRes.data || []) as AppstoreReviewWebhookStatus['events']) || [],
+            bundle_id: bundleIdFallback,
+            private_key_configured: privateKeyConfiguredFallback,
+            default_public_webhook_url: defaultPublicWebhookUrlFallback,
+            effective_public_webhook_url: effectivePublicWebhookUrlFallback,
+            effective_public_page_url: effectivePublicPageUrlFallback,
+            internal_listener_url: internalListenerUrlFallback,
+            using_shared_default_webhook_url:
+                Boolean(defaultPublicWebhookUrlFallback && internalListenerUrlFallback) &&
+                sameHost(defaultPublicWebhookUrlFallback, internalListenerUrlFallback),
+            credential_issues: buildLocalCredentialIssues({
+                webhook,
+                privateKeyConfigured: privateKeyConfiguredFallback,
+            }),
+            page_readiness_issues:
+                !resolvedPublicSubdomainFallback && !appStoreNameFallback
+                    ? [text('appstore_review_webhook_appstore_name_required')]
+                    : [],
+        } as AppstoreReviewWebhookStatus;
+    }, [appId, text, userId]);
+
+    const refresh = React.useCallback(
+        async (options?: { silent?: boolean; forceDraftHydrate?: boolean; reportErrors?: boolean }) => {
+            if (!appId || !userId) {
+                setStatus(null);
+                setLoading(false);
+                return;
+            }
+
+            const requestId = requestIdRef.current + 1;
+            requestIdRef.current = requestId;
+            if (!options?.silent) setLoading(true);
+            try {
+                const nextStatus = await fetchAppstoreReviewWebhookStatus({ appId });
+                if (requestIdRef.current !== requestId) return;
+                setServerStatusWarning(null);
+                setStatus(nextStatus);
+                const shouldForceHydrate =
+                    options?.forceDraftHydrate === true || hydratedAppIdRef.current !== appId;
+                hydrateDraftsFromStatus(nextStatus, shouldForceHydrate);
+                hydratedAppIdRef.current = appId;
+            } catch (error: any) {
+                try {
+                    const fallbackStatus = await loadFallbackStatus();
+                    if (requestIdRef.current !== requestId) return;
+                    setServerStatusWarning(String(error?.message || '').trim() || null);
+                    setStatus(fallbackStatus);
+                    const shouldForceHydrate =
+                        options?.forceDraftHydrate === true || hydratedAppIdRef.current !== appId;
+                    hydrateDraftsFromStatus(fallbackStatus, shouldForceHydrate);
+                    hydratedAppIdRef.current = appId;
+                } catch (fallbackError: any) {
+                    if (requestIdRef.current !== requestId) return;
+                    if (options?.reportErrors !== false) {
+                        reportError(String(fallbackError?.message || error?.message || text('upload_failed')));
+                    }
+                }
+            } finally {
+                if (requestIdRef.current === requestId && !options?.silent) setLoading(false);
+            }
+        },
+        [appId, hydrateDraftsFromStatus, loadFallbackStatus, reportError, text, userId]
+    );
+
+    React.useEffect(() => {
+        void refresh({ forceDraftHydrate: true });
+    }, [refresh]);
+
+    React.useEffect(() => {
+        if (!appId || !userId) return undefined;
+        const intervalId = window.setInterval(() => {
+            void refresh({ silent: true, reportErrors: false });
+        }, 15000);
+        return () => window.clearInterval(intervalId);
+    }, [appId, refresh, userId]);
+
+    const copyValue = React.useCallback(async (key: 'endpoint' | 'secret', value: string) => {
+        if (!value) return;
+        try {
+            await navigator.clipboard.writeText(value);
+        } catch {
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+        setCopiedKey(key);
+        if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = window.setTimeout(() => setCopiedKey(null), 1200);
+    }, []);
+
+    const acceptPrivateKeyText = React.useCallback(
+        (rawValue: string) => {
+            const nextValue = String(rawValue || '').replace(/\r/g, '');
+            if (!nextValue.trim()) {
+                throw new Error(text('appstore_review_webhook_private_key_invalid'));
+            }
+            setPrivateKeyDraft(nextValue);
+            setHasAppleDraftChanges(true);
+            setNotice(text('appstore_review_webhook_private_key_loaded'));
+        },
+        [text]
+    );
+
+    const loadPrivateKeyFile = React.useCallback(
+        async (file: File) => {
+            const fileText = await file.text();
+            acceptPrivateKeyText(fileText);
+        },
+        [acceptPrivateKeyText]
+    );
+
+    const handlePrivateKeyFilePick = React.useCallback(
+        async (event: React.ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file || isReadOnly) return;
+            try {
+                await loadPrivateKeyFile(file);
+            } catch (error: any) {
+                reportError(String(error?.message || text('upload_failed')));
+            }
+        },
+        [isReadOnly, loadPrivateKeyFile, reportError, text]
+    );
+
+    const handlePrivateKeyDrop = React.useCallback(
+        async (event: React.DragEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            if (isReadOnly) return;
+            setIsPrivateKeyDragActive(false);
+            try {
+                const file = event.dataTransfer.files?.[0];
+                if (file) {
+                    await loadPrivateKeyFile(file);
+                    return;
+                }
+                const droppedText = String(event.dataTransfer.getData('text') || '');
+                acceptPrivateKeyText(droppedText);
+            } catch (error: any) {
+                reportError(String(error?.message || text('upload_failed')));
+            }
+        },
+        [acceptPrivateKeyText, isReadOnly, loadPrivateKeyFile, reportError, text]
+    );
+
+    const persistAppleDrafts = React.useCallback(
+        async (options?: { showNotice?: boolean; refreshAfter?: boolean }) => {
+            if (!appId || !userId || isReadOnly) return null;
+
+            let workingConfig = config;
+            if (!workingConfig) {
+                const created = await ensureAppstoreReviewWebhook({ userId, appId });
+                if (created.error) throw created.error;
+                workingConfig = (created.data as AppstoreReviewWebhook) || null;
+            }
+            if (!workingConfig) throw new Error(text('upload_failed'));
+
+            const normalizedKeyMode = keyModeDraft === 'individual' ? 'individual' : 'team';
+            const normalizedSelectedAppleAppId = String(selectedAppleAppId || '').trim();
+            const selectedAppleApp = appleCandidates.find((candidate) => candidate.id === normalizedSelectedAppleAppId);
+            const preservedLegacyExplicitUrl =
+                String(workingConfig.public_webhook_url || '').trim() &&
+                !isManagedAppstoreReviewWebhookUrl(workingConfig.public_webhook_url)
+                    ? String(workingConfig.public_webhook_url || '').trim()
+                    : null;
+            const managedUrlSubdomain = extractManagedAppstoreReviewPublicSubdomain(workingConfig.public_webhook_url);
+            let claimedPublicSubdomain =
+                String(workingConfig.public_subdomain || '').trim() ||
+                managedUrlSubdomain ||
+                '';
+
+            if (!preservedLegacyExplicitUrl) {
+                if (!claimedPublicSubdomain && !String(publicSubdomainDraft || '').trim() && !String(appStoreNameHint || '').trim()) {
+                    throw new Error(text('appstore_review_webhook_appstore_name_required'));
+                }
+                const claimed = await claimAppstoreReviewWebhookPublicSubdomain({
+                    appId,
+                    requested: String(publicSubdomainDraft || '').trim() || null,
+                });
+                if (claimed.error) throw claimed.error;
+                claimedPublicSubdomain = String(claimed.data || '').trim();
+                if (!claimedPublicSubdomain) {
+                    throw new Error(text('appstore_review_webhook_public_subdomain_failed'));
+                }
+                setPublicSubdomainDraft(claimedPublicSubdomain);
+            }
+
+            const updated = await updateAppstoreReviewWebhook({
+                userId,
+                appId,
+                patch: {
+                    public_subdomain: claimedPublicSubdomain || null,
+                    key_mode: normalizedKeyMode,
+                    key_id: String(keyIdDraft || '').trim() || null,
+                    issuer_id: normalizedKeyMode === 'team' ? String(issuerIdDraft || '').trim() || null : null,
+                    public_webhook_url: preservedLegacyExplicitUrl,
+                    asc_app_id: normalizedSelectedAppleAppId || null,
+                    asc_app_name: normalizedSelectedAppleAppId
+                        ? selectedAppleApp?.name || workingConfig.asc_app_name || null
+                        : null,
+                    asc_bundle_id: normalizedSelectedAppleAppId
+                        ? selectedAppleApp?.bundle_id || workingConfig.asc_bundle_id || null
+                        : null,
+                    last_sync_status: 'idle',
+                    last_sync_error: null,
+                },
+            });
+            if (updated.error) throw updated.error;
+
+            const trimmedPrivateKey = String(privateKeyDraft || '').trim();
+            if (trimmedPrivateKey) {
+                const secretResult = await upsertConnectorSecret({
+                    userId,
+                    appId,
+                    key: APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY,
+                    value: trimmedPrivateKey,
+                });
+                if (secretResult.error) throw secretResult.error;
+            }
+
+            setHasAppleDraftChanges(false);
+            setPrivateKeyDraft('');
+
+            if (options?.refreshAfter !== false) {
+                await refresh({ forceDraftHydrate: true });
+            }
+            if (options?.showNotice) {
+                setNotice(text('appstore_review_webhook_apple_saved'));
+            }
+            return (updated.data as AppstoreReviewWebhook) || null;
+        },
+        [
+            appId,
+            appStoreNameHint,
+            appleCandidates,
+            config,
+            isReadOnly,
+            issuerIdDraft,
+            keyIdDraft,
+            keyModeDraft,
+            privateKeyDraft,
+            publicSubdomainDraft,
+            refresh,
+            selectedAppleAppId,
+            text,
+            userId,
+        ]
+    );
+
+    const resolveBridgeSubdomain = React.useCallback(
+        (webhook: AppstoreReviewWebhook | null) => {
+            const resolved =
+                String(webhook?.public_subdomain || '').trim() ||
+                extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url) ||
+                String(publicSubdomainDraft || '').trim();
+            if (!resolved) {
+                throw new Error(text('appstore_review_webhook_appstore_name_required'));
+            }
+            return resolved;
+        },
+        [publicSubdomainDraft, text]
+    );
+
+    const handleCreate = async () => {
+        if (!appId || !userId || isReadOnly) return;
+        setBusyAction('create');
+        setNotice(null);
+        try {
+            const result = await ensureAppstoreReviewWebhook({ userId, appId });
+            if (result.error) throw result.error;
+            setNotice(text('appstore_review_webhook_created'));
+            await refresh({ forceDraftHydrate: true });
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const handleRotate = async () => {
+        if (!appId || !userId || !config || isReadOnly) return;
+        const confirmed = window.confirm(text('appstore_review_webhook_rotate_confirm'));
+        if (!confirmed) return;
+
+        setBusyAction('rotate');
+        setNotice(null);
+        try {
+            const result = await updateAppstoreReviewWebhook({
+                userId,
+                appId,
+                patch: {
+                    public_token: generateAppstoreReviewWebhookToken(),
+                    secret: generateAppstoreReviewWebhookSecret(),
+                    last_delivery_status: 'idle',
+                    last_error: null,
+                    last_sync_status: 'idle',
+                    last_sync_error: null,
+                },
+            });
+            if (result.error) throw result.error;
+            setNotice(text('appstore_review_webhook_rotated'));
+            await refresh({ forceDraftHydrate: true });
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const handleSaveAppleConfig = async () => {
+        if (!appId || !userId || isReadOnly) return;
+        setBusyAction('save');
+        setNotice(null);
+        try {
+            await persistAppleDrafts({ showNotice: true });
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const handleLoadAppleApps = async () => {
+        if (!appId || !userId || isReadOnly) return;
+        setBusyAction('apps');
+        setNotice(null);
+        try {
+            const savedWebhook = await persistAppleDrafts({ refreshAfter: false });
+            const result = await fetchAppstoreReviewAppleApps({
+                publicSubdomain: resolveBridgeSubdomain(savedWebhook),
+            });
+            setAppleCandidates(Array.isArray(result.candidates) ? result.candidates : []);
+            setAppleCandidatesLoaded(true);
+            setNotice(
+                result.auto_bound_app_id
+                    ? text('appstore_review_webhook_apple_app_auto_bound')
+                    : text('appstore_review_webhook_apple_apps_loaded')
+            );
+            await refresh({ forceDraftHydrate: true });
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const handleSync = async () => {
+        if (!appId || !userId || isReadOnly) return;
+        setBusyAction('sync');
+        setNotice(null);
+        try {
+            const savedWebhook = await persistAppleDrafts({ refreshAfter: false });
+            await syncAppstoreReviewWebhook({
+                publicSubdomain: resolveBridgeSubdomain(savedWebhook),
+            });
+            setNotice(text('appstore_review_webhook_synced'));
+            await refresh({ forceDraftHydrate: true });
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+            await refresh({ silent: true, forceDraftHydrate: true, reportErrors: false });
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const handlePing = async () => {
+        if (!appId || !userId || isReadOnly) return;
+        setBusyAction('ping');
+        setNotice(null);
+        try {
+            await pingAppstoreReviewWebhook({
+                publicSubdomain: resolveBridgeSubdomain(config),
+            });
+            setNotice(text('appstore_review_webhook_ping_sent'));
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
+    const appOptions = React.useMemo(() => {
+        const seen = new Set<string>();
+        const next: AppstoreConnectAppCandidate[] = [];
+        appleCandidates.forEach((candidate) => {
+            if (!candidate?.id || seen.has(candidate.id)) return;
+            seen.add(candidate.id);
+            next.push(candidate);
+        });
+        if (config?.asc_app_id && !seen.has(config.asc_app_id)) {
+            next.unshift({
+                id: config.asc_app_id,
+                name: String(config.asc_app_name || '').trim(),
+                bundle_id: String(config.asc_bundle_id || '').trim(),
+                sku: '',
+                bundle_match: Boolean(
+                    bundleId && String(config.asc_bundle_id || '').trim().toLowerCase() === bundleId.toLowerCase()
+                ),
+            });
+        }
+        return next;
+    }, [appleCandidates, bundleId, config?.asc_app_id, config?.asc_app_name, config?.asc_bundle_id]);
+
+    if (!selectedApp) return null;
+
+    return (
+        <section className="rounded-2xl bg-slate-900/35 ring-1 ring-white/5 p-4">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-indigo-400/25 bg-indigo-500/10 text-indigo-100">
+                        <BellRing size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
+                                {text('appstore_review_webhook_title')}
+                            </p>
+                            {config ? (
+                                <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}
+                                >
+                                    {latestStateLabel || lastDeliveryLabel}
+                                </span>
+                            ) : null}
+                        </div>
+                        <p className="mt-2 text-xs text-indigo-200/60">{text('appstore_review_webhook_subtitle')}</p>
+                        {serverStatusWarning ? (
+                            <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
+                                <p className="text-xs text-amber-100/90">
+                                    {text('appstore_review_webhook_server_warning')} {serverStatusWarning}
+                                </p>
+                            </div>
+                        ) : null}
+
+                        {!config ? (
+                            <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/30 p-3">
+                                <p className="text-xs text-indigo-100/85">{text('appstore_review_webhook_setup_hint')}</p>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleCreate()}
+                                        disabled={busyAction !== null || loading || isReadOnly}
+                                        className="inline-flex items-center justify-center gap-1.5 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                                    >
+                                        {busyAction === 'create' ? text('saving') : text('appstore_review_webhook_create')}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                {text('appstore_review_webhook_quick_setup_title')}
+                                            </p>
+                                            <p className="mt-1 text-xs text-indigo-200/55">
+                                                {text('appstore_review_webhook_quick_setup_hint')}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => void refresh({ forceDraftHydrate: false })}
+                                            disabled={loading || busyAction !== null}
+                                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-4 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                        >
+                                            <RefreshCcw size={13} />
+                                            {text('refresh')}
+                                        </button>
+                                    </div>
+
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
+                                            {text('appstore_review_webhook_sync_title')}: {lastSyncLabel}
+                                        </span>
+                                        <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
+                                            {text('connector_bundle_id')}: {bundleId || text('appstore_review_webhook_bundle_missing')}
+                                        </span>
+                                        <span
+                                            className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                                privateKeyConfigured
+                                                    ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                                                    : 'border-amber-400/25 bg-amber-500/10 text-amber-100'
+                                            }`}
+                                        >
+                                            {privateKeyConfigured
+                                                ? text('appstore_review_webhook_private_key_stored')
+                                                : text('appstore_review_webhook_private_key_missing')}
+                                        </span>
+                                        {latestStateLabel ? (
+                                            <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
+                                                {text('appstore_review_webhook_latest_state')}: {latestStateLabel}
+                                            </span>
+                                        ) : null}
+                                    </div>
+
+                                    {!bundleId ? (
+                                        <p className="mt-3 text-xs text-amber-100/90">
+                                            {text('appstore_review_webhook_bundle_missing_hint')}
+                                        </p>
+                                    ) : null}
+                                    {pageReadinessIssues.length ? (
+                                        <p className="mt-2 text-xs text-amber-100/90">{pageReadinessIssues.join(' ')}</p>
+                                    ) : null}
+                                    {credentialIssues.length ? (
+                                        <p className="mt-3 text-xs text-indigo-200/55">{credentialIssues.join(' ')}</p>
+                                    ) : null}
+                                    {config.last_sync_error ? (
+                                        <p className="mt-2 text-xs text-rose-300/95">{config.last_sync_error}</p>
+                                    ) : null}
+                                    {config.last_error ? (
+                                        <p className="mt-2 text-xs text-rose-300/95">{config.last_error}</p>
+                                    ) : null}
+
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                        <label className="block">
+                                            <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                {text('appstore_review_webhook_key_id')}
+                                            </span>
+                                            <input
+                                                value={keyIdDraft}
+                                                onChange={(event) => {
+                                                    if (isReadOnly) return;
+                                                    setKeyIdDraft(event.target.value);
+                                                    setHasAppleDraftChanges(true);
+                                                }}
+                                                readOnly={isReadOnly}
+                                                placeholder="2X9R4HXF34"
+                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            />
+                                        </label>
+
+                                        <label className="block">
+                                            <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                {text('appstore_review_webhook_issuer_id')}
+                                            </span>
+                                            <input
+                                                value={issuerIdDraft}
+                                                onChange={(event) => {
+                                                    if (isReadOnly) return;
+                                                    setIssuerIdDraft(event.target.value);
+                                                    setHasAppleDraftChanges(true);
+                                                }}
+                                                readOnly={isReadOnly || keyModeDraft === 'individual'}
+                                                placeholder={
+                                                    keyModeDraft === 'individual'
+                                                        ? text('appstore_review_webhook_issuer_id_not_needed')
+                                                        : '57246542-96fe-1a63-e053-0824d011072a'
+                                                }
+                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            />
+                                        </label>
+                                    </div>
+
+                                    <label className="mt-3 block">
+                                        <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                            {text('appstore_review_webhook_private_key')}
+                                        </span>
+                                        <input
+                                            ref={privateKeyInputRef}
+                                            type="file"
+                                            accept=".p8,text/plain"
+                                            onChange={handlePrivateKeyFilePick}
+                                            className="hidden"
+                                        />
+                                        <div
+                                            onDragOver={(event) => {
+                                                event.preventDefault();
+                                                if (isReadOnly) return;
+                                                setIsPrivateKeyDragActive(true);
+                                            }}
+                                            onDragEnter={(event) => {
+                                                event.preventDefault();
+                                                if (isReadOnly) return;
+                                                setIsPrivateKeyDragActive(true);
+                                            }}
+                                            onDragLeave={(event) => {
+                                                event.preventDefault();
+                                                if (isReadOnly) return;
+                                                const nextTarget = event.relatedTarget;
+                                                if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+                                                setIsPrivateKeyDragActive(false);
+                                            }}
+                                            onDrop={(event) => void handlePrivateKeyDrop(event)}
+                                            className={`mt-2 rounded-2xl border border-dashed p-4 transition ${
+                                                isPrivateKeyDragActive
+                                                    ? 'border-indigo-300/60 bg-indigo-500/10'
+                                                    : 'border-white/10 bg-slate-950/35'
+                                            }`}
+                                        >
+                                            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="min-w-0">
+                                                    <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-400/25 bg-indigo-500/10 text-indigo-100">
+                                                        <Upload size={16} />
+                                                    </div>
+                                                    <p className="mt-2 text-xs font-semibold text-indigo-100/90">
+                                                        {text('appstore_review_webhook_private_key_drop_title')}
+                                                    </p>
+                                                    <p className="mt-1 text-[11px] text-indigo-200/55">
+                                                        {text('appstore_review_webhook_private_key_drop_hint')}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => privateKeyInputRef.current?.click()}
+                                                    disabled={isReadOnly}
+                                                    className="inline-flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-2 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                                >
+                                                    <Upload size={13} />
+                                                    {text('appstore_review_webhook_private_key_pick')}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <textarea
+                                            value={privateKeyDraft}
+                                            onChange={(event) => {
+                                                if (isReadOnly) return;
+                                                setPrivateKeyDraft(event.target.value);
+                                                setHasAppleDraftChanges(true);
+                                            }}
+                                            readOnly={isReadOnly}
+                                            placeholder={text('appstore_review_webhook_private_key_placeholder')}
+                                            rows={4}
+                                            className="mt-2 w-full rounded-2xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                        />
+                                        <p className="mt-2 text-[11px] text-indigo-200/45">
+                                            {privateKeyConfigured
+                                                ? text('appstore_review_webhook_private_key_replace_hint')
+                                                : text('appstore_review_webhook_private_key_hint')}
+                                        </p>
+                                    </label>
+
+                                    <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                                        <label className="block">
+                                            <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                {text('appstore_review_webhook_apple_app')}
+                                            </span>
+                                            <select
+                                                value={selectedAppleAppId}
+                                                onChange={(event) => {
+                                                    if (isReadOnly) return;
+                                                    setSelectedAppleAppId(event.target.value);
+                                                    setHasAppleDraftChanges(true);
+                                                }}
+                                                disabled={isReadOnly || !appOptions.length}
+                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                            >
+                                                <option value="">{text('appstore_review_webhook_apple_app_placeholder')}</option>
+                                                {appOptions.map((candidate) => (
+                                                    <option key={candidate.id} value={candidate.id}>
+                                                        {candidate.name || candidate.bundle_id || candidate.id}
+                                                        {candidate.bundle_id ? ` • ${candidate.bundle_id}` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleLoadAppleApps()}
+                                            disabled={busyAction !== null || isReadOnly}
+                                            className="inline-flex h-10 items-center justify-center gap-1.5 self-end rounded-full border border-white/10 bg-slate-950/20 px-4 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                        >
+                                            <RefreshCcw size={13} />
+                                            {busyAction === 'apps'
+                                                ? text('loading')
+                                                : text('appstore_review_webhook_load_apps')}
+                                        </button>
+                                    </div>
+
+                                    {appleCandidatesLoaded && !appleCandidates.length ? (
+                                        <p className="mt-2 text-xs text-indigo-200/55">
+                                            {text('appstore_review_webhook_no_apps_found')}
+                                        </p>
+                                    ) : null}
+
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleSaveAppleConfig()}
+                                            disabled={busyAction !== null || isReadOnly}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                                        >
+                                            <Save size={13} />
+                                            {busyAction === 'save'
+                                                ? text('saving')
+                                                : text('appstore_review_webhook_save_apple')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleSync()}
+                                            disabled={busyAction !== null || isReadOnly}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
+                                        >
+                                            <RefreshCcw size={13} />
+                                            {busyAction === 'sync'
+                                                ? text('loading')
+                                                : text('appstore_review_webhook_sync_button')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handlePing()}
+                                            disabled={busyAction !== null || isReadOnly}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-2 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                        >
+                                            <Send size={13} />
+                                            {busyAction === 'ping'
+                                                ? text('loading')
+                                                : text('appstore_review_webhook_send_test')}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <details className="mt-3 rounded-2xl border border-white/8 bg-slate-950/20 p-3">
+                                    <summary className="cursor-pointer list-none text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                        {text('appstore_review_webhook_advanced')}
+                                    </summary>
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                        <label className="block">
+                                            <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                {text('appstore_review_webhook_key_mode')}
+                                            </span>
+                                            <select
+                                                value={keyModeDraft}
+                                                onChange={(event) => {
+                                                    if (isReadOnly) return;
+                                                    const nextValue = event.target.value === 'individual' ? 'individual' : 'team';
+                                                    setKeyModeDraft(nextValue);
+                                                    if (nextValue === 'individual') setIssuerIdDraft('');
+                                                    setHasAppleDraftChanges(true);
+                                                }}
+                                                disabled={isReadOnly}
+                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            >
+                                                <option value="team">{text('appstore_review_webhook_key_mode_team')}</option>
+                                                <option value="individual">{text('appstore_review_webhook_key_mode_individual')}</option>
+                                            </select>
+                                        </label>
+
+                                        <label className="block">
+                                            <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                {text('appstore_review_webhook_public_subdomain')}
+                                            </span>
+                                            <input
+                                                value={publicSubdomainDraft}
+                                                onChange={(event) => {
+                                                    if (isReadOnly) return;
+                                                    setPublicSubdomainDraft(event.target.value);
+                                                    setHasAppleDraftChanges(true);
+                                                }}
+                                                readOnly={isReadOnly}
+                                                placeholder={suggestedPublicSubdomain || text('appstore_review_webhook_public_subdomain_placeholder')}
+                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                            />
+                                            <p className="mt-2 text-[11px] text-indigo-200/45">
+                                                {text('appstore_review_webhook_public_subdomain_hint')}
+                                            </p>
+                                        </label>
+                                    </div>
+
+                                    {legacyExplicitWebhookUrl ? (
+                                        <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-500/10 p-3">
+                                            <p className="text-xs text-sky-100/90">
+                                                {text('appstore_review_webhook_legacy_override_active')}
+                                            </p>
+                                            <code className="mt-2 block break-all text-[11px] text-sky-100/85">
+                                                {legacyExplicitWebhookUrl}
+                                            </code>
+                                        </div>
+                                    ) : null}
+
+                                    {sharedHostWarning ? (
+                                        <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
+                                            <p className="text-xs text-amber-100/90">
+                                                {text('appstore_review_webhook_shared_host_warning')}
+                                            </p>
+                                        </div>
+                                    ) : null}
+
+                                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                                        <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                    {text('appstore_review_webhook_public_url')}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void copyValue('endpoint', effectivePublicWebhookUrl)}
+                                                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 text-indigo-100/75 hover:border-indigo-400/40 hover:text-white"
+                                                    aria-label={text('copy')}
+                                                    title={copiedKey === 'endpoint' ? text('success') : text('copy')}
+                                                >
+                                                    {copiedKey === 'endpoint' ? <Check size={13} /> : <Copy size={13} />}
+                                                </button>
+                                            </div>
+                                            <code className="mt-2 block break-all text-[11px] text-indigo-100/90">
+                                                {effectivePublicWebhookUrl || text('appstore_review_webhook_public_url_missing')}
+                                            </code>
+                                            {internalListenerUrl && internalListenerUrl !== effectivePublicWebhookUrl ? (
+                                                <div className="mt-3 rounded-xl border border-white/8 bg-slate-950/35 p-2">
+                                                    <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/65">
+                                                        {text('appstore_review_webhook_internal_url')}
+                                                    </p>
+                                                    <code className="mt-1 block break-all text-[11px] text-indigo-100/75">
+                                                        {internalListenerUrl}
+                                                    </code>
+                                                </div>
+                                            ) : null}
+                                        </div>
+
+                                        <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                    {text('appstore_review_webhook_secret')}
+                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void copyValue('secret', config.secret)}
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 text-indigo-100/75 hover:border-indigo-400/40 hover:text-white"
+                                                        aria-label={text('copy')}
+                                                        title={copiedKey === 'secret' ? text('success') : text('copy')}
+                                                    >
+                                                        {copiedKey === 'secret' ? <Check size={13} /> : <Copy size={13} />}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handleRotate()}
+                                                        disabled={busyAction !== null || isReadOnly}
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 text-indigo-100/75 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                                        aria-label={text('appstore_review_webhook_rotate')}
+                                                        title={text('appstore_review_webhook_rotate')}
+                                                    >
+                                                        <RotateCw size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <code className="mt-2 block break-all text-[11px] text-indigo-100/90">{config.secret}</code>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/30 p-3">
+                                        <div className="grid gap-3 sm:grid-cols-3">
+                                            <div>
+                                                <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                    {text('appstore_review_webhook_event_type')}
+                                                </p>
+                                                <code className="mt-2 inline-flex rounded-lg border border-white/10 bg-slate-950/50 px-2 py-1 text-[11px] text-indigo-100/85">
+                                                    {APPSTORE_REVIEW_EVENT_TYPE}
+                                                </code>
+                                            </div>
+                                            <div>
+                                                <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                    {text('appstore_review_webhook_last_delivery')}
+                                                </p>
+                                                <p className="mt-2 text-xs text-indigo-100/90">{lastDeliveryLabel}</p>
+                                                {config.last_delivery_at ? (
+                                                    <p className="mt-1 text-[11px] text-indigo-200/55">
+                                                        {formatTimestamp(config.last_delivery_at)}
+                                                    </p>
+                                                ) : null}
+                                            </div>
+                                            <div>
+                                                <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                                    {text('appstore_review_webhook_latest_state')}
+                                                </p>
+                                                {latestStateLabel ? (
+                                                    <>
+                                                        <p className="mt-2 text-xs text-indigo-100/90">
+                                                            {latestPrevStateLabel ? `${latestPrevStateLabel} -> ${latestStateLabel}` : latestStateLabel}
+                                                        </p>
+                                                        {config.latest_event_at ? (
+                                                            <p className="mt-1 text-[11px] text-indigo-200/55">
+                                                                {formatTimestamp(config.latest_event_at)}
+                                                            </p>
+                                                        ) : null}
+                                                    </>
+                                                ) : (
+                                                    <p className="mt-2 text-xs text-indigo-200/55">
+                                                        {text('appstore_review_webhook_no_state')}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                {events.length ? (
+                                    <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/30 p-3">
+                                        <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                            {text('appstore_review_webhook_event_stream')}
+                                        </p>
+                                        <div className="mt-3 space-y-2">
+                                            {events.map((event) => {
+                                                const nextLabel = formatAppstoreReviewState(event.state_to);
+                                                const prevLabel = formatAppstoreReviewState(event.state_from);
+                                                return (
+                                                    <div
+                                                        key={event.id}
+                                                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/6 bg-slate-950/35 px-3 py-2"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span
+                                                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateTone(event.state_to || event.state_from)}`}
+                                                                >
+                                                                    {nextLabel || event.event_type}
+                                                                </span>
+                                                                {prevLabel && nextLabel ? (
+                                                                    <span className="text-[11px] text-indigo-200/60">
+                                                                        {prevLabel}
+                                                                        {' -> '}
+                                                                        {nextLabel}
+                                                                    </span>
+                                                                ) : null}
+                                                            </div>
+                                                            <p className="mt-1 text-[11px] text-indigo-200/50">
+                                                                {event.payload_type || event.event_type}
+                                                            </p>
+                                                        </div>
+                                                        <span className="text-[11px] text-indigo-200/55">
+                                                            {formatTimestamp(event.event_at)}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
+
+                        {notice ? <p className="mt-3 text-xs text-emerald-300/95">{notice}</p> : null}
+                        <p className="mt-3 text-[11px] text-indigo-200/45">{text('appstore_review_webhook_isolation_hint')}</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    );
+}

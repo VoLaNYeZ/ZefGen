@@ -97,6 +97,10 @@ export default defineConfig(({ mode }) => {
       wire('/api/delete-github-repo', './api/delete-github-repo');
       wire('/api/provider-status', './api/provider-status');
       wire('/api/workspace-sessions', './api/workspace-sessions');
+      wire('/api/appstore-review-webhook-status', './api/appstore-review-webhook-status');
+      wire('/api/appstore-review-webhook-apps', './api/appstore-review-webhook-apps');
+      wire('/api/appstore-review-webhook-sync', './api/appstore-review-webhook-sync');
+      wire('/api/appstore-review-webhook-ping', './api/appstore-review-webhook-ping');
     },
   });
 

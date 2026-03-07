@@ -13,7 +13,17 @@ import {
     generateAppstoreDescription,
     type GenerateAppstoreDescriptionResponse,
 } from '../data/appstore-description';
+import {
+    claimAppstoreReviewWebhookPublicSubdomain,
+    ensureAppstoreReviewWebhook,
+    fetchAppstoreReviewWebhook,
+    updateAppstoreReviewWebhook,
+} from '../data/appstore-review-webhooks';
 import type { GenerationJobKind } from './use-generation-jobs';
+import {
+    buildManagedAppstoreReviewPublicPageUrl,
+    extractManagedAppstoreReviewPublicSubdomain,
+} from '../utils/appstore-review-webhook';
 
 const APP_NAME_MAX_LENGTH = 30;
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
@@ -23,6 +33,7 @@ const AUTOSAVE_BASE_DELAY_MS = 900;
 const AUTOSAVE_BACKOFF_BASE_MS = 1_000;
 const AUTOSAVE_BACKOFF_MAX_MS = 30_000;
 const DEFAULT_BASE_BRANCH = 'main';
+const BOOTSTRAP_LEGAL_URL_PLACEHOLDER = 'https://google.com';
 
 const clampVariableValue = (key: string, value: any) => {
     if (!APP_NAME_VARIABLE_KEYS.has(String(key || ''))) return value;
@@ -60,6 +71,18 @@ const hashVariables = (raw: Record<string, any> | null | undefined) => {
 const normalizeBaseBranch = (value: unknown) => {
     const raw = String(value ?? '').trim();
     return raw || DEFAULT_BASE_BRANCH;
+};
+
+const isUsableLegalUrl = (value: unknown) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return false;
+    if (raw.replace(/\/+$/g, '') === BOOTSTRAP_LEGAL_URL_PLACEHOLDER) return false;
+    try {
+        const parsed = new URL(raw);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
 };
 
 type QueueJobsApi = {
@@ -104,6 +127,7 @@ export const useConnectorConfigForm = (payload: {
     const [secretBusy, setSecretBusy] = React.useState(false);
     const [generateLinksBusy, setGenerateLinksBusy] = React.useState(false);
     const [generateDescriptionBusy, setGenerateDescriptionBusy] = React.useState(false);
+    const [publishWebpageBusy, setPublishWebpageBusy] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
 
     const [projectBrief, setProjectBrief] = React.useState('');
@@ -111,6 +135,8 @@ export const useConnectorConfigForm = (payload: {
     const [baseBranch, setBaseBranchState] = React.useState(DEFAULT_BASE_BRANCH);
     const [variables, setVariablesState] = React.useState<Record<string, any>>({});
     const [secretMetas, setSecretMetas] = React.useState<any[]>([]);
+    const [publicWebpageUrl, setPublicWebpageUrl] = React.useState('');
+    const [publicPagePublishedAt, setPublicPagePublishedAt] = React.useState<string | null>(null);
     const autosaveTimerRef = React.useRef<number | null>(null);
     const lastSavedVariablesHashRef = React.useRef<string>('');
     const lastSavedProjectBriefRef = React.useRef<string>('');
@@ -154,6 +180,20 @@ export const useConnectorConfigForm = (payload: {
         );
     }, []);
 
+    const applyWebhookPageState = React.useCallback((webhook: any) => {
+        const resolvedSubdomain =
+            String(webhook?.public_subdomain || '').trim() ||
+            extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url);
+        setPublicWebpageUrl(
+            resolvedSubdomain
+                ? buildManagedAppstoreReviewPublicPageUrl({
+                      publicSubdomain: resolvedSubdomain,
+                  })
+                : ''
+        );
+        setPublicPagePublishedAt(String(webhook?.public_page_published_at || '').trim() || null);
+    }, []);
+
     const clearAutosaveTimer = React.useCallback(() => {
         if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
@@ -189,12 +229,15 @@ export const useConnectorConfigForm = (payload: {
         setSecretBusy(false);
         setGenerateLinksBusy(false);
         setGenerateDescriptionBusy(false);
+        setPublishWebpageBusy(false);
         setError(null);
         setProjectBrief('');
         setIdeaId(null);
         setBaseBranchState(DEFAULT_BASE_BRANCH);
         setVariables({});
         setSecretMetas([]);
+        setPublicWebpageUrl('');
+        setPublicPagePublishedAt(null);
         lastSavedVariablesHashRef.current = hashVariables({});
         lastSavedProjectBriefRef.current = '';
         lastSavedBaseBranchRef.current = DEFAULT_BASE_BRANCH;
@@ -256,10 +299,15 @@ export const useConnectorConfigForm = (payload: {
                 resetAutosaveBackoff();
             }
 
-            const secrets = await fetchConnectorSecretMetas({ userId: session.user.id, appId: selectedApp.id });
+            const [secrets, webhook] = await Promise.all([
+                fetchConnectorSecretMetas({ userId: session.user.id, appId: selectedApp.id }),
+                fetchAppstoreReviewWebhook({ userId: session.user.id, appId: selectedApp.id }),
+            ]);
             if (secrets.error) throw secrets.error;
+            if (webhook.error) throw webhook.error;
             if (!isCurrentRequestContext(requestContext)) return;
             setSecretMetas(secrets.data || []);
+            applyWebhookPageState(webhook.data || null);
         } catch (e: any) {
             if (!isCurrentRequestContext(requestContext)) return;
             const msg = String(e?.message || e);
@@ -273,6 +321,7 @@ export const useConnectorConfigForm = (payload: {
     }, [
         getRequestContext,
         isCurrentRequestContext,
+        applyWebhookPageState,
         reportError,
         resetAutosaveBackoff,
         selectedApp,
@@ -408,7 +457,7 @@ export const useConnectorConfigForm = (payload: {
 
     React.useEffect(() => {
         if (!session || !selectedApp) return;
-        if (loading || saving || secretBusy || generateLinksBusy || generateDescriptionBusy) return;
+        if (loading || saving || secretBusy || generateLinksBusy || generateDescriptionBusy || publishWebpageBusy) return;
 
         const normalizedVars = normalizeVariables(variables);
         const currentHash = hashVariables(normalizedVars);
@@ -444,6 +493,7 @@ export const useConnectorConfigForm = (payload: {
         clearAutosaveTimer,
         generateLinksBusy,
         generateDescriptionBusy,
+        publishWebpageBusy,
         loading,
         savePatch,
         saving,
@@ -779,6 +829,111 @@ export const useConnectorConfigForm = (payload: {
         []
     );
 
+    const publishAppstoreReviewPublicPage = React.useCallback(async () => {
+        if (!session || !selectedApp) return null;
+        const requestContext = getRequestContext();
+        if (!isCurrentRequestContext(requestContext)) return null;
+
+        setPublishWebpageBusy(true);
+        setError(null);
+        try {
+            const normalizedVars = normalizeVariables(variablesRef.current);
+            const appStoreName = String(normalizedVars?.appstore_name || '').trim();
+            const description = String(normalizedVars?.appstore_description || '').trim();
+            const privacyPolicyUrl = String(normalizedVars?.privacy_policy_url || '').trim();
+            const termsOfUseUrl = String(normalizedVars?.terms_of_use_url || '').trim();
+            const supportFormUrl = String(normalizedVars?.support_form_url || '').trim();
+
+            if (!appStoreName) {
+                throw new Error("Fill App's App Store name first.");
+            }
+            if (!description) {
+                throw new Error('Generate or enter the App Store description first.');
+            }
+            if (!isUsableLegalUrl(privacyPolicyUrl)) {
+                throw new Error('Generate or enter the Privacy Policy link first.');
+            }
+            if (!isUsableLegalUrl(termsOfUseUrl)) {
+                throw new Error('Generate or enter the Terms of Use link first.');
+            }
+            if (!isUsableLegalUrl(supportFormUrl)) {
+                throw new Error('Generate or enter the Support link first.');
+            }
+
+            const currentHash = hashVariables(normalizedVars);
+            if (currentHash !== lastSavedVariablesHashRef.current) {
+                const flushed = await savePatch(
+                    { variables: normalizedVars },
+                    { source: 'flush', reportError: false }
+                );
+                if (!flushed) {
+                    throw new Error('Failed to save setup data before publishing the webpage.');
+                }
+            }
+
+            const ensured = await ensureAppstoreReviewWebhook({
+                userId: session.user.id,
+                appId: selectedApp.id,
+            });
+            if (ensured.error) throw ensured.error;
+
+            let publicSubdomain =
+                String((ensured.data as any)?.public_subdomain || '').trim() ||
+                extractManagedAppstoreReviewPublicSubdomain((ensured.data as any)?.public_webhook_url);
+            if (!publicSubdomain) {
+                const claimed = await claimAppstoreReviewWebhookPublicSubdomain({ appId: selectedApp.id });
+                if (claimed.error) throw claimed.error;
+                publicSubdomain = String(claimed.data || '').trim();
+            }
+            if (!publicSubdomain) {
+                throw new Error('Could not allocate a public subdomain for this app.');
+            }
+
+            const publicWebpageUrl = buildManagedAppstoreReviewPublicPageUrl({
+                publicSubdomain,
+            });
+            if (!publicWebpageUrl) {
+                throw new Error('appshelp.cc root domain is not configured in this environment.');
+            }
+
+            const publishedAt = new Date().toISOString();
+            const updated = await updateAppstoreReviewWebhook({
+                userId: session.user.id,
+                appId: selectedApp.id,
+                patch: {
+                    public_page_published_at: publishedAt,
+                    public_subdomain: publicSubdomain,
+                },
+            });
+            if (updated.error) throw updated.error;
+
+            if (!isCurrentRequestContext(requestContext)) return null;
+            applyWebhookPageState((updated.data as any) || null);
+            return {
+                publicWebpageUrl,
+                publishedAt,
+            };
+        } catch (e: any) {
+            if (!isCurrentRequestContext(requestContext)) return null;
+            const msg = String(e?.message || e);
+            setError(msg);
+            reportError?.(msg);
+            return null;
+        } finally {
+            if (isCurrentRequestContext(requestContext)) {
+                setPublishWebpageBusy(false);
+            }
+        }
+    }, [
+        applyWebhookPageState,
+        getRequestContext,
+        isCurrentRequestContext,
+        reportError,
+        savePatch,
+        selectedApp,
+        session,
+    ]);
+
     const upsertSecret = React.useCallback(
         async (key: string, value: string) => {
             if (!session || !selectedApp) return;
@@ -849,6 +1004,7 @@ export const useConnectorConfigForm = (payload: {
         secretBusy,
         generateLinksBusy,
         generateDescriptionBusy,
+        publishWebpageBusy,
         error,
         projectBrief,
         setProjectBrief,
@@ -867,6 +1023,9 @@ export const useConnectorConfigForm = (payload: {
         regenerateAppstoreDescription,
         generateLegalLinks,
         cancelPendingLegalLinksGeneration,
+        publicWebpageUrl,
+        publicPagePublishedAt,
+        publishAppstoreReviewPublicPage,
         upsertSecret,
         removeSecret,
     };

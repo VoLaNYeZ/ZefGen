@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "appstore-review-bridge",
+  "main": "worker.js",
+  "compatibility_date": "2026-03-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "*.appshelp.cc/*",
+      "zone_name": "appshelp.cc"
+    }
+  ],
+  "vars": {
+    "PUBLIC_ROOT_DOMAIN": "appshelp.cc",
+    "SUPABASE_URL": "https://onzswbbqaikkjpmvzplb.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9uenN3YmJxYWlra2pwbXZ6cGxiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3Mzg3NTgsImV4cCI6MjA4NTMxNDc1OH0.tfF3HiY7sqTCQKk6uNggGZKmrwxpC_oM5THiFia20O4",
+    "INTERNAL_WEBHOOK_BASE_URL": "https://onzswbbqaikkjpmvzplb.supabase.co/functions/v1/appstore-review-webhook"
+  }
+}

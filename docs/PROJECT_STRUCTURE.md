@@ -60,6 +60,7 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command), read-only aware.
 - `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries), read-only aware.
+- `components/app/AppStoreReviewWebhookRow.tsx` - Manual App Store Connect review-webhook setup row (listener URL + shared secret + recent delivery timeline), read-only aware.
 - `components/app/ConnectorClientSpecPanel.tsx` - Step 2 idea picker (category + idea dropdowns) + client spec editor.
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
@@ -253,6 +254,18 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Adds `public.apps.appstore_url`.
 - UI: `components/app/AppStoreLinkRow.tsx` (shown in workspace when an app is selected).
 - Utilities: `utils/appstore.ts` for canonicalization and geo-friendly URL helpers.
+
+## App Store Review Webhooks
+- Migration: `supabase/migrations/2026-03-07_appstore_review_webhooks.sql`
+  - Adds `public.appstore_review_webhooks` (one listener config per app).
+  - Adds `public.appstore_review_events` (append-only delivery timeline per app).
+- UI: `components/app/AppStoreReviewWebhookRow.tsx` (rendered below the App Store URL row in the workspace).
+- Data layer: `data/appstore-review-webhooks.ts`.
+- Utility: `utils/appstore-review-webhook.ts` (public listener URL builder + local token/secret rotation helpers).
+- Receiver: `supabase/functions/appstore-review-webhook/index.ts` (public Apple-facing endpoint; deploy with `--no-verify-jwt`).
+- Public URL behavior:
+  - Defaults to the direct Supabase Edge Function URL built from `VITE_SUPABASE_URL`.
+  - Optional override via `VITE_APPSTORE_REVIEW_WEBHOOK_BASE_URL` for a custom public domain/proxy in front of the same receiver.
 
 ## Alias Uniqueness & Allocation
 - DB contract:

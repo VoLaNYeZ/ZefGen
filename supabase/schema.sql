@@ -82,6 +82,67 @@ create unique index if not exists appstore_accounts_app_id_unique
 create index if not exists appstore_accounts_user_id_idx on public.appstore_accounts (user_id);
 create index if not exists appstore_accounts_user_geo_idx on public.appstore_accounts (user_id, geo);
 
+-- App-level App Store review webhook configuration + listener credentials. (2026-03-07)
+create table if not exists public.appstore_review_webhooks (
+    app_id uuid primary key references public.apps(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    public_token text not null default encode(gen_random_bytes(16), 'hex'),
+    secret text not null default encode(gen_random_bytes(24), 'hex'),
+    public_subdomain text,
+    public_page_published_at timestamptz,
+    key_mode text check (key_mode in ('team', 'individual')),
+    key_id text,
+    issuer_id text,
+    public_webhook_url text,
+    asc_app_id text,
+    asc_app_name text,
+    asc_bundle_id text,
+    apple_webhook_id text,
+    latest_event_type text,
+    latest_review_state text,
+    latest_previous_state text,
+    latest_event_at timestamptz,
+    last_delivery_at timestamptz,
+    last_delivery_status text not null default 'idle'
+        check (last_delivery_status in ('idle', 'received', 'ignored', 'invalid_signature', 'error')),
+    last_error text,
+    last_sync_at timestamptz,
+    last_sync_status text not null default 'idle'
+        check (last_sync_status in ('idle', 'connected', 'error')),
+    last_sync_error text,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create unique index if not exists appstore_review_webhooks_public_token_key
+    on public.appstore_review_webhooks (public_token);
+create unique index if not exists appstore_review_webhooks_public_subdomain_key
+    on public.appstore_review_webhooks (public_subdomain)
+    where public_subdomain is not null;
+create index if not exists appstore_review_webhooks_user_id_idx
+    on public.appstore_review_webhooks (user_id);
+
+-- Append-only App Store review webhook deliveries for per-app history. (2026-03-07)
+create table if not exists public.appstore_review_events (
+    id uuid primary key default gen_random_uuid(),
+    app_id uuid not null references public.apps(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    event_type text not null default '',
+    payload_type text not null default '',
+    state_from text,
+    state_to text,
+    event_at timestamptz not null default now(),
+    delivery_status text not null default 'received'
+        check (delivery_status in ('received', 'ignored', 'error')),
+    raw_payload jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists appstore_review_events_user_app_event_idx
+    on public.appstore_review_events (user_id, app_id, event_at desc);
+create index if not exists appstore_review_events_app_created_idx
+    on public.appstore_review_events (app_id, created_at desc);
+
 -- Fixed Apple non-game category dictionary for Ideas workflow. (2026-02-22)
 create table if not exists public.app_idea_categories (
     id uuid primary key default gen_random_uuid(),
@@ -223,6 +284,8 @@ create index if not exists app_export_status_brand_id_idx on public.app_export_s
 alter table public.brands enable row level security;
 alter table public.apps enable row level security;
 alter table public.appstore_accounts enable row level security;
+alter table public.appstore_review_webhooks enable row level security;
+alter table public.appstore_review_events enable row level security;
 alter table public.app_idea_categories enable row level security;
 alter table public.app_ideas enable row level security;
 alter table public.brand_references enable row level security;
@@ -259,6 +322,18 @@ create policy "appstore_accounts_update_own" on public.appstore_accounts
     for update using (auth.uid() = user_id);
 create policy "appstore_accounts_delete_own" on public.appstore_accounts
     for delete using (auth.uid() = user_id);
+
+create policy "appstore_review_webhooks_select_own" on public.appstore_review_webhooks
+    for select using (auth.uid() = user_id);
+create policy "appstore_review_webhooks_insert_own" on public.appstore_review_webhooks
+    for insert with check (auth.uid() = user_id);
+create policy "appstore_review_webhooks_update_own" on public.appstore_review_webhooks
+    for update using (auth.uid() = user_id);
+create policy "appstore_review_webhooks_delete_own" on public.appstore_review_webhooks
+    for delete using (auth.uid() = user_id);
+
+create policy "appstore_review_events_select_own" on public.appstore_review_events
+    for select using (auth.uid() = user_id);
 
 create policy "app_idea_categories_select_authenticated" on public.app_idea_categories
     for select using (true);
@@ -822,6 +897,173 @@ grant execute on function public.connector_commit_legal_links_success(
     uuid, uuid, text, text, text, text, text, text, text, text, text, text, jsonb, text, boolean, timestamptz
 ) to service_role;
 
+create or replace function public.appstore_review_webhook_claim_subdomain(
+    p_app_id uuid,
+    p_requested text default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_user_id uuid := auth.uid();
+    v_webhook public.appstore_review_webhooks;
+    v_appstore_name text := '';
+    v_base text := '';
+    v_candidate text := '';
+    v_suffix integer := 2;
+    v_requested text := nullif(trim(coalesce(p_requested, '')), '');
+    v_existing_host text := '';
+    v_existing_root text := '.appshelp.cc';
+begin
+    if v_user_id is null then
+        raise exception 'Authentication required.';
+    end if;
+
+    insert into public.appstore_review_webhooks (app_id, user_id)
+    values (p_app_id, v_user_id)
+    on conflict (app_id) do nothing;
+
+    select *
+    into v_webhook
+    from public.appstore_review_webhooks
+    where app_id = p_app_id
+      and user_id = v_user_id
+    for update;
+
+    if not found then
+        raise exception 'Webhook row not found for app.';
+    end if;
+
+    if v_requested is null and nullif(trim(coalesce(v_webhook.public_subdomain, '')), '') is not null then
+        return trim(v_webhook.public_subdomain);
+    end if;
+
+    select
+        coalesce(cfg.variables->>'appstore_name', '')
+    into
+        v_appstore_name
+    from public.apps a
+    left join public.connector_app_configs cfg on cfg.app_id = a.id
+    where a.id = p_app_id
+      and a.user_id = v_user_id;
+
+    if v_requested is null and nullif(trim(coalesce(v_webhook.public_webhook_url, '')), '') is not null then
+        v_existing_host := lower(regexp_replace(split_part(split_part(v_webhook.public_webhook_url, '://', 2), '/', 1), ':\d+$', ''));
+        if right(v_existing_host, length(v_existing_root)) = v_existing_root then
+            v_requested := nullif(trim(left(v_existing_host, length(v_existing_host) - length(v_existing_root))), '');
+        end if;
+    end if;
+
+    if v_requested is null and nullif(trim(v_appstore_name), '') is null then
+        raise exception 'Fill App''s App Store name first.';
+    end if;
+
+    v_base := lower(coalesce(v_requested, nullif(trim(v_appstore_name), '')));
+    v_base := regexp_replace(v_base, '[^a-z0-9]+', '-', 'g');
+    v_base := regexp_replace(v_base, '-{2,}', '-', 'g');
+    v_base := regexp_replace(v_base, '(^-+|-+$)', '', 'g');
+    if v_base = '' then
+        v_base := 'app';
+    end if;
+    v_base := left(v_base, 63);
+    v_base := regexp_replace(v_base, '-+$', '', 'g');
+    if v_base = '' then
+        v_base := 'app';
+    end if;
+
+    v_candidate := v_base;
+    loop
+        exit when not exists (
+            select 1
+            from public.appstore_review_webhooks other
+            where other.public_subdomain = v_candidate
+              and other.app_id <> p_app_id
+        );
+        v_candidate := left(v_base, greatest(1, 63 - length(v_suffix::text) - 1));
+        v_candidate := regexp_replace(v_candidate, '-+$', '', 'g');
+        if v_candidate = '' then
+            v_candidate := 'app';
+        end if;
+        v_candidate := v_candidate || '-' || v_suffix::text;
+        v_suffix := v_suffix + 1;
+    end loop;
+
+    update public.appstore_review_webhooks
+    set
+        public_subdomain = v_candidate,
+        updated_at = now()
+    where app_id = p_app_id
+      and user_id = v_user_id;
+
+    return v_candidate;
+end;
+$$;
+
+revoke all on function public.appstore_review_webhook_claim_subdomain(uuid, text) from public;
+grant execute on function public.appstore_review_webhook_claim_subdomain(uuid, text) to authenticated;
+
+create or replace function public.appstore_review_webhook_public_surface(
+    p_subdomain text
+)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+    with candidate as (
+        select
+            w.app_id,
+            w.public_subdomain,
+            w.public_page_published_at,
+            a.name as app_name,
+            coalesce(nullif(cfg.variables->>'appstore_name', ''), a.name) as title,
+            nullif(cfg.variables->>'appstore_description', '') as description,
+            nullif(a.appstore_url, '') as appstore_url,
+            nullif(cfg.variables->>'privacy_policy_url', '') as privacy_policy_url,
+            nullif(cfg.variables->>'terms_of_use_url', '') as terms_of_use_url,
+            nullif(cfg.variables->>'support_form_url', '') as support_form_url,
+            (
+                select aga.image_path
+                from public.app_asset_picks pick
+                join public.app_generated_assets aga on aga.id = pick.generated_asset_id
+                where pick.app_id = w.app_id
+                  and pick.kind = 'icon'
+                order by pick.created_at desc
+                limit 1
+            ) as icon_image_path
+        from public.appstore_review_webhooks w
+        join public.apps a on a.id = w.app_id
+        left join public.connector_app_configs cfg on cfg.app_id = w.app_id
+        where w.public_subdomain = nullif(trim(p_subdomain), '')
+        limit 1
+    )
+    select
+        case
+            when exists(select 1 from candidate) then (
+                select jsonb_build_object(
+                    'app_id', candidate.app_id,
+                    'public_subdomain', candidate.public_subdomain,
+                    'public_page_published_at', candidate.public_page_published_at,
+                    'app_name', candidate.app_name,
+                    'title', candidate.title,
+                    'description', candidate.description,
+                    'appstore_url', candidate.appstore_url,
+                    'privacy_policy_url', candidate.privacy_policy_url,
+                    'terms_of_use_url', candidate.terms_of_use_url,
+                    'support_form_url', candidate.support_form_url,
+                    'icon_image_path', candidate.icon_image_path
+                )
+                from candidate
+            )
+            else null
+        end;
+$$;
+
+revoke all on function public.appstore_review_webhook_public_surface(text) from public;
+grant execute on function public.appstore_review_webhook_public_surface(text) to service_role;
+
 -- Added workspace session presence + per-brand lock state for shared-account collaboration. (2026-02-18)
 create table if not exists public.workspace_sessions (
     id uuid primary key default gen_random_uuid(),
@@ -1178,6 +1420,8 @@ grant select, insert, update, delete on public.connector_jobs to authenticated;
 grant select, insert, update, delete on public.connector_job_messages to authenticated;
 grant select on public.connector_job_artifacts to authenticated;
 grant select, insert, update, delete on public.appstore_accounts to authenticated;
+grant select, insert, update, delete on public.appstore_review_webhooks to authenticated;
+grant select on public.appstore_review_events to authenticated;
 grant select on public.app_idea_categories to authenticated;
 grant select, insert, update, delete on public.app_ideas to authenticated;
 grant select, insert, update, delete on public.workspace_sessions to authenticated;

@@ -51,6 +51,7 @@ import { ConnectorVariablesSecretsPanel } from './ConnectorVariablesSecretsPanel
 import { IntegrationModulePanel } from './IntegrationModulePanel';
 import { AutoReleaseModulePanel } from './AutoReleaseModulePanel';
 import { AppStoreLinkRow } from './AppStoreLinkRow';
+import { AppStoreReviewWebhookRow } from './AppStoreReviewWebhookRow';
 import { StepBlock } from './StepBlock';
 import { AccountsPage } from './AccountsPage';
 import { IdeasPage } from './IdeasPage';
@@ -2288,6 +2289,15 @@ export function AppShell({ session }: AppShellProps) {
                                                                         reportError={reportActionError}
                                                                         isReadOnly={isCurrentBrandReadOnly}
                                                                     />
+                                                                    <div className="mt-4">
+                                                                        <AppStoreReviewWebhookRow
+                                                                            selectedApp={selectedApp}
+                                                                            session={session}
+                                                                            text={text}
+                                                                            reportError={reportActionError}
+                                                                            isReadOnly={isCurrentBrandReadOnly}
+                                                                        />
+                                                                    </div>
                                                                     <div className="my-4 h-px bg-indigo-900/30" aria-hidden="true" />
                                                                 </>
                                                             ) : null}
