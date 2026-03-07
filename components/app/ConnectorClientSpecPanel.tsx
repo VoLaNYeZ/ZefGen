@@ -150,7 +150,6 @@ export function ConnectorClientSpecPanel(props: {
         const nextVariables = { ...(connectorForm.variables || {}) } as Record<string, any>;
         if (ideaTitle) {
             nextVariables.appstore_name = ideaTitle;
-            nextVariables.app_new_name = ideaTitle;
             nextVariables.home_screen_name = deriveHomeScreenName(ideaTitle);
             connectorForm.setVariables(nextVariables);
         }

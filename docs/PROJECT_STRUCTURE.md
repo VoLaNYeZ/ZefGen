@@ -65,7 +65,7 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
 - `components/app/IdeasPage.tsx` - Ideas pool UI (`/ideas`): category + description rows with per-row save/delete.
 - `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5), read-only aware.
-- `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6).
+- `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6), with optional IAP surfaced as non-blocking.
 - `components/app/AutoReleaseModulePanel.tsx` - Auto-release / Fastlane placeholder (Step 7).
 - `components/app/MatrixTerminal.tsx` - Matrix-themed terminal frame used by the Runner messages panel.
 - `components/app/MatrixRain.tsx` - Canvas-based Matrix "code rain" idle animation (Runner).
@@ -95,18 +95,19 @@ No Brand nuance:
 
 The sticky Deliverables rail is anchored to Steps 8–10 only.
 
-## Integration Step (Badges → Setup Data Mapping)
-The Integration step (Step 6) is a checklist driven by the values stored in Setup data (Step 3). Badges turn green once the corresponding field is filled.
+## Integration Step (Readiness + Action)
+The Integration step (Step 6) is an action station driven by the values stored in Setup data (Step 3). It shows readiness badges, an editable `base_branch`, the latest integration status, and queues the `Integration` job only when required data is present.
 
-- Apphud API key → Setup data: Secrets key `APPHUD_API_KEY`
-- IAP Product ID → Setup data: Variables `id_purchases`
-- Analytics URL → Setup data: Variables `domain` (re-labeled in UI; treated as `ANALYTICS_URL` by future integrations)
+- Apphud Key → Setup data: Variables `apphud_api_key`
+- IAP Product ID (optional) → Setup data: Variables `id_purchases`
+- Analytics URL → Setup data: Variables `domain` (the worker adapts to the CRM key directly)
 - Bundle ID → Setup data: Variables `bundle_id`
 - Privacy Policy URL → Setup data: Variables `privacy_policy_url`
 - Terms of Use URL → Setup data: Variables `terms_of_use_url`
 - Support form URL → Setup data: Variables `support_form_url`
 - Firebase plist snippet → Setup data: Variables `firebase_plist_snippet`
 - Company name → Setup data: read-only and sourced from the app’s assigned usable account (`appstore_accounts.company_name`)
+- `base_branch` defaults to `main`, is editable per app, and is used for all code-producing jobs. QA and Screenshots stay SHA-driven downstream.
 
 ## Auto-Release Step (Placeholder)
 Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and release automation.

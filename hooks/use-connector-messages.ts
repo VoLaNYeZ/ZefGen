@@ -14,24 +14,39 @@ export const useConnectorJobMessages = (payload: {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<number | null>(null);
+    const messagesSignatureRef = useRef('');
 
-    const refresh = useCallback(async () => {
+    const runRefresh = useCallback(async (background = false) => {
         if (!session || !jobId) return;
-        setLoading(true);
-        setError(null);
+        if (!background) {
+            setLoading(true);
+            setError(null);
+        }
         try {
             const { data, error: e } = await fetchConnectorJobMessages({
                 userId: session.user.id,
                 jobId,
             });
             if (e) throw e;
-            setMessages(data || []);
+            const nextMessages = data || [];
+            const nextSignature = nextMessages
+                .map((message) => `${String(message?.id || '')}:${String(message?.created_at || '')}`)
+                .join('|');
+            if (messagesSignatureRef.current !== nextSignature) {
+                messagesSignatureRef.current = nextSignature;
+                setMessages(nextMessages);
+            }
+            if (background) setError(null);
         } catch (e: any) {
             setError(String(e?.message || e));
         } finally {
-            setLoading(false);
+            if (!background) setLoading(false);
         }
     }, [session, jobId]);
+
+    const refresh = useCallback(async () => {
+        await runRefresh(false);
+    }, [runRefresh]);
 
     useEffect(() => {
         if (timerRef.current) window.clearInterval(timerRef.current);
@@ -39,16 +54,23 @@ export const useConnectorJobMessages = (payload: {
 
         if (!session || !jobId) {
             setMessages([]);
+            setLoading(false);
+            setError(null);
+            messagesSignatureRef.current = '';
             return;
         }
 
-        refresh();
-        timerRef.current = window.setInterval(refresh, pollMs);
+        setMessages([]);
+        setError(null);
+        messagesSignatureRef.current = '';
+
+        void runRefresh(false);
+        timerRef.current = window.setInterval(() => void runRefresh(true), pollMs);
         return () => {
             if (timerRef.current) window.clearInterval(timerRef.current);
             timerRef.current = null;
         };
-    }, [session?.user?.id, jobId, pollMs, refresh]);
+    }, [session?.user?.id, jobId, pollMs, runRefresh]);
 
     const questions = useMemo(
         () => messages.filter((m) => m.kind === 'question'),
@@ -90,4 +112,3 @@ export const useConnectorJobMessages = (payload: {
         answerQuestion,
     };
 };
-

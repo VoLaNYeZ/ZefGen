@@ -508,6 +508,7 @@ create table if not exists public.connector_app_configs (
     project_kind text not null default 'ios' check (project_kind in ('ios', 'web', 'other')),
     project_brief text not null default '',
     idea_id uuid references public.app_ideas(id) on delete set null,
+    base_branch text not null default 'main',
     variables jsonb not null default '{}'::jsonb,
     verify_command text,
     updated_at timestamptz not null default now(),
@@ -599,13 +600,14 @@ create table if not exists public.connector_jobs (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
     app_id uuid not null references public.apps(id) on delete cascade,
-    kind text not null check (kind in ('generate', 'fix')),
+    kind text not null check (kind in ('generate', 'fix', 'integration', 'visual_qa', 'screenshots')),
     status text not null default 'queued' check (status in ('queued', 'running', 'waiting_for_user', 'succeeded', 'failed', 'canceled')),
     requested_by text,
     input jsonb not null default '{}'::jsonb,
     repo_full_name text not null,
     base_branch text not null default 'main',
     work_branch text,
+    result_commit_sha text,
     pr_url text,
     pr_number integer,
     verify_status text check (verify_status in ('pass', 'fail', 'skipped')),
@@ -658,6 +660,33 @@ create policy "connector_job_messages_select_own" on public.connector_job_messag
     for select using (auth.uid() = user_id);
 create policy "connector_job_messages_insert_own" on public.connector_job_messages
     for insert with check (auth.uid() = user_id);
+
+create table if not exists public.connector_job_artifacts (
+    id uuid primary key default gen_random_uuid(),
+    job_id uuid not null references public.connector_jobs(id) on delete cascade,
+    app_id uuid not null references public.apps(id) on delete cascade,
+    kind text not null check (kind in ('qa_report', 'qa_evidence', 'screenshot_manifest', 'screenshot_image')),
+    bucket text not null,
+    object_path text not null,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists connector_job_artifacts_job_id_created_at_idx on public.connector_job_artifacts (job_id, created_at desc);
+create index if not exists connector_job_artifacts_app_id_created_at_idx on public.connector_job_artifacts (app_id, created_at desc);
+create index if not exists connector_job_artifacts_kind_created_at_idx on public.connector_job_artifacts (kind, created_at desc);
+
+alter table public.connector_job_artifacts enable row level security;
+
+create policy "connector_job_artifacts_select_own" on public.connector_job_artifacts
+    for select using (
+        exists (
+            select 1
+            from public.connector_jobs jobs
+            where jobs.id = connector_job_artifacts.job_id
+              and jobs.user_id = auth.uid()
+        )
+    );
 
 create or replace function public.connector_claim_next_job(p_runner_id text)
 returns public.connector_jobs
@@ -1147,6 +1176,7 @@ grant select, insert on public.connector_legal_links to authenticated;
 grant insert, update, delete on public.connector_app_secrets to authenticated;
 grant select, insert, update, delete on public.connector_jobs to authenticated;
 grant select, insert, update, delete on public.connector_job_messages to authenticated;
+grant select on public.connector_job_artifacts to authenticated;
 grant select, insert, update, delete on public.appstore_accounts to authenticated;
 grant select on public.app_idea_categories to authenticated;
 grant select, insert, update, delete on public.app_ideas to authenticated;

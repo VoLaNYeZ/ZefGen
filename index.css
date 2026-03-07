@@ -14,9 +14,177 @@
   user-select: none;
 }
 
-.logo-word {
-  display: inline-block;
-  letter-spacing: 0.04em;
+.sidebar-logo-chip {
+  background:
+    radial-gradient(130px 110px at 66px 50%, rgba(251, 146, 60, 0.12), transparent 72%),
+    radial-gradient(180px 120px at 88% 36%, rgba(96, 165, 250, 0.07), transparent 78%),
+    linear-gradient(135deg, rgba(7, 18, 42, 0.98), rgba(4, 10, 24, 0.98) 58%, rgba(6, 14, 30, 0.96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.03),
+    0 18px 36px rgba(2, 6, 23, 0.34);
+}
+
+.sidebar-logo-mark-shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(33, 42, 70, 0.92), rgba(10, 15, 30, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(148, 163, 184, 0.06),
+    0 12px 24px rgba(0, 0, 0, 0.34);
+  cursor: pointer;
+  transition:
+    transform 220ms ease,
+    border-color 320ms ease,
+    background 320ms ease,
+    box-shadow 320ms ease;
+}
+
+.sidebar-logo-mark-shell:hover {
+  transform: scale(1.03);
+}
+
+.sidebar-logo-mark-shell:active {
+  transform: scale(0.98);
+}
+
+.sidebar-logo-mark-shell.is-amaterasu {
+  background: linear-gradient(180deg, rgba(52, 8, 12, 0.68), rgba(2, 2, 4, 0.99));
+  border-color: rgba(248, 113, 113, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 0 0 1px rgba(248, 113, 113, 0.06),
+    0 12px 24px rgba(0, 0, 0, 0.62),
+    0 0 22px rgba(185, 28, 28, 0.16);
+}
+
+.sidebar-logo-mark-shell::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(15, 23, 42, 0.22));
+  transition: background 320ms ease;
+}
+
+.sidebar-logo-mark-shell.is-amaterasu::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.64));
+}
+
+.sidebar-logo-mark-aura {
+  position: absolute;
+  inset: 9px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(253, 186, 116, 0.18) 0%, rgba(251, 146, 60, 0.09) 42%, transparent 78%);
+  filter: blur(8px);
+  opacity: 0.4;
+  pointer-events: none;
+  transition:
+    opacity 360ms ease,
+    transform 360ms ease,
+    background 360ms ease;
+}
+
+.sidebar-logo-mark-aura.is-amaterasu {
+  background: radial-gradient(circle, rgba(255, 86, 86, 0.5) 0%, rgba(185, 28, 28, 0.28) 32%, rgba(18, 0, 0, 0) 74%);
+  opacity: 0.82;
+  transform: scale(1.08);
+}
+
+.sidebar-logo-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 1;
+  transition:
+    opacity 320ms ease,
+    transform 320ms ease,
+    filter 320ms ease;
+}
+
+.sidebar-logo-image.is-hidden {
+  opacity: 0;
+  transform: scale(0.92);
+  filter: brightness(0.8) saturate(0.7);
+}
+
+.sidebar-logo-mask {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  -webkit-mask-image: url("/genlogo.png");
+  mask-image: url("/genlogo.png");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  transition:
+    opacity 420ms ease,
+    transform 420ms ease,
+    filter 420ms ease;
+}
+
+.sidebar-logo-mask-shadow {
+  background: rgba(0, 0, 0, 0.96);
+  filter: blur(7px);
+  transform: translateY(1px) scale(1.08);
+}
+
+.sidebar-logo-mask-shadow.is-amaterasu {
+  opacity: 0.72;
+}
+
+.sidebar-logo-mask-base {
+  background:
+    radial-gradient(circle at 52% 30%, rgba(56, 14, 16, 0.92) 0%, rgba(20, 20, 24, 0.98) 34%, rgba(5, 5, 8, 1) 72%),
+    linear-gradient(180deg, rgba(10, 10, 12, 1), rgba(2, 2, 4, 1));
+  filter:
+    drop-shadow(0 0 1px rgba(255, 255, 255, 0.04))
+    drop-shadow(0 8px 14px rgba(0, 0, 0, 0.66));
+  transform: scale(1.02);
+}
+
+.sidebar-logo-mask-base.is-amaterasu {
+  opacity: 1;
+}
+
+.sidebar-logo-mask-ember {
+  background:
+    radial-gradient(circle at 44% 28%, rgba(255, 86, 86, 0.98) 0%, rgba(226, 12, 12, 0.88) 16%, rgba(97, 0, 0, 0.26) 38%, transparent 58%),
+    radial-gradient(circle at 58% 46%, rgba(220, 20, 20, 0.64) 0%, transparent 24%),
+    radial-gradient(circle at 35% 67%, rgba(164, 0, 0, 0.34) 0%, transparent 24%);
+  mix-blend-mode: screen;
+  filter:
+    blur(0.8px)
+    drop-shadow(0 0 5px rgba(255, 58, 58, 0.58))
+    drop-shadow(0 0 12px rgba(185, 0, 0, 0.4));
+  transform: scale(1.02);
+}
+
+.sidebar-logo-mask-ember.is-amaterasu {
+  opacity: 0.88;
+}
+
+.sidebar-logo-mask-hotspot {
+  background: radial-gradient(circle at 44% 28%, rgba(255, 220, 220, 0.94) 0%, rgba(255, 107, 107, 0.94) 9%, rgba(255, 0, 0, 0.16) 23%, transparent 31%);
+  mix-blend-mode: screen;
+  filter:
+    blur(0.35px)
+    drop-shadow(0 0 5px rgba(255, 120, 120, 0.7));
+  transform: scale(0.98);
+}
+
+.sidebar-logo-mask-hotspot.is-amaterasu {
+  opacity: 0.82;
 }
 
 .app-folder-layer {

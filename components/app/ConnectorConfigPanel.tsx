@@ -5,17 +5,38 @@ import type { AppItem } from '../../types/zefgen';
 import { fetchConnectorAppConfig, upsertConnectorAppConfig } from '../../data/connector-app-config';
 import { deleteConnectorSecret, fetchConnectorSecretMetas, upsertConnectorSecret } from '../../data/connector-secrets';
 
+const APPHUD_VARIABLE_KEY = 'apphud_api_key';
+const LEGACY_APPHUD_VARIABLE_KEY = 'apphud_api_url';
+const WIDE_VARIABLE_KEYS = new Set(['appstore_description']);
+const OPTIONAL_VARIABLE_KEYS = new Set(['id_purchases']);
+
 const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder?: string }> = [
     { key: 'bundle_id', label: 'connector_bundle_id', placeholder: 'com.example.app' },
     { key: 'company_name', label: 'connector_company_name' },
-    { key: 'id_purchases', label: 'connector_id_purchases' },
-    { key: 'apphud_api_url', label: 'connector_apphud_api_url', placeholder: 'https://api.apphud.com/...' },
+    { key: 'apphud_api_key', label: 'connector_apphud_api_key', placeholder: 'apphud_key_live_xxxxx' },
     { key: 'privacy_policy_url', label: 'connector_privacy_policy_url', placeholder: 'https://...' },
     { key: 'terms_of_use_url', label: 'connector_terms_of_use_url', placeholder: 'https://...' },
     { key: 'support_form_url', label: 'connector_support_form_url', placeholder: 'https://...' },
     { key: 'domain', label: 'connector_domain', placeholder: 'example.com' },
     { key: 'appstore_description', label: 'connector_appstore_description' },
+    { key: 'id_purchases', label: 'connector_id_purchases' },
 ];
+
+const normalizeVariables = (raw: Record<string, any> | null | undefined) => {
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(raw || {})) {
+        if (key === APPHUD_VARIABLE_KEY || key === LEGACY_APPHUD_VARIABLE_KEY) continue;
+        out[key] = value;
+    }
+    const source = raw || {};
+    if (
+        Object.prototype.hasOwnProperty.call(source, APPHUD_VARIABLE_KEY) ||
+        Object.prototype.hasOwnProperty.call(source, LEGACY_APPHUD_VARIABLE_KEY)
+    ) {
+        out[APPHUD_VARIABLE_KEY] = source[APPHUD_VARIABLE_KEY] ?? source[LEGACY_APPHUD_VARIABLE_KEY] ?? '';
+    }
+    return out;
+};
 
 export function ConnectorConfigPanel(props: {
     session: Session | null;
@@ -50,7 +71,7 @@ export function ConnectorConfigPanel(props: {
             if (cfg.data) {
                 setProjectKind((cfg.data as any).project_kind || 'ios');
                 setProjectBrief((cfg.data as any).project_brief || '');
-                setVariables((cfg.data as any).variables || {});
+                setVariables(normalizeVariables((cfg.data as any).variables || {}));
             } else {
                 // First use: create a default row (keeps UI consistent).
                 const created = await upsertConnectorAppConfig({
@@ -66,7 +87,7 @@ export function ConnectorConfigPanel(props: {
                 if (created.error) throw created.error;
                 setProjectKind((created.data as any)?.project_kind || 'ios');
                 setProjectBrief((created.data as any)?.project_brief || '');
-                setVariables((created.data as any)?.variables || {});
+                setVariables(normalizeVariables((created.data as any)?.variables || {}));
             }
 
             const secrets = await fetchConnectorSecretMetas({ userId: session.user.id, appId: selectedApp.id });
@@ -96,7 +117,7 @@ export function ConnectorConfigPanel(props: {
                 patch: {
                     project_kind: projectKind,
                     project_brief: projectBrief,
-                    variables,
+                    variables: normalizeVariables(variables),
                 } as any,
             });
             if (resp.error) throw resp.error;
@@ -110,7 +131,7 @@ export function ConnectorConfigPanel(props: {
     };
 
     const setVariable = (k: string, v: any) => {
-        setVariables((prev) => ({ ...prev, [k]: v }));
+        setVariables((prev) => normalizeVariables({ ...prev, [k]: v }));
     };
 
     const upsertSecret = async () => {
@@ -222,25 +243,40 @@ export function ConnectorConfigPanel(props: {
                 <div className="rounded-2xl border border-white/10 bg-slate-900/25 p-4">
                     <div className="text-xs font-semibold text-indigo-100">{text('connector_variables')}</div>
                     <div className="mt-3 grid gap-2">
-                        {DEFAULT_VARIABLES.map((f) => (
+                        {DEFAULT_VARIABLES.filter((f) => !WIDE_VARIABLE_KEYS.has(f.key)).map((f) => (
+                            <label key={f.key} className="grid gap-1">
+                                <div className={`${OPTIONAL_VARIABLE_KEYS.has(f.key) ? 'text-[11px] text-indigo-200/55' : 'text-[11px] text-indigo-200/60'}`}>
+                                    {text(f.label)}
+                                </div>
+                                <input
+                                    value={String(variables?.[f.key] ?? '')}
+                                    onChange={(e) => setVariable(f.key, e.target.value)}
+                                    className={`w-full rounded-full px-4 py-2 text-xs outline-none placeholder:text-indigo-200/30 ${
+                                        OPTIONAL_VARIABLE_KEYS.has(f.key)
+                                            ? 'border border-white/8 bg-slate-950/16 text-indigo-100/78 placeholder:italic placeholder:text-indigo-200/28 focus:border-indigo-300/24'
+                                            : 'border border-white/10 bg-slate-950/20 text-indigo-100/90 focus:border-indigo-400/40'
+                                    }`}
+                                    placeholder={
+                                        OPTIONAL_VARIABLE_KEYS.has(f.key)
+                                            ? text('optional')
+                                            : f.placeholder
+                                              ? String(f.placeholder)
+                                              : undefined
+                                    }
+                                />
+                            </label>
+                        ))}
+
+                        {DEFAULT_VARIABLES.filter((f) => WIDE_VARIABLE_KEYS.has(f.key)).map((f) => (
                             <label key={f.key} className="grid gap-1">
                                 <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
-                                {f.key === 'appstore_description' ? (
-                                    <textarea
-                                        value={String(variables?.[f.key] ?? '')}
-                                        onChange={(e) => setVariable(f.key, e.target.value)}
-                                        rows={3}
-                                        className="w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
-                                        placeholder={f.placeholder ? String(f.placeholder) : undefined}
-                                    />
-                                ) : (
-                                    <input
-                                        value={String(variables?.[f.key] ?? '')}
-                                        onChange={(e) => setVariable(f.key, e.target.value)}
-                                        className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
-                                        placeholder={f.placeholder ? String(f.placeholder) : undefined}
-                                    />
-                                )}
+                                <textarea
+                                    value={String(variables?.[f.key] ?? '')}
+                                    onChange={(e) => setVariable(f.key, e.target.value)}
+                                    rows={3}
+                                    className="w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40"
+                                    placeholder={f.placeholder ? String(f.placeholder) : undefined}
+                                />
                             </label>
                         ))}
                     </div>

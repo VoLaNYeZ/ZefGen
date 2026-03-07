@@ -17,9 +17,12 @@ import type { GenerationJobKind } from './use-generation-jobs';
 
 const APP_NAME_MAX_LENGTH = 30;
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
+const APPHUD_VARIABLE_KEY = 'apphud_api_key';
+const LEGACY_APPHUD_VARIABLE_KEY = 'apphud_api_url';
 const AUTOSAVE_BASE_DELAY_MS = 900;
 const AUTOSAVE_BACKOFF_BASE_MS = 1_000;
 const AUTOSAVE_BACKOFF_MAX_MS = 30_000;
+const DEFAULT_BASE_BRANCH = 'main';
 
 const clampVariableValue = (key: string, value: any) => {
     if (!APP_NAME_VARIABLE_KEYS.has(String(key || ''))) return value;
@@ -30,7 +33,18 @@ const clampVariableValue = (key: string, value: any) => {
 const normalizeVariables = (raw: Record<string, any> | null | undefined): Record<string, any> => {
     const out: Record<string, any> = {};
     for (const [key, value] of Object.entries(raw || {})) {
+        if (key === APPHUD_VARIABLE_KEY || key === LEGACY_APPHUD_VARIABLE_KEY) continue;
         out[key] = clampVariableValue(key, value);
+    }
+    const source = raw || {};
+    if (
+        Object.prototype.hasOwnProperty.call(source, APPHUD_VARIABLE_KEY) ||
+        Object.prototype.hasOwnProperty.call(source, LEGACY_APPHUD_VARIABLE_KEY)
+    ) {
+        out[APPHUD_VARIABLE_KEY] = clampVariableValue(
+            APPHUD_VARIABLE_KEY,
+            source[APPHUD_VARIABLE_KEY] ?? source[LEGACY_APPHUD_VARIABLE_KEY]
+        );
     }
     return out;
 };
@@ -41,6 +55,11 @@ const hashVariables = (raw: Record<string, any> | null | undefined) => {
         .sort()
         .map((key) => [key, normalized[key]]);
     return JSON.stringify(sortedEntries);
+};
+
+const normalizeBaseBranch = (value: unknown) => {
+    const raw = String(value ?? '').trim();
+    return raw || DEFAULT_BASE_BRANCH;
 };
 
 type QueueJobsApi = {
@@ -89,11 +108,13 @@ export const useConnectorConfigForm = (payload: {
 
     const [projectBrief, setProjectBrief] = React.useState('');
     const [ideaId, setIdeaId] = React.useState<string | null>(null);
+    const [baseBranch, setBaseBranchState] = React.useState(DEFAULT_BASE_BRANCH);
     const [variables, setVariablesState] = React.useState<Record<string, any>>({});
     const [secretMetas, setSecretMetas] = React.useState<any[]>([]);
     const autosaveTimerRef = React.useRef<number | null>(null);
     const lastSavedVariablesHashRef = React.useRef<string>('');
     const lastSavedProjectBriefRef = React.useRef<string>('');
+    const lastSavedBaseBranchRef = React.useRef(DEFAULT_BASE_BRANCH);
     const autosaveFailureCountRef = React.useRef(0);
     const autosaveBlockedUntilRef = React.useRef(0);
     const pendingLegalLinksConfirmRef = React.useRef<{ appId: string; jobId: string } | null>(null);
@@ -171,10 +192,12 @@ export const useConnectorConfigForm = (payload: {
         setError(null);
         setProjectBrief('');
         setIdeaId(null);
+        setBaseBranchState(DEFAULT_BASE_BRANCH);
         setVariables({});
         setSecretMetas([]);
         lastSavedVariablesHashRef.current = hashVariables({});
         lastSavedProjectBriefRef.current = '';
+        lastSavedBaseBranchRef.current = DEFAULT_BASE_BRANCH;
     }, [clearAutosaveTimer, resetAutosaveBackoff, selectedApp?.id, session?.user?.id]);
 
     const refresh = React.useCallback(async () => {
@@ -193,6 +216,9 @@ export const useConnectorConfigForm = (payload: {
                 setProjectBrief(normalizedBrief);
                 lastSavedProjectBriefRef.current = normalizedBrief;
                 setIdeaId(String((cfg.data as any).idea_id || '').trim() || null);
+                const normalizedBaseBranch = normalizeBaseBranch((cfg.data as any).base_branch);
+                setBaseBranchState(normalizedBaseBranch);
+                lastSavedBaseBranchRef.current = normalizedBaseBranch;
                 const normalizedVars = normalizeVariables((cfg.data as any).variables || {});
                 setVariables(normalizedVars);
                 lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
@@ -206,6 +232,7 @@ export const useConnectorConfigForm = (payload: {
                         project_kind: 'ios',
                         project_brief: '',
                         idea_id: null,
+                        base_branch: DEFAULT_BASE_BRANCH,
                         variables: {
                             privacy_policy_url: 'https://google.com',
                             terms_of_use_url: 'https://google.com',
@@ -220,6 +247,9 @@ export const useConnectorConfigForm = (payload: {
                 setProjectBrief(normalizedBrief);
                 lastSavedProjectBriefRef.current = normalizedBrief;
                 setIdeaId(String((created.data as any)?.idea_id || '').trim() || null);
+                const normalizedBaseBranch = normalizeBaseBranch((created.data as any)?.base_branch);
+                setBaseBranchState(normalizedBaseBranch);
+                lastSavedBaseBranchRef.current = normalizedBaseBranch;
                 const normalizedVars = normalizeVariables((created.data as any)?.variables || {});
                 setVariables(normalizedVars);
                 lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
@@ -255,7 +285,7 @@ export const useConnectorConfigForm = (payload: {
 
     const savePatch = React.useCallback(
         async (
-            patch: { project_brief?: string; idea_id?: string | null; variables?: Record<string, any> },
+            patch: { project_brief?: string; idea_id?: string | null; base_branch?: string; variables?: Record<string, any> },
             options?: SavePatchOptions
         ) => {
             if (!session || !selectedApp) return false;
@@ -277,6 +307,9 @@ export const useConnectorConfigForm = (payload: {
                 const patchIdeaId = Object.prototype.hasOwnProperty.call(patch, 'idea_id')
                     ? (String(patch.idea_id || '').trim() || null)
                     : undefined;
+                const patchBaseBranch = Object.prototype.hasOwnProperty.call(patch, 'base_branch')
+                    ? normalizeBaseBranch(patch.base_branch)
+                    : undefined;
                 const resp = await upsertConnectorAppConfig({
                     userId: session.user.id,
                     appId: selectedApp.id,
@@ -285,6 +318,7 @@ export const useConnectorConfigForm = (payload: {
                         project_kind: 'ios',
                         ...patch,
                         ...(patchIdeaId !== undefined ? { idea_id: patchIdeaId } : {}),
+                        ...(patchBaseBranch !== undefined ? { base_branch: patchBaseBranch } : {}),
                         ...(typeof patchProjectBrief === 'string' ? { project_brief: patchProjectBrief } : {}),
                         ...(patchVariables ? { variables: patchVariables } : {}),
                     } as any,
@@ -306,6 +340,14 @@ export const useConnectorConfigForm = (payload: {
                     } else if (patchIdeaId !== undefined) {
                         setIdeaId(patchIdeaId);
                     }
+                    if (Object.prototype.hasOwnProperty.call(resp.data as any, 'base_branch')) {
+                        const normalizedBaseBranch = normalizeBaseBranch((resp.data as any).base_branch);
+                        setBaseBranchState(normalizedBaseBranch);
+                        lastSavedBaseBranchRef.current = normalizedBaseBranch;
+                    } else if (patchBaseBranch !== undefined) {
+                        setBaseBranchState(patchBaseBranch);
+                        lastSavedBaseBranchRef.current = patchBaseBranch;
+                    }
                     if ((resp.data as any).variables) {
                         const normalizedVars = normalizeVariables((resp.data as any).variables || {});
                         setVariables(normalizedVars);
@@ -319,6 +361,10 @@ export const useConnectorConfigForm = (payload: {
                     }
                     if (patchIdeaId !== undefined) {
                         setIdeaId(patchIdeaId);
+                    }
+                    if (patchBaseBranch !== undefined) {
+                        setBaseBranchState(patchBaseBranch);
+                        lastSavedBaseBranchRef.current = patchBaseBranch;
                     }
                     if (patchVariables) {
                         lastSavedVariablesHashRef.current = hashVariables(patchVariables);
@@ -367,9 +413,11 @@ export const useConnectorConfigForm = (payload: {
         const normalizedVars = normalizeVariables(variables);
         const currentHash = hashVariables(normalizedVars);
         const currentProjectBrief = String(projectBrief || '');
+        const currentBaseBranch = normalizeBaseBranch(baseBranch);
         const variablesChanged = currentHash !== lastSavedVariablesHashRef.current;
         const projectBriefChanged = currentProjectBrief !== lastSavedProjectBriefRef.current;
-        if (!variablesChanged && !projectBriefChanged) return;
+        const baseBranchChanged = currentBaseBranch !== lastSavedBaseBranchRef.current;
+        if (!variablesChanged && !projectBriefChanged && !baseBranchChanged) return;
 
         clearAutosaveTimer();
 
@@ -377,9 +425,10 @@ export const useConnectorConfigForm = (payload: {
         const blockedMs = Math.max(0, autosaveBlockedUntilRef.current - now);
         const delayMs = Math.max(AUTOSAVE_BASE_DELAY_MS, blockedMs);
         autosaveTimerRef.current = window.setTimeout(() => {
-            const autosavePatch: { project_brief?: string; variables?: Record<string, any> } = {};
+            const autosavePatch: { project_brief?: string; base_branch?: string; variables?: Record<string, any> } = {};
             if (variablesChanged) autosavePatch.variables = normalizedVars;
             if (projectBriefChanged) autosavePatch.project_brief = currentProjectBrief;
+            if (baseBranchChanged) autosavePatch.base_branch = currentBaseBranch;
             void savePatch(
                 autosavePatch,
                 {
@@ -401,12 +450,17 @@ export const useConnectorConfigForm = (payload: {
         secretBusy,
         selectedApp?.id,
         session?.user?.id,
+        baseBranch,
         projectBrief,
         variables,
     ]);
 
     const setVariable = React.useCallback((k: string, v: any) => {
         setVariables((prev) => ({ ...prev, [k]: clampVariableValue(k, v) }));
+    }, []);
+
+    const setBaseBranch = React.useCallback((value: string) => {
+        setBaseBranchState(String(value ?? ''));
     }, []);
 
     const saveMergedVariablesPatch = React.useCallback(
@@ -800,6 +854,8 @@ export const useConnectorConfigForm = (payload: {
         setProjectBrief,
         ideaId,
         setIdeaId,
+        baseBranch,
+        setBaseBranch,
         variables,
         setVariables,
         setVariable,

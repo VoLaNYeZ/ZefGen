@@ -27,8 +27,16 @@ const mapStatus = (status: ConnectorJobStatus): { status: GenerationJobStatus; m
     return { status: 'running', message: String(status || '') || undefined };
 };
 
-const mapKind = (kind: string | null | undefined): 'connector_generate' | 'connector_fix' =>
-    String(kind || '').toLowerCase() === 'fix' ? 'connector_fix' : 'connector_generate';
+const mapKind = (
+    kind: string | null | undefined
+): 'connector_generate' | 'connector_fix' | 'connector_integration' | 'connector_qa' | 'connector_screenshots' => {
+    const normalized = String(kind || '').toLowerCase();
+    if (normalized === 'fix') return 'connector_fix';
+    if (normalized === 'integration') return 'connector_integration';
+    if (normalized === 'visual_qa') return 'connector_qa';
+    if (normalized === 'screenshots') return 'connector_screenshots';
+    return 'connector_generate';
+};
 
 export const useConnectorJobQueue = (payload: {
     session: Session | null;

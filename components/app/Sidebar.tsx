@@ -149,7 +149,11 @@ export const Sidebar = ({
     const [brandListDragActiveId, setBrandListDragActiveId] = React.useState<string | null>(null);
     const brandListLastDragAtRef = React.useRef<number>(0);
     const [showLockedBrandNotice, setShowLockedBrandNotice] = React.useState(false);
+    const [isAmaterasuLogo, setIsAmaterasuLogo] = React.useState(false);
     const isBrandReorderMode = brandFormOpen && Boolean(editingBrandId);
+    const cycleLogoVariant = React.useCallback(() => {
+        setLogoVariantIndex((prev) => (prev + 1) % 6);
+    }, [setLogoVariantIndex]);
 
     const updateActiveBrandHighlight = React.useCallback(() => {
         const container = brandListRef.current;
@@ -284,59 +288,83 @@ export const Sidebar = ({
                 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen md:z-40
             `}
         >
-            <div className="relative p-6 border-b border-indigo-900/30">
-                <div ref={logoContainerRef} className="relative w-full select-none">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            setLogoVariantIndex((prev) => {
-                                const baseBag = [0, 1, 2, 3, 4, 4, 4, 5]; // Slight bias towards BreathingText (index 4).
-                                const bag = baseBag.filter((v) => v !== prev);
-                                return bag[Math.floor(Math.random() * bag.length)] ?? ((prev + 1) % 6);
-                            })
-                        }
-                        className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-xl bg-slate-900/30 flex items-center justify-center overflow-hidden"
-                        aria-label="Change logo variant"
-                    >
-                        <img src="/genlogo.png" alt="ZefGen" className="h-full w-full object-contain" />
-                    </button>
-                    <div
-                        className={`logo-wrap w-full text-center pl-16 pr-8 translate-y-px transition-opacity duration-300 ${
-                            logoFontReady ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                        }`}
-                        style={{ fontFamily: '"Roboto Flex Variable", "Roboto Flex", sans-serif' }}
-                    >
-                        {(() => {
-                            const variants = [
-                                <LetterSwapForward label={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
-                                <LetterSwapPingPong label={logoWord} staggerFrom="center" className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" />,
-                                <VariableFontHoverByRandomLetter
-                                    label={logoWord}
-                                    className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
-                                    fromFontVariationSettings="'wght' 300, 'slnt' 0"
-                                    toFontVariationSettings="'wght' 900, 'slnt' 0"
-                                />,
-                                <VariableFontCursorProximity
-                                    label={logoWord}
-                                    className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
-                                    fromFontVariationSettings="'wght' 300, 'slnt' 0"
-                                    toFontVariationSettings="'wght' 900, 'slnt' -10"
-                                    radius={180}
-                                    falloff="gaussian"
-                                    containerRef={logoContainerRef}
-                                />,
-                                <BreathingText
-                                    className="text-4xl leading-none text-white font-roboto-flex tracking-[0.08em]"
-                                    fromFontVariationSettings="'wght' 260, 'slnt' 0"
-                                    toFontVariationSettings="'wght' 820, 'slnt' -8"
-                                >
-                                    {logoWord}
-                                </BreathingText>,
-                                <ScrambleHover text={logoWord} className="text-4xl leading-none font-light text-white font-roboto-flex tracking-[0.08em]" scrambleSpeed={45} maxIterations={8} />,
-                            ];
+            <div className="relative p-5 border-b border-indigo-900/30">
+                <div
+                    ref={logoContainerRef}
+                    className="sidebar-logo-chip relative isolate w-full overflow-hidden rounded-[26px] border border-white/8 px-4 py-3 select-none"
+                >
+                    <div className="relative flex items-center gap-4">
+                        <button
+                            type="button"
+                            onClick={() => setIsAmaterasuLogo((prev) => !prev)}
+                            aria-pressed={isAmaterasuLogo}
+                            aria-label={isAmaterasuLogo ? 'Use default smoke logo colors' : 'Use Amaterasu smoke logo colors'}
+                            className={`sidebar-logo-mark-shell h-[54px] w-[54px] shrink-0 overflow-hidden rounded-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                                isAmaterasuLogo ? 'is-amaterasu' : ''
+                            }`}
+                        >
+                            <span aria-hidden="true" className={`sidebar-logo-mark-aura ${isAmaterasuLogo ? 'is-amaterasu' : ''}`} />
+                            <span className="relative z-10 block h-10 w-10">
+                                <img
+                                    src="/genlogo.png"
+                                    alt=""
+                                    className={`sidebar-logo-image ${isAmaterasuLogo ? 'is-hidden' : ''}`}
+                                />
+                                <span aria-hidden="true" className={`sidebar-logo-mask sidebar-logo-mask-shadow ${isAmaterasuLogo ? 'is-amaterasu' : ''}`} />
+                                <span aria-hidden="true" className={`sidebar-logo-mask sidebar-logo-mask-base ${isAmaterasuLogo ? 'is-amaterasu' : ''}`} />
+                                <span aria-hidden="true" className={`sidebar-logo-mask sidebar-logo-mask-ember ${isAmaterasuLogo ? 'is-amaterasu' : ''}`} />
+                                <span aria-hidden="true" className={`sidebar-logo-mask sidebar-logo-mask-hotspot ${isAmaterasuLogo ? 'is-amaterasu' : ''}`} />
+                            </span>
+                        </button>
+                        <div className="min-w-0 flex-1 flex items-center">
+                            <button
+                                type="button"
+                                onClick={cycleLogoVariant}
+                                aria-label="Cycle ZefGen wordmark animation"
+                                className={`logo-wrap transition-opacity duration-300 ${
+                                    logoFontReady ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                                } rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300/40 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950`}
+                                style={{ fontFamily: '"Roboto Flex Variable", "Roboto Flex", sans-serif' }}
+                            >
+                                {(() => {
+                                    const baseClassName = 'translate-y-px text-[2.15rem] leading-none text-white font-roboto-flex tracking-[0.045em]';
+                                    const variants = [
+                                        <LetterSwapForward label={logoWord} className={`${baseClassName} font-light`} />,
+                                        <LetterSwapPingPong label={logoWord} staggerFrom="center" className={`${baseClassName} font-light`} />,
+                                        <VariableFontHoverByRandomLetter
+                                            label={logoWord}
+                                            className={baseClassName}
+                                            fromFontVariationSettings="'wght' 300, 'slnt' 0"
+                                            toFontVariationSettings="'wght' 900, 'slnt' 0"
+                                        />,
+                                        <VariableFontCursorProximity
+                                            label={logoWord}
+                                            className={baseClassName}
+                                            fromFontVariationSettings="'wght' 300, 'slnt' 0"
+                                            toFontVariationSettings="'wght' 900, 'slnt' -10"
+                                            radius={180}
+                                            falloff="gaussian"
+                                            containerRef={logoContainerRef}
+                                        />,
+                                        <BreathingText
+                                            className={`${baseClassName} cursor-pointer`}
+                                            fromFontVariationSettings="'wght' 260, 'slnt' 0"
+                                            toFontVariationSettings="'wght' 820, 'slnt' -8"
+                                        >
+                                            {logoWord}
+                                        </BreathingText>,
+                                        <ScrambleHover
+                                            text={logoWord}
+                                            className={`${baseClassName} font-light`}
+                                            scrambleSpeed={45}
+                                            maxIterations={8}
+                                        />,
+                                    ];
 
-                            return variants[logoVariantIndex] ?? variants[0];
-                        })()}
+                                    return variants[logoVariantIndex] ?? variants[4];
+                                })()}
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <button

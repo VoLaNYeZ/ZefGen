@@ -9,18 +9,19 @@ const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder
     { key: 'app_new_name', label: 'connector_app_new_name' },
     { key: 'home_screen_name', label: 'connector_home_screen_name' },
     { key: 'bundle_id', label: 'connector_bundle_id', placeholder: 'com.example.app' },
-    { key: 'id_purchases', label: 'connector_id_purchases' },
-    { key: 'apphud_api_url', label: 'connector_apphud_api_url', placeholder: 'https://api.apphud.com/...' },
     { key: 'domain', label: 'connector_domain', placeholder: 'https://...' },
+    { key: 'apphud_api_key', label: 'connector_apphud_api_key', placeholder: 'apphud_key_live_xxxxx' },
     { key: 'firebase_plist_snippet', label: 'connector_firebase_plist_snippet' },
     { key: 'appstore_description', label: 'connector_appstore_description' },
+    { key: 'id_purchases', label: 'connector_id_purchases' },
 ];
 
 const APP_NAME_MAX_LENGTH = 30;
 const APPSTORE_DESCRIPTION_MIN_SPEC_LENGTH = 100;
 const APPSTORE_DESCRIPTION_MAX_LENGTH = 4000;
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
-const WIDE_VARIABLE_KEYS = new Set(['firebase_plist_snippet', 'appstore_description']);
+const WIDE_VARIABLE_KEYS = new Set(['appstore_description', 'firebase_plist_snippet']);
+const OPTIONAL_VARIABLE_KEYS = new Set(['id_purchases']);
 const BOOTSTRAP_LEGAL_URL_PLACEHOLDER = 'https://google.com';
 
 const isUsableLegalUrl = (value: unknown) => {
@@ -568,7 +569,9 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 key={f.key}
                                 className="grid gap-1"
                             >
-                                <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
+                                <div className={`${OPTIONAL_VARIABLE_KEYS.has(f.key) ? 'text-[11px] text-indigo-200/55' : 'text-[11px] text-indigo-200/60'}`}>
+                                    {text(f.label)}
+                                </div>
                                 <input
                                     value={String(connectorForm.variables?.[f.key] ?? '')}
                                     onChange={(e) =>
@@ -581,8 +584,18 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     }
                                     maxLength={APP_NAME_VARIABLE_KEYS.has(f.key) ? APP_NAME_MAX_LENGTH : undefined}
                                     disabled={!isEnabled}
-                                    className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
-                                    placeholder={f.placeholder ? String(f.placeholder) : undefined}
+                                    className={`w-full rounded-full px-4 py-2 text-xs outline-none placeholder:text-indigo-200/30 disabled:opacity-60 ${
+                                        OPTIONAL_VARIABLE_KEYS.has(f.key)
+                                            ? 'border border-white/8 bg-slate-950/16 text-indigo-100/78 placeholder:italic placeholder:text-indigo-200/28 focus:border-indigo-300/24'
+                                            : 'border border-white/10 bg-slate-950/20 text-indigo-100/90 focus:border-indigo-400/40'
+                                    }`}
+                                    placeholder={
+                                        OPTIONAL_VARIABLE_KEYS.has(f.key)
+                                            ? text('optional')
+                                            : f.placeholder
+                                              ? String(f.placeholder)
+                                              : undefined
+                                    }
                                 />
                             </label>
                         ))}
@@ -693,13 +706,9 @@ export function ConnectorVariablesSecretsPanel(props: {
                                             </div>
                                         ) : null}
                                     </div>
-                                    {isAppstoreDescription ? (
-                                        <div className="h-4">
-                                            <span
-                                                className={`inline-flex items-center gap-1 text-[10px] text-indigo-100/75 transition-opacity ${
-                                                    connectorForm.generateDescriptionBusy ? 'opacity-100' : 'opacity-0'
-                                                }`}
-                                            >
+                                    {isAppstoreDescription && connectorForm.generateDescriptionBusy ? (
+                                        <div className="mt-0.5">
+                                            <span className="inline-flex items-center gap-1 text-[10px] text-indigo-100/75">
                                                 <Loader2 size={10} className="animate-spin" />
                                                 <span>{text('connector_appstore_desc_busy')}</span>
                                             </span>
@@ -736,6 +745,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 </label>
                             );
                         })}
+
                     </div>
                 </div>
 

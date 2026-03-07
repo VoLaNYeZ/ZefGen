@@ -8,6 +8,7 @@ export type ConnectorAppConfig = {
     project_kind: ConnectorProjectKind;
     project_brief: string;
     idea_id: string | null;
+    base_branch: string;
     variables: Record<string, any>;
     verify_command: string | null;
     updated_at?: string;

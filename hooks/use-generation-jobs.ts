@@ -10,6 +10,9 @@ export type GenerationJobKind =
     | 'download_zip'
     | 'connector_generate'
     | 'connector_fix'
+    | 'connector_integration'
+    | 'connector_qa'
+    | 'connector_screenshots'
     | 'github_repo_create'
     | 'github_repo_delete';
 

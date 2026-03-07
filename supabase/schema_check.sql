@@ -325,3 +325,34 @@ select
 select id, name, public
 from storage.buckets
 where id in ('brand-references', 'app-screenshots', 'generated-assets');
+
+-- 9) Connector handshake additions
+select 'connector_app_configs.base_branch' as item, exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'connector_app_configs' and column_name = 'base_branch'
+) as exists
+union all
+select 'connector_jobs.result_commit_sha', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'connector_jobs' and column_name = 'result_commit_sha'
+)
+union all
+select 'connector_job_artifacts table', to_regclass('public.connector_job_artifacts') is not null
+union all
+select 'connector_job_artifacts_job_created_idx', to_regclass('public.connector_job_artifacts_job_created_idx') is not null
+union all
+select 'connector_job_artifacts_app_created_idx', to_regclass('public.connector_job_artifacts_app_created_idx') is not null
+union all
+select 'connector_job_artifacts_kind_created_idx', to_regclass('public.connector_job_artifacts_kind_created_idx') is not null
+union all
+select 'connector_job_artifacts rls', exists(
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'connector_job_artifacts' and c.relrowsecurity
+)
+union all
+select 'connector_job_artifacts_select_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'connector_job_artifacts' and policyname = 'connector_job_artifacts_select_own'
+);

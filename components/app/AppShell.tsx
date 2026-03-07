@@ -60,10 +60,15 @@ import type { AppPage } from '../../utils/routes';
 import { buildAccountsRoute, buildIdeasRoute, buildRoute, parseRoute } from '../../utils/routes';
 import { makeUniqueAlias, slugify } from '../../utils/slug';
 import { isNoBrand } from '../../utils/no-brand';
+import {
+    findLatestSuccessfulIntegrationForBranch,
+    getIntegrationReadiness,
+} from '../../utils/connector-runner-state.js';
 
 type AppShellProps = {
     session: Session;
 };
+const MAIN_BRANCH = 'main';
 export function AppShell({ session }: AppShellProps) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [lang, setLang] = useState<'en' | 'ru'>(() => {
@@ -93,10 +98,7 @@ export function AppShell({ session }: AppShellProps) {
     const [actionError, setActionError] = useState<string | null>(null);
     const [collabWarning, setCollabWarning] = useState<string | null>(null);
     const [aliasNotice, setAliasNotice] = useState<string | null>(null);
-    const [logoVariantIndex, setLogoVariantIndex] = useState(() => {
-        const bag = [0, 1, 2, 3, 4, 4, 4, 5]; // Slight bias towards BreathingText.
-        return bag[Math.floor(Math.random() * bag.length)] ?? 0;
-    });
+    const [logoVariantIndex, setLogoVariantIndex] = useState(4);
     const logoWord = 'ZEFGEN';
     const logoContainerRef = useRef<HTMLDivElement>(null);
     const mainScrollRef = useRef<HTMLDivElement>(null);
@@ -130,6 +132,7 @@ export function AppShell({ session }: AppShellProps) {
     const [noBrandIconPromptAutogenBusy, setNoBrandIconPromptAutogenBusy] = useState(false);
     const [moveTargetBrandId, setMoveTargetBrandId] = useState<string>('');
     const [moveToBrandLoading, setMoveToBrandLoading] = useState(false);
+    const seenExportCompletedByAppRef = useRef<Record<string, boolean>>({});
 
     const reportActionError = useCallback((message: string) => {
         setActionError(message);
@@ -695,7 +698,7 @@ export function AppShell({ session }: AppShellProps) {
     ]);
 
     // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
-    const { jobs: connectorRunnerJobs } = useConnectorJobs({
+    const { jobs: connectorRunnerJobs, refresh: refreshConnectorRunnerJobs } = useConnectorJobs({
         session,
         selectedApp,
         githubRepoUrl,
@@ -749,6 +752,19 @@ export function AppShell({ session }: AppShellProps) {
         const raw = window.localStorage.getItem(key);
         setAssetsCollapsed(raw === '1');
     }, [selectedAppId]);
+
+    useEffect(() => {
+        if (!selectedAppId) return;
+        const isCompleted = Boolean(exportStatus?.is_completed);
+        const wasCompleted = Boolean(seenExportCompletedByAppRef.current[selectedAppId]);
+
+        if (isCompleted && !wasCompleted) {
+            setAssetsCollapsed(true);
+            window.localStorage.setItem(`zefgen.assetsCollapsed.${selectedAppId}`, '1');
+        }
+
+        seenExportCompletedByAppRef.current[selectedAppId] = isCompleted;
+    }, [selectedAppId, exportStatus?.is_completed]);
 
     const toggleAssetsCollapsed = useCallback(() => {
         if (!selectedAppId) return;
@@ -1520,30 +1536,19 @@ export function AppShell({ session }: AppShellProps) {
 
     const integrationReady = useMemo(() => {
         if (!connectorEnabled) return false;
-        const vars = (connectorForm.variables ?? {}) as any;
-        const filled = (value: any) => {
-            const s = String(value ?? '').trim();
-            if (!s) return false;
-            // Historic placeholder used by default config bootstrap.
-            if (s === 'https://google.com') return false;
-            return true;
-        };
-        const secretKeys = new Set((connectorForm.secretMetas || []).map((m: any) => String(m?.key || '').toUpperCase()));
-        const reqs = [
-            secretKeys.has('APPHUD_API_KEY'),
-            filled(vars.id_purchases),
-            filled(vars.domain),
-            filled(vars.bundle_id),
-            filled(vars.privacy_policy_url),
-            filled(vars.terms_of_use_url),
-            filled(vars.support_form_url),
-            filled(vars.firebase_plist_snippet),
-        ];
-        return reqs.every(Boolean);
-    }, [connectorEnabled, connectorForm.variables, connectorForm.secretMetas]);
+        return getIntegrationReadiness({
+            variables: connectorForm.variables,
+            secretMetas: connectorForm.secretMetas,
+        });
+    }, [connectorEnabled, connectorForm.secretMetas, connectorForm.variables]);
 
-    const step6Done = connectorEnabled && integrationReady;
-    const step7Done = connectorEnabled && integrationReady;
+    const latestSuccessfulIntegrationForBranch = useMemo(
+        () => findLatestSuccessfulIntegrationForBranch(connectorRunnerJobs, MAIN_BRANCH),
+        [connectorRunnerJobs]
+    );
+
+    const step6Done = connectorEnabled && Boolean(latestSuccessfulIntegrationForBranch);
+    const step7Done = step6Done;
 
     const step8Done = connectorEnabled && targetSlotCount > 0 && selectedAppScreenshots.length >= targetSlotCount;
     const step9HasPrompt = useMemo(() => {
@@ -2362,9 +2367,16 @@ export function AppShell({ session }: AppShellProps) {
 
                                                             <StepBlock step={6} done={step6Done}>
                                                                 <IntegrationModulePanel
+                                                                    session={session}
+                                                                    selectedApp={selectedApp}
+                                                                    githubRepoUrl={githubRepoUrl}
                                                                     connectorForm={connectorForm}
+                                                                    connectorJobs={connectorRunnerJobs}
                                                                     isEnabled={connectorEnabled}
                                                                     text={text}
+                                                                    refreshJobs={refreshConnectorRunnerJobs}
+                                                                    reportError={reportActionError}
+                                                                    isReadOnly={isCurrentBrandReadOnly}
                                                                 />
                                                             </StepBlock>
 

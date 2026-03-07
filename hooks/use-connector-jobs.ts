@@ -1,26 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { AppItem } from '../types/zefgen';
+import type { DownstreamCaptureMode } from '../data/connector-jobs';
 import { createConnectorJob, fetchConnectorJobs, requestCancelConnectorJob } from '../data/connector-jobs';
 
 export const useConnectorJobs = (payload: {
     session: Session | null;
     selectedApp: AppItem | null;
     githubRepoUrl?: string | null;
+    baseBranch?: string | null;
     pollMs?: number;
 }) => {
     const { session, selectedApp, githubRepoUrl } = payload;
     const pollMs = Math.max(1200, Math.floor(payload.pollMs ?? 3000));
+    const baseBranch = String(payload.baseBranch || '').trim() || 'main';
 
     const [jobs, setJobs] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<number | null>(null);
+    const jobsSignatureRef = useRef('');
 
-    const refresh = useCallback(async () => {
+    const runRefresh = useCallback(async (background = false) => {
         if (!session || !selectedApp) return;
-        setLoading(true);
-        setError(null);
+        if (!background) {
+            setLoading(true);
+            setError(null);
+        }
         try {
             const { data, error: e } = await fetchConnectorJobs({
                 userId: session.user.id,
@@ -28,30 +34,46 @@ export const useConnectorJobs = (payload: {
                 limit: 15,
             });
             if (e) throw e;
-            setJobs(data || []);
+            const nextJobs = data || [];
+            const nextSignature = nextJobs
+                .map((job) => `${String(job?.id || '')}:${String(job?.updated_at || job?.created_at || '')}`)
+                .join('|');
+            if (jobsSignatureRef.current !== nextSignature) {
+                jobsSignatureRef.current = nextSignature;
+                setJobs(nextJobs);
+            }
+            if (background) setError(null);
         } catch (e: any) {
             setError(String(e?.message || e));
         } finally {
-            setLoading(false);
+            if (!background) setLoading(false);
         }
     }, [session, selectedApp]);
+
+    const refresh = useCallback(async () => {
+        await runRefresh(false);
+    }, [runRefresh]);
 
     useEffect(() => {
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
 
+        setJobs([]);
+        setError(null);
+        jobsSignatureRef.current = '';
+
         if (!session || !selectedApp) {
-            setJobs([]);
+            setLoading(false);
             return;
         }
 
-        refresh();
-        timerRef.current = window.setInterval(refresh, pollMs);
+        void runRefresh(false);
+        timerRef.current = window.setInterval(() => void runRefresh(true), pollMs);
         return () => {
             if (timerRef.current) window.clearInterval(timerRef.current);
             timerRef.current = null;
         };
-    }, [session?.user?.id, selectedApp?.id, pollMs, refresh]);
+    }, [session?.user?.id, selectedApp?.id, pollMs, runRefresh]);
 
     const latestJob = useMemo(() => jobs[0] ?? null, [jobs]);
 
@@ -84,13 +106,13 @@ export const useConnectorJobs = (payload: {
             appId: selectedApp.id,
             kind: 'generate',
             repoFullName,
-            baseBranch: 'main',
+            baseBranch,
             input: {},
         });
         if (e) throw e;
         await refresh();
         return data;
-    }, [session, selectedApp, refresh, getRepoFullName]);
+    }, [baseBranch, session, selectedApp, refresh, getRepoFullName]);
 
     const createContinueJob = useCallback(
         async (fromJobId: string) => {
@@ -106,14 +128,14 @@ export const useConnectorJobs = (payload: {
                 appId: selectedApp.id,
                 kind: 'generate',
                 repoFullName,
-                baseBranch: 'main',
+                baseBranch,
                 input: { resume: { from_job_id: srcId } },
             });
             if (e) throw e;
             await refresh();
             return data;
         },
-        [session, selectedApp, refresh, getRepoFullName]
+        [baseBranch, session, selectedApp, refresh, getRepoFullName]
     );
 
     const createFixJob = useCallback(
@@ -127,14 +149,93 @@ export const useConnectorJobs = (payload: {
                 appId: selectedApp.id,
                 kind: 'fix',
                 repoFullName,
-                baseBranch: 'main',
+                baseBranch,
                 input: { bug_report: String(bugReport || '').slice(0, 20000) },
             });
             if (e) throw e;
             await refresh();
             return data;
         },
-        [session, selectedApp, refresh, getRepoFullName]
+        [baseBranch, session, selectedApp, refresh, getRepoFullName]
+    );
+
+    const createIntegrationJob = useCallback(async () => {
+        if (!session || !selectedApp) throw new Error('No session/app selected.');
+        const repoFullName = getRepoFullName();
+        if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
+
+        const { data, error: e } = await createConnectorJob({
+            userId: session.user.id,
+            appId: selectedApp.id,
+            kind: 'integration',
+            repoFullName,
+            baseBranch,
+            input: {},
+        });
+        if (e) throw e;
+        await refresh();
+        return data;
+    }, [baseBranch, getRepoFullName, refresh, selectedApp, session]);
+
+    const createQaJob = useCallback(
+        async (payload: { sourceJobId: string; sourceRef: string }) => {
+            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            const repoFullName = getRepoFullName();
+            if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
+
+            const sourceJobId = String(payload.sourceJobId || '').trim();
+            const sourceRef = String(payload.sourceRef || '').trim();
+            if (!sourceJobId || !sourceRef) throw new Error('Missing source job id or source ref for QA.');
+
+            const { data, error: e } = await createConnectorJob({
+                userId: session.user.id,
+                appId: selectedApp.id,
+                kind: 'visual_qa',
+                repoFullName,
+                baseBranch,
+                input: {
+                    source_job_id: sourceJobId,
+                    source_ref: sourceRef,
+                    capture_mode: 'renders',
+                },
+            });
+            if (e) throw e;
+            await refresh();
+            return data;
+        },
+        [baseBranch, getRepoFullName, refresh, selectedApp, session]
+    );
+
+    const createScreenshotsJob = useCallback(
+        async (payload: { sourceJobId: string; sourceRef: string; captureMode: DownstreamCaptureMode }) => {
+            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            const repoFullName = getRepoFullName();
+            if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
+
+            const sourceJobId = String(payload.sourceJobId || '').trim();
+            const sourceRef = String(payload.sourceRef || '').trim();
+            const captureMode = String(payload.captureMode || '').trim() as DownstreamCaptureMode;
+            if (!sourceJobId || !sourceRef || !captureMode) {
+                throw new Error('Missing source job id, source ref, or capture mode for screenshots.');
+            }
+
+            const { data, error: e } = await createConnectorJob({
+                userId: session.user.id,
+                appId: selectedApp.id,
+                kind: 'screenshots',
+                repoFullName,
+                baseBranch,
+                input: {
+                    source_job_id: sourceJobId,
+                    source_ref: sourceRef,
+                    capture_mode: captureMode,
+                },
+            });
+            if (e) throw e;
+            await refresh();
+            return data;
+        },
+        [baseBranch, getRepoFullName, refresh, selectedApp, session]
     );
 
     const requestCancel = useCallback(
@@ -157,6 +258,9 @@ export const useConnectorJobs = (payload: {
         createGenerateJob,
         createContinueJob,
         createFixJob,
+        createIntegrationJob,
+        createQaJob,
+        createScreenshotsJob,
         requestCancel,
     };
 };

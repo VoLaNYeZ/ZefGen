@@ -408,6 +408,32 @@ export const useGeneratedAssets = ({
         loadSetsPicksStatus();
     }, [session, selectedApp?.id, loadSetsPicksStatus]);
 
+    useEffect(() => {
+        if (!session || !selectedApp?.id) return;
+
+        const refreshStatus = () => {
+            void loadSetsPicksStatus();
+        };
+
+        const onFocus = () => refreshStatus();
+        const onVisibilityChange = () => {
+            if (document.hidden) return;
+            refreshStatus();
+        };
+
+        const intervalId = window.setInterval(refreshStatus, 10_000);
+        window.addEventListener('focus', onFocus);
+        window.addEventListener('online', onFocus);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener('focus', onFocus);
+            window.removeEventListener('online', onFocus);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, [session, selectedApp?.id, loadSetsPicksStatus]);
+
     const selectedGeneratedAssets = useMemo(
         () => generatedAssets.filter((asset) => asset.app_id === selectedApp?.id),
         [generatedAssets, selectedApp?.id]

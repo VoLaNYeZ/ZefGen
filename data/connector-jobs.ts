@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 
-export type ConnectorJobKind = 'generate' | 'fix';
+export type ConnectorJobKind = 'generate' | 'fix' | 'integration' | 'visual_qa' | 'screenshots';
+export type DownstreamCaptureMode = 'renders' | 'simulator' | 'both';
 export type ConnectorJobStatus =
     | 'queued'
     | 'running'
@@ -20,6 +21,7 @@ export type ConnectorJob = {
     repo_full_name: string;
     base_branch: string;
     work_branch: string | null;
+    result_commit_sha: string | null;
     pr_url: string | null;
     pr_number: number | null;
     verify_status: 'pass' | 'fail' | 'skipped' | null;
