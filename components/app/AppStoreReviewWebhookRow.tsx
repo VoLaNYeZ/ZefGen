@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { BellRing, Check, Copy, RefreshCcw, RotateCw, Save, Send, Upload } from 'lucide-react';
+import { BellRing, Check, ChevronDown, Copy, RefreshCcw, RotateCw, Save, Send, Upload } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import type {
     AppItem,
@@ -236,6 +236,7 @@ export function AppStoreReviewWebhookRow(props: {
     const [isPrivateKeyDragActive, setIsPrivateKeyDragActive] = React.useState(false);
     const [serverStatusWarning, setServerStatusWarning] = React.useState<string | null>(null);
     const [appStoreNameHint, setAppStoreNameHint] = React.useState('');
+    const [expanded, setExpanded] = React.useState(false);
     const requestIdRef = React.useRef(0);
     const copiedTimerRef = React.useRef<number | null>(null);
     const hydratedAppIdRef = React.useRef('');
@@ -375,6 +376,7 @@ export function AppStoreReviewWebhookRow(props: {
     React.useLayoutEffect(() => {
         hydratedAppIdRef.current = '';
         requestIdRef.current += 1;
+        setExpanded(false);
         if (!appId || !userId) {
             setLoading(false);
             setBusyAction(null);
@@ -769,6 +771,7 @@ export function AppStoreReviewWebhookRow(props: {
         setNotice(null);
         try {
             await persistAppleDrafts({ showNotice: true });
+            setExpanded(false);
         } catch (error: any) {
             reportError(String(error?.message || text('upload_failed')));
         } finally {
@@ -880,6 +883,57 @@ export function AppStoreReviewWebhookRow(props: {
                             ) : null}
                         </div>
                         <p className="mt-2 text-xs text-indigo-200/60">{text('appstore_review_webhook_subtitle')}</p>
+                        {!expanded ? (
+                            loading ? (
+                                <p className="mt-3 text-xs text-indigo-200/60">{text('loading')}</p>
+                            ) : !config ? (
+                                <p className="mt-3 text-xs text-indigo-200/60">{text('appstore_review_webhook_setup_hint')}</p>
+                            ) : (
+                                <>
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
+                                            {text('appstore_review_webhook_sync_title')}: {lastSyncLabel}
+                                        </span>
+                                        <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
+                                            {text('connector_bundle_id')}: {bundleId || text('appstore_review_webhook_bundle_missing')}
+                                        </span>
+                                        <span
+                                            className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                                privateKeyConfigured
+                                                    ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                                                    : 'border-amber-400/25 bg-amber-500/10 text-amber-100'
+                                            }`}
+                                        >
+                                            {privateKeyConfigured
+                                                ? text('appstore_review_webhook_private_key_stored')
+                                                : text('appstore_review_webhook_private_key_missing')}
+                                        </span>
+                                        {latestStateLabel ? (
+                                            <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
+                                                {text('appstore_review_webhook_latest_state')}: {latestStateLabel}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    {!bundleId ? (
+                                        <p className="mt-3 text-xs text-amber-100/90">
+                                            {text('appstore_review_webhook_bundle_missing_hint')}
+                                        </p>
+                                    ) : null}
+                                    {webhookReadinessIssues.length ? (
+                                        <p className="mt-2 text-xs text-amber-100/90">{webhookReadinessIssues.join(' ')}</p>
+                                    ) : null}
+                                    {credentialIssues.length ? (
+                                        <p className="mt-3 text-xs text-indigo-200/55">{credentialIssues.join(' ')}</p>
+                                    ) : null}
+                                    {config.last_sync_error ? (
+                                        <p className="mt-2 text-xs text-rose-300/95">{config.last_sync_error}</p>
+                                    ) : null}
+                                    {config.last_error ? (
+                                        <p className="mt-2 text-xs text-rose-300/95">{config.last_error}</p>
+                                    ) : null}
+                                </>
+                            )
+                        ) : null}
                         {serverStatusWarning ? (
                             <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
                                 <p className="text-xs text-amber-100/90">
@@ -888,7 +942,7 @@ export function AppStoreReviewWebhookRow(props: {
                             </div>
                         ) : null}
 
-                        {!config ? (
+                        {expanded ? !config ? (
                             <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/30 p-3">
                                 <p className="text-xs text-indigo-100/85">{text('appstore_review_webhook_setup_hint')}</p>
                                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1365,12 +1419,21 @@ export function AppStoreReviewWebhookRow(props: {
                                     </div>
                                 ) : null}
                             </>
-                        )}
+                        ) : null}
 
                         {notice ? <p className="mt-3 text-xs text-emerald-300/95">{notice}</p> : null}
-                        <p className="mt-3 text-[11px] text-indigo-200/45">{text('appstore_review_webhook_isolation_hint')}</p>
+                        {expanded ? <p className="mt-3 text-[11px] text-indigo-200/45">{text('appstore_review_webhook_isolation_hint')}</p> : null}
                     </div>
                 </div>
+                <button
+                    type="button"
+                    onClick={() => setExpanded((current) => !current)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white"
+                    title={expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}
+                >
+                    <span>{expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}</span>
+                    <ChevronDown size={13} className={`transition ${expanded ? 'rotate-180' : ''}`} />
+                </button>
             </div>
         </section>
     );

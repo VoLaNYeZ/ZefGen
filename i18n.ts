@@ -329,6 +329,8 @@ export const translations = {
         appstore_link_in_store: 'In store:',
         appstore_review_webhook_title: 'App Store review webhook',
         appstore_review_webhook_subtitle: 'Provision and receive App Review status webhooks for this app.',
+        appstore_review_webhook_open_setup: 'Open setup',
+        appstore_review_webhook_hide_setup: 'Hide setup',
         appstore_review_webhook_setup_hint:
             'Start by creating the receiver. Then add Apple credentials, load the matching App Store Connect app, and sync the webhook from this panel.',
         appstore_review_webhook_create: 'Create receiver',
@@ -989,6 +991,8 @@ export const translations = {
         appstore_link_in_store: 'В сторе:',
         appstore_review_webhook_title: 'Webhook ревью App Store',
         appstore_review_webhook_subtitle: 'Настраивает и принимает webhook-обновления статусов App Review для этого приложения.',
+        appstore_review_webhook_open_setup: 'Открыть setup',
+        appstore_review_webhook_hide_setup: 'Скрыть setup',
         appstore_review_webhook_setup_hint:
             'Сначала создай receiver. Потом добавь Apple credentials, загрузи нужное App Store Connect app и синкни webhook прямо из этой панели.',
         appstore_review_webhook_create: 'Создать receiver',
