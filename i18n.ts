@@ -375,6 +375,18 @@ export const translations = {
         appstore_review_webhook_sync_idle: 'Needs sync',
         appstore_review_webhook_sync_connected: 'Synced with Apple',
         appstore_review_webhook_sync_error: 'Apple sync failed',
+        appstore_review_webhook_connected_waiting: 'Connected, waiting for first delivery',
+        appstore_review_webhook_now_title: 'What happens now',
+        appstore_review_webhook_no_sync_yet: 'No sync has run yet.',
+        appstore_review_webhook_next_fix_error: 'Resolve the error below, then sync the Apple webhook again.',
+        appstore_review_webhook_next_load_apps: 'Load Apple apps and choose the matching App Store Connect app.',
+        appstore_review_webhook_next_sync: 'Credentials are ready. Sync the Apple webhook to finish setup.',
+        appstore_review_webhook_next_wait_delivery:
+            'Webhook is connected. Send a test ping or wait for the first delivery from Apple.',
+        appstore_review_webhook_next_wait_state:
+            'Webhook is receiving deliveries. Waiting for a real App Review state change.',
+        appstore_review_webhook_next_live:
+            'Webhook is live. New App Review state changes will appear here automatically.',
         appstore_review_webhook_process_title: 'How this works',
         appstore_review_webhook_process_subtitle:
             'Apple sends review-state changes here, and this panel can create the Apple webhook for you.',
@@ -1040,6 +1052,18 @@ export const translations = {
         appstore_review_webhook_sync_idle: 'Нужен синк',
         appstore_review_webhook_sync_connected: 'Синк с Apple ок',
         appstore_review_webhook_sync_error: 'Синк с Apple упал',
+        appstore_review_webhook_connected_waiting: 'Подключено, ждем первую доставку',
+        appstore_review_webhook_now_title: 'Что происходит сейчас',
+        appstore_review_webhook_no_sync_yet: 'Синк еще не запускался.',
+        appstore_review_webhook_next_fix_error: 'Сначала исправь ошибку ниже, потом заново синкни Apple webhook.',
+        appstore_review_webhook_next_load_apps: 'Загрузи Apple apps и выбери подходящий App Store Connect app.',
+        appstore_review_webhook_next_sync: 'Credentials готовы. Синкни Apple webhook, чтобы закончить setup.',
+        appstore_review_webhook_next_wait_delivery:
+            'Webhook уже подключен. Отправь тестовый ping или дождись первой доставки от Apple.',
+        appstore_review_webhook_next_wait_state:
+            'Webhook уже получает доставки. Ждем реальное изменение App Review state.',
+        appstore_review_webhook_next_live:
+            'Webhook уже live. Новые изменения App Review state будут появляться здесь автоматически.',
         appstore_review_webhook_process_title: 'Как это работает',
         appstore_review_webhook_process_subtitle:
             'Apple шлет сюда изменения review state, а эта панель умеет сама создать webhook у Apple.',

@@ -311,6 +311,105 @@ export function AppStoreReviewWebhookRow(props: {
     const selectedAppleAppSummary = String(
         config?.asc_app_name || config?.asc_bundle_id || selectedAppleAppId || config?.asc_app_id || ''
     ).trim();
+    const lastSyncAtLabel = formatTimestamp(config?.last_sync_at);
+    const lastDeliveryAtLabel = formatTimestamp(config?.last_delivery_at);
+    const latestEventAtLabel = formatTimestamp(config?.latest_event_at);
+    const latestStateSummary = latestStateLabel
+        ? latestPrevStateLabel
+            ? `${latestPrevStateLabel} -> ${latestStateLabel}`
+            : latestStateLabel
+        : text('appstore_review_webhook_no_state');
+    const headerStatusLabel = !config
+        ? ''
+        : latestStateLabel
+          ? latestStateLabel
+          : config.last_sync_status === 'connected' && !config.last_delivery_at
+            ? text('appstore_review_webhook_connected_waiting')
+            : lastDeliveryLabel;
+    const headerStatusTone = !config
+        ? ''
+        : config.last_sync_error || config.last_error
+          ? 'border-rose-400/35 bg-rose-500/10 text-rose-100'
+          : latestStateLabel
+            ? stateTone(config.latest_review_state)
+            : config.last_sync_status === 'connected'
+              ? 'border-sky-400/30 bg-sky-500/10 text-sky-100'
+              : 'border-amber-400/35 bg-amber-500/10 text-amber-100';
+    const nextActionMessage = !config
+        ? text('appstore_review_webhook_setup_hint')
+        : config.last_sync_error || config.last_error
+          ? text('appstore_review_webhook_next_fix_error')
+          : credentialIssues.length
+            ? text('appstore_review_webhook_quick_setup_hint')
+            : !hasAppleAppSelection
+              ? text('appstore_review_webhook_next_load_apps')
+              : config.last_sync_status !== 'connected'
+                ? text('appstore_review_webhook_next_sync')
+                : !config.last_delivery_at
+                  ? text('appstore_review_webhook_next_wait_delivery')
+                  : !latestStateLabel
+                    ? text('appstore_review_webhook_next_wait_state')
+                    : text('appstore_review_webhook_next_live');
+    const setupBadges = config ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
+                {text('appstore_review_webhook_sync_title')}: {lastSyncLabel}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
+                {text('connector_bundle_id')}: {bundleId || text('appstore_review_webhook_bundle_missing')}
+            </span>
+            <span
+                className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                    privateKeyConfigured
+                        ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                        : 'border-amber-400/25 bg-amber-500/10 text-amber-100'
+                }`}
+            >
+                {privateKeyConfigured
+                    ? text('appstore_review_webhook_private_key_stored')
+                    : text('appstore_review_webhook_private_key_missing')}
+            </span>
+        </div>
+    ) : null;
+    const statusOverview = config ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                    {text('appstore_review_webhook_sync_title')}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">{lastSyncLabel}</p>
+                <p className="mt-1 text-[11px] text-indigo-200/55">
+                    {lastSyncAtLabel || selectedAppleAppSummary || text('appstore_review_webhook_no_sync_yet')}
+                </p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                    {text('appstore_review_webhook_last_delivery')}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">{lastDeliveryLabel}</p>
+                <p className="mt-1 text-[11px] text-indigo-200/55">
+                    {lastDeliveryAtLabel || text('appstore_review_webhook_no_events')}
+                </p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                    {text('appstore_review_webhook_latest_state')}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">{latestStateSummary}</p>
+                <p className="mt-1 text-[11px] text-indigo-200/55">
+                    {latestEventAtLabel || text('appstore_review_webhook_no_state')}
+                </p>
+            </div>
+        </div>
+    ) : null;
+    const nextActionPanel = config ? (
+        <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/20 p-3">
+            <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                {text('appstore_review_webhook_now_title')}
+            </p>
+            <p className="mt-1 text-xs text-indigo-100/90">{nextActionMessage}</p>
+        </div>
+    ) : null;
 
     React.useEffect(() => {
         return () => {
@@ -910,11 +1009,11 @@ export function AppStoreReviewWebhookRow(props: {
                             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
                                 {text('appstore_review_webhook_title')}
                             </p>
-                            {config ? (
+                            {config && headerStatusLabel ? (
                                 <span
-                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${headerStatusTone}`}
                                 >
-                                    {latestStateLabel || lastDeliveryLabel}
+                                    {headerStatusLabel}
                                 </span>
                             ) : null}
                         </div>
@@ -926,30 +1025,9 @@ export function AppStoreReviewWebhookRow(props: {
                                 <p className="mt-3 text-xs text-indigo-200/60">{text('appstore_review_webhook_setup_hint')}</p>
                             ) : (
                                 <>
-                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                        <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
-                                            {text('appstore_review_webhook_sync_title')}: {lastSyncLabel}
-                                        </span>
-                                        <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
-                                            {text('connector_bundle_id')}: {bundleId || text('appstore_review_webhook_bundle_missing')}
-                                        </span>
-                                        <span
-                                            className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                                privateKeyConfigured
-                                                    ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
-                                                    : 'border-amber-400/25 bg-amber-500/10 text-amber-100'
-                                            }`}
-                                        >
-                                            {privateKeyConfigured
-                                                ? text('appstore_review_webhook_private_key_stored')
-                                                : text('appstore_review_webhook_private_key_missing')}
-                                        </span>
-                                        {latestStateLabel ? (
-                                            <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
-                                                {text('appstore_review_webhook_latest_state')}: {latestStateLabel}
-                                            </span>
-                                        ) : null}
-                                    </div>
+                                    {setupBadges}
+                                    {statusOverview}
+                                    {nextActionPanel}
                                     {!bundleId ? (
                                         <p className="mt-3 text-xs text-amber-100/90">
                                             {text('appstore_review_webhook_bundle_missing_hint')}
@@ -1015,30 +1093,9 @@ export function AppStoreReviewWebhookRow(props: {
                                         </button>
                                     </div>
 
-                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                        <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
-                                            {text('appstore_review_webhook_sync_title')}: {lastSyncLabel}
-                                        </span>
-                                        <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
-                                            {text('connector_bundle_id')}: {bundleId || text('appstore_review_webhook_bundle_missing')}
-                                        </span>
-                                        <span
-                                            className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                                privateKeyConfigured
-                                                    ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
-                                                    : 'border-amber-400/25 bg-amber-500/10 text-amber-100'
-                                            }`}
-                                        >
-                                            {privateKeyConfigured
-                                                ? text('appstore_review_webhook_private_key_stored')
-                                                : text('appstore_review_webhook_private_key_missing')}
-                                        </span>
-                                        {latestStateLabel ? (
-                                            <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${stateTone(config.latest_review_state)}`}>
-                                                {text('appstore_review_webhook_latest_state')}: {latestStateLabel}
-                                            </span>
-                                        ) : null}
-                                    </div>
+                                    {setupBadges}
+                                    {statusOverview}
+                                    {nextActionPanel}
 
                                     {!bundleId ? (
                                         <p className="mt-3 text-xs text-amber-100/90">
