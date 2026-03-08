@@ -54,6 +54,8 @@ export function ConnectorVariablesSecretsPanel(props: {
     const [secretValue, setSecretValue] = React.useState('');
     const secretKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const [generateNotice, setGenerateNotice] = React.useState<string | null>(null);
+    const [actionHint, setActionHint] = React.useState<{ target: 'generate' | 'webpage'; message: string } | null>(null);
+    const actionHintTimerRef = React.useRef<number | null>(null);
 
     const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
     const copiedTimerRef = React.useRef<number | null>(null);
@@ -61,12 +63,23 @@ export function ConnectorVariablesSecretsPanel(props: {
     React.useEffect(() => {
         return () => {
             if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+            if (actionHintTimerRef.current) window.clearTimeout(actionHintTimerRef.current);
         };
     }, []);
 
     React.useEffect(() => {
         setGenerateNotice(null);
+        setActionHint(null);
     }, [selectedApp?.id]);
+
+    const showActionHint = React.useCallback((target: 'generate' | 'webpage', message: string) => {
+        if (actionHintTimerRef.current) window.clearTimeout(actionHintTimerRef.current);
+        setActionHint({ target, message });
+        actionHintTimerRef.current = window.setTimeout(() => {
+            setActionHint((current) => (current?.target === target && current.message === message ? null : current));
+            actionHintTimerRef.current = null;
+        }, 2400);
+    }, []);
 
     const copyValue = async (key: string, value: string) => {
         const v = String(value ?? '');
@@ -281,12 +294,41 @@ export function ConnectorVariablesSecretsPanel(props: {
         [connectorForm]
     );
 
+    const getDescriptionFailureNotice = React.useCallback(
+        (result?: { error?: string } | null) => {
+            const raw = String(result?.error || '').toLowerCase();
+            if (raw.includes('quality check') || raw.includes('quality checks') || raw.includes('bullet_heavy')) {
+                return text('connector_appstore_desc_failed_quality');
+            }
+            return text('connector_appstore_desc_failed');
+        },
+        [text]
+    );
+
     const handleGenerateLinks = async () => {
-        if (!isEnabled || connectorForm.generateLinksBusy || connectorForm.generateDescriptionBusy) return;
-        if (generateBlocked) {
-            setGenerateNotice(generateButtonTitle);
+        if (!isEnabled) return;
+        if (connectorForm.generateLinksBusy) return;
+        if (connectorForm.generateDescriptionBusy) {
+            showActionHint('generate', text('connector_appstore_desc_busy'));
             return;
         }
+        if (connectorForm.loading) {
+            showActionHint('generate', text('connector_setup_loading'));
+            return;
+        }
+        if (connectorForm.saving) {
+            showActionHint('generate', text('connector_setup_saving'));
+            return;
+        }
+        if (connectorForm.staleConflict) {
+            showActionHint('generate', text('connector_action_blocked_conflict'));
+            return;
+        }
+        if (generateBlocked) {
+            showActionHint('generate', generateButtonTitle);
+            return;
+        }
+        setActionHint(null);
         setGenerateNotice(null);
 
         const precheck = await connectorForm.precheckLegalLinksRegeneration({
@@ -305,6 +347,7 @@ export function ConnectorVariablesSecretsPanel(props: {
             silentOnShortSpec: true,
             persistGenerated: false,
             companyName: resolvedCompanyName,
+            reportError: false,
         });
         const first = await connectorForm.generateLegalLinks(shouldRegenerate);
         const firstDescription = await descriptionFirstAttemptPromise;
@@ -323,6 +366,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                 silentOnShortSpec: true,
                 persistGenerated: false,
                 companyName: resolvedCompanyName,
+                reportError: false,
             });
             const second = await connectorForm.generateLegalLinks(true);
             const secondDescription = await descriptionConfirmedAttemptPromise;
@@ -344,7 +388,7 @@ export function ConnectorVariablesSecretsPanel(props: {
             }
             if (secondDescription?.status === 'error') {
                 setGenerateNotice(
-                    `${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`
+                    `${text('connector_generate_links_success')} ${getDescriptionFailureNotice(secondDescription)}`
                 );
                 return;
             }
@@ -366,7 +410,7 @@ export function ConnectorVariablesSecretsPanel(props: {
             return;
         }
         if (firstDescription?.status === 'error') {
-            setGenerateNotice(`${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`);
+            setGenerateNotice(`${text('connector_generate_links_success')} ${getDescriptionFailureNotice(firstDescription)}`);
             return;
         }
         setGenerateNotice(text('connector_generate_links_success'));
@@ -391,15 +435,29 @@ export function ConnectorVariablesSecretsPanel(props: {
     };
 
     const handleGenerateWebpage = async () => {
-        if (!isEnabled || connectorForm.publishWebpageBusy) return;
+        if (!isEnabled) return;
+        if (connectorForm.publishWebpageBusy) return;
         if (webpagePublished && connectorForm.publicWebpageUrl) {
             window.open(connectorForm.publicWebpageUrl, '_blank', 'noopener,noreferrer');
             return;
         }
-        if (webpageGenerateBlocked) {
-            setGenerateNotice(webpageButtonTitle);
+        if (connectorForm.loading) {
+            showActionHint('webpage', text('connector_setup_loading'));
             return;
         }
+        if (connectorForm.saving) {
+            showActionHint('webpage', text('connector_setup_saving'));
+            return;
+        }
+        if (connectorForm.staleConflict) {
+            showActionHint('webpage', text('connector_action_blocked_conflict'));
+            return;
+        }
+        if (webpageGenerateBlocked) {
+            showActionHint('webpage', webpageButtonTitle);
+            return;
+        }
+        setActionHint(null);
         setGenerateNotice(null);
         const result = await connectorForm.publishAppstoreReviewPublicPage();
         if (!result?.publicWebpageUrl) return;
@@ -439,9 +497,6 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 type="button"
                                 onClick={() => void handleGenerateLinks()}
                                 disabled={
-                                    !isEnabled ||
-                                    connectorForm.loading ||
-                                    connectorForm.saving ||
                                     connectorForm.generateLinksBusy ||
                                     connectorForm.generateDescriptionBusy
                                 }
@@ -451,9 +506,9 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 {connectorForm.generateLinksBusy ? text('loading') : text(generateButtonLabelKey)}
                             </button>
                         </span>
-                        {generateButtonInlineReason ? (
-                            <div className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/80">
-                                {generateButtonInlineReason}
+                        {generateButtonInlineReason || actionHint?.target === 'generate' ? (
+                            <div aria-live="polite" className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/85">
+                                {generateButtonInlineReason || actionHint?.message}
                             </div>
                         ) : null}
                     </div>
@@ -462,13 +517,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             <button
                                 type="button"
                                 onClick={() => void handleGenerateWebpage()}
-                                disabled={
-                                    !webpagePublished &&
-                                    (!isEnabled ||
-                                        connectorForm.loading ||
-                                        connectorForm.saving ||
-                                        connectorForm.publishWebpageBusy)
-                                }
+                                disabled={!webpagePublished && connectorForm.publishWebpageBusy}
                                 title={webpageButtonTitle}
                                 className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
                             >
@@ -477,9 +526,9 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     : text(webpageButtonLabelKey)}
                             </button>
                         </span>
-                        {webpageButtonInlineReason ? (
-                            <div className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/80">
-                                {webpageButtonInlineReason}
+                        {webpageButtonInlineReason || actionHint?.target === 'webpage' ? (
+                            <div aria-live="polite" className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/85">
+                                {webpageButtonInlineReason || actionHint?.message}
                             </div>
                         ) : null}
                     </div>
@@ -500,11 +549,15 @@ export function ConnectorVariablesSecretsPanel(props: {
             {connectorForm.publicWebpageUrl && connectorForm.publicPagePublishedAt ? (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/20 p-3">
                     <div className="flex items-center gap-2">
-                        <input
-                            value={connectorForm.publicWebpageUrl}
-                            readOnly
-                            className="w-full rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-indigo-100/90 outline-none"
-                        />
+                        <a
+                            href={connectorForm.publicWebpageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block w-full truncate rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-cyan-100/90 underline-offset-4 outline-none transition hover:border-cyan-400/40 hover:text-cyan-50 hover:underline"
+                            title={connectorForm.publicWebpageUrl}
+                        >
+                            {connectorForm.publicWebpageUrl}
+                        </a>
                         <button
                             type="button"
                             onClick={() => void copyValue('webpage.url', connectorForm.publicWebpageUrl)}
@@ -717,12 +770,24 @@ export function ConnectorVariablesSecretsPanel(props: {
                         <label className="grid gap-1">
                             <div className="text-[11px] text-indigo-200/60">{text('connector_generated_webpage')}</div>
                             <div className="flex items-center gap-2">
-                                <input
-                                    value={String(connectorForm.publicWebpageUrl || '')}
-                                    readOnly
-                                    className="w-full rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-indigo-100/70 outline-none"
-                                    placeholder={text('connector_generated_webpage_placeholder')}
-                                />
+                                {connectorForm.publicWebpageUrl ? (
+                                    <a
+                                        href={connectorForm.publicWebpageUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block w-full truncate rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-cyan-100/90 underline-offset-4 outline-none transition hover:border-cyan-400/40 hover:text-cyan-50 hover:underline"
+                                        title={connectorForm.publicWebpageUrl}
+                                    >
+                                        {connectorForm.publicWebpageUrl}
+                                    </a>
+                                ) : (
+                                    <input
+                                        value=""
+                                        readOnly
+                                        className="w-full rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-indigo-100/70 outline-none"
+                                        placeholder={text('connector_generated_webpage_placeholder')}
+                                    />
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => void copyValue('webpage.compact', String(connectorForm.publicWebpageUrl || ''))}

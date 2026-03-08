@@ -159,6 +159,7 @@ type RegenerateAppstoreDescriptionOptions = {
     silentOnShortSpec?: boolean;
     persistGenerated?: boolean;
     companyName?: string;
+    reportError?: boolean;
 };
 
 export type ConnectorConfigFormSnapshot = {
@@ -502,6 +503,10 @@ export const useConnectorConfigForm = (payload: {
                 resetAutosaveBackoff();
             }
 
+            if (!isBackground) {
+                setLoading(false);
+            }
+
             const [secrets, webhook, currentLegalLinks] = await Promise.all([
                 fetchConnectorSecretMetas({ userId: session.user.id, appId: selectedApp.id }),
                 fetchAppstoreReviewWebhook({ userId: session.user.id, appId: selectedApp.id }),
@@ -843,9 +848,12 @@ export const useConnectorConfigForm = (payload: {
             if (!session || !selectedApp) return null;
             const requestContext = getRequestContext();
             if (!isCurrentRequestContext(requestContext)) return null;
+            const shouldReportError = options?.reportError !== false;
 
             setGenerateDescriptionBusy(true);
-            setError(null);
+            if (shouldReportError) {
+                setError(null);
+            }
             try {
                 const response = await generateAppstoreDescription({
                     clientSpec: String(projectBrief || ''),
@@ -872,20 +880,26 @@ export const useConnectorConfigForm = (payload: {
                         const msg =
                             String(response.reason || '').trim() ||
                             'Client spec is too short to generate App Store description.';
-                        setError(msg);
-                        reportError?.(msg);
+                        if (shouldReportError) {
+                            setError(msg);
+                            reportError?.(msg);
+                        }
                     }
                 } else {
                     const msg = String(response.error || '').trim() || 'Failed to generate App Store description.';
-                    setError(msg);
-                    reportError?.(msg);
+                    if (shouldReportError) {
+                        setError(msg);
+                        reportError?.(msg);
+                    }
                 }
                 return response;
             } catch (e: any) {
                 if (!isCurrentRequestContext(requestContext)) return null;
                 const msg = String(e?.message || e);
-                setError(msg);
-                reportError?.(msg);
+                if (shouldReportError) {
+                    setError(msg);
+                    reportError?.(msg);
+                }
                 return {
                     status: 'error',
                     error: msg,
@@ -931,6 +945,11 @@ export const useConnectorConfigForm = (payload: {
                           progressTotal: 4,
                       });
 
+            if (queueJobId && !hasPendingConfirmJob) {
+                queueJobs?.setJobMessage(queueJobId, 'Preparing…');
+                queueJobs?.setJobProgress(queueJobId, { current: 1, total: 4 });
+            }
+
             setGenerateLinksBusy(true);
             setError(null);
             try {
@@ -949,6 +968,7 @@ export const useConnectorConfigForm = (payload: {
                         throw new Error('Failed to save setup data before generating legal links.');
                     }
                 } else if (queueJobId) {
+                    queueJobs?.setJobMessage(queueJobId, 'Preparing…');
                     queueJobs?.setJobProgress(queueJobId, {
                         current: hasPendingConfirmJob ? 2 : 1,
                         total: 4,
