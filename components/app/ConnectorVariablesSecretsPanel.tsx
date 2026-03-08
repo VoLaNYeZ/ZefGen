@@ -55,7 +55,6 @@ export function ConnectorVariablesSecretsPanel(props: {
     const secretKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const [generateNotice, setGenerateNotice] = React.useState<string | null>(null);
     const [actionHint, setActionHint] = React.useState<{ target: 'generate' | 'webpage'; message: string } | null>(null);
-    const [pendingAction, setPendingAction] = React.useState<'generate' | 'webpage' | null>(null);
     const actionHintTimerRef = React.useRef<number | null>(null);
 
     const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
@@ -71,7 +70,6 @@ export function ConnectorVariablesSecretsPanel(props: {
     React.useEffect(() => {
         setGenerateNotice(null);
         setActionHint(null);
-        setPendingAction(null);
     }, [selectedApp?.id]);
 
     const showActionHint = React.useCallback((target: 'generate' | 'webpage', message: string) => {
@@ -314,16 +312,6 @@ export function ConnectorVariablesSecretsPanel(props: {
             showActionHint('generate', text('connector_appstore_desc_busy'));
             return;
         }
-        if (connectorForm.loading) {
-            setPendingAction('generate');
-            showActionHint('generate', text('connector_setup_loading'));
-            return;
-        }
-        if (connectorForm.saving) {
-            setPendingAction('generate');
-            showActionHint('generate', text('connector_setup_saving'));
-            return;
-        }
         if (connectorForm.staleConflict) {
             showActionHint('generate', text('connector_action_blocked_conflict'));
             return;
@@ -332,7 +320,6 @@ export function ConnectorVariablesSecretsPanel(props: {
             showActionHint('generate', generateButtonTitle);
             return;
         }
-        setPendingAction(null);
         setActionHint(null);
         setGenerateNotice(null);
 
@@ -429,7 +416,6 @@ export function ConnectorVariablesSecretsPanel(props: {
         resolvedAccountEmail,
         resolvedAppStoreName,
         resolvedCompanyName,
-        setPendingAction,
         showActionHint,
         text,
     ]);
@@ -459,16 +445,6 @@ export function ConnectorVariablesSecretsPanel(props: {
             window.open(connectorForm.publicWebpageUrl, '_blank', 'noopener,noreferrer');
             return;
         }
-        if (connectorForm.loading) {
-            setPendingAction('webpage');
-            showActionHint('webpage', text('connector_setup_loading'));
-            return;
-        }
-        if (connectorForm.saving) {
-            setPendingAction('webpage');
-            showActionHint('webpage', text('connector_setup_saving'));
-            return;
-        }
         if (connectorForm.staleConflict) {
             showActionHint('webpage', text('connector_action_blocked_conflict'));
             return;
@@ -477,9 +453,8 @@ export function ConnectorVariablesSecretsPanel(props: {
             showActionHint('webpage', webpageButtonTitle);
             return;
         }
-        setPendingAction(null);
         setActionHint(null);
-        setGenerateNotice(null);
+        setGenerateNotice(text('connector_webpage_publishing_busy'));
         const result = await connectorForm.publishAppstoreReviewPublicPage();
         if (result?.error) {
             setGenerateNotice(result.error);
@@ -493,42 +468,11 @@ export function ConnectorVariablesSecretsPanel(props: {
     }, [
         connectorForm,
         isEnabled,
-        setPendingAction,
         showActionHint,
         text,
         webpageButtonTitle,
         webpageGenerateBlocked,
         webpagePublished,
-    ]);
-
-    React.useEffect(() => {
-        if (!pendingAction) return;
-        if (!isEnabled) return;
-        if (connectorForm.loading || connectorForm.saving || connectorForm.staleConflict) return;
-        if (pendingAction === 'generate' && (connectorForm.generateLinksBusy || connectorForm.generateDescriptionBusy)) {
-            return;
-        }
-        if (pendingAction === 'webpage' && connectorForm.publishWebpageBusy) return;
-
-        const queuedAction = pendingAction;
-        setPendingAction(null);
-
-        if (queuedAction === 'generate') {
-            void handleGenerateLinks();
-            return;
-        }
-        void handleGenerateWebpage();
-    }, [
-        connectorForm.generateDescriptionBusy,
-        connectorForm.generateLinksBusy,
-        connectorForm.loading,
-        connectorForm.publishWebpageBusy,
-        connectorForm.saving,
-        connectorForm.staleConflict,
-        handleGenerateLinks,
-        handleGenerateWebpage,
-        isEnabled,
-        pendingAction,
     ]);
 
     if (!isEnabled) {
