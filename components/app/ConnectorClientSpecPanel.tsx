@@ -87,11 +87,11 @@ export function ConnectorClientSpecPanel(props: {
     }, [availableIdeas, ideaCategories]);
 
     React.useEffect(() => {
-        if (connectorForm.loading) {
-            setSelectedCategoryId('');
-            setSelectedIdeaId('');
-            return;
-        }
+        setSelectedCategoryId('');
+        setSelectedIdeaId('');
+    }, [selectedAppId]);
+
+    React.useEffect(() => {
         const persistedIdeaId = String(connectorForm.ideaId || '').trim();
         if (!persistedIdeaId) {
             setSelectedIdeaId('');
@@ -104,7 +104,7 @@ export function ConnectorClientSpecPanel(props: {
         }
         setSelectedIdeaId(persistedIdea.id);
         setSelectedCategoryId(persistedIdea.category_id);
-    }, [connectorForm.ideaId, connectorForm.loading, ideasById]);
+    }, [connectorForm.ideaId, ideasById]);
 
     const ideasForSelectedCategory = React.useMemo(() => {
         if (!selectedCategoryId) return [];

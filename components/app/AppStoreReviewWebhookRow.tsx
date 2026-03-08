@@ -345,34 +345,6 @@ export function AppStoreReviewWebhookRow(props: {
         [appStoreNameHint, hasAppleDraftChanges]
     );
 
-    const applyHydrationSnapshot = React.useCallback(
-        (snapshot: AppStoreReviewPanelSnapshot | null | undefined) => {
-            if (!appId) return;
-            const safeSnapshot =
-                snapshot && String(snapshot.appId || '').trim() === appId
-                    ? snapshot
-                    : {
-                          appId,
-                          status: null,
-                          appStoreNameHint: '',
-                      };
-            const nextAppStoreNameHint = String(safeSnapshot.appStoreNameHint || '').trim();
-            setLoading(false);
-            setBusyAction(null);
-            setNotice(null);
-            setStatus(safeSnapshot.status || null);
-            setAppleCandidates([]);
-            setAppleCandidatesLoaded(false);
-            setCopiedKey(null);
-            setIsPrivateKeyDragActive(false);
-            setServerStatusWarning(null);
-            setAppStoreNameHint(nextAppStoreNameHint);
-            hydrateDraftsFromStatus(safeSnapshot.status, true, { appStoreNameHint: nextAppStoreNameHint });
-            hydratedAppIdRef.current = appId;
-        },
-        [appId, hydrateDraftsFromStatus]
-    );
-
     React.useLayoutEffect(() => {
         hydratedAppIdRef.current = '';
         requestIdRef.current += 1;
@@ -403,7 +375,21 @@ export function AppStoreReviewWebhookRow(props: {
                 ? hydrationSnapshotRef.current
                 : null;
         if (matchingHydrationSnapshot) {
-            applyHydrationSnapshot(matchingHydrationSnapshot);
+            const nextAppStoreNameHint = String(matchingHydrationSnapshot.appStoreNameHint || '').trim();
+            setLoading(false);
+            setBusyAction(null);
+            setNotice(null);
+            setStatus(matchingHydrationSnapshot.status || null);
+            setAppleCandidates([]);
+            setAppleCandidatesLoaded(false);
+            setCopiedKey(null);
+            setIsPrivateKeyDragActive(false);
+            setServerStatusWarning(null);
+            setAppStoreNameHint(nextAppStoreNameHint);
+            hydrateDraftsFromStatus(matchingHydrationSnapshot.status, true, {
+                appStoreNameHint: nextAppStoreNameHint,
+            });
+            hydratedAppIdRef.current = appId;
             return;
         }
 
@@ -424,7 +410,7 @@ export function AppStoreReviewWebhookRow(props: {
         setIsPrivateKeyDragActive(false);
         setServerStatusWarning(null);
         setAppStoreNameHint('');
-    }, [appId, userId, applyHydrationSnapshot]);
+    }, [appId, userId]);
 
     React.useEffect(() => {
         if (!onSnapshotChange) return;

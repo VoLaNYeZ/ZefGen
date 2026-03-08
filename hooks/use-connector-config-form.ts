@@ -474,7 +474,7 @@ export const useConnectorConfigForm = (payload: {
             if (!isCurrentRequestContext(requestContext)) return;
 
             const allowConfigOverwrite =
-                options?.forceConfigOverwrite === true || (!preserveConflict && (!isBackground || !isDirtyRef.current));
+                options?.forceConfigOverwrite === true || (!preserveConflict && !isDirtyRef.current);
             if (cfg.data) {
                 if (allowConfigOverwrite) {
                     const normalizedBrief = String((cfg.data as any).project_brief || '');
