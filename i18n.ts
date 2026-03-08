@@ -402,8 +402,10 @@ export const translations = {
         appstore_review_webhook_key_mode_team: 'Team key',
         appstore_review_webhook_key_mode_individual: 'Individual key',
         appstore_review_webhook_key_id: 'Key ID',
-        appstore_review_webhook_issuer_id: 'Team ID',
+        appstore_review_webhook_issuer_id: 'Issuer ID (UUID)',
         appstore_review_webhook_issuer_id_not_needed: 'Not used for individual keys',
+        appstore_review_webhook_issuer_id_hint: 'Use the App Store Connect issuer ID UUID, not the Apple Team ID.',
+        appstore_review_webhook_issuer_id_invalid: 'Use the App Store Connect issuer ID UUID, not the Apple Team ID.',
         appstore_review_webhook_private_key: 'Private key (.p8)',
         appstore_review_webhook_private_key_placeholder:
             'Paste the full .p8 private key here. It will be stored in connector secrets and not shown again.',
@@ -1065,8 +1067,10 @@ export const translations = {
         appstore_review_webhook_key_mode_team: 'Team key',
         appstore_review_webhook_key_mode_individual: 'Individual key',
         appstore_review_webhook_key_id: 'Key ID',
-        appstore_review_webhook_issuer_id: 'Team ID',
+        appstore_review_webhook_issuer_id: 'Issuer ID (UUID)',
         appstore_review_webhook_issuer_id_not_needed: 'Для individual key не нужен',
+        appstore_review_webhook_issuer_id_hint: 'Используй App Store Connect Issuer ID (UUID), а не Apple Team ID.',
+        appstore_review_webhook_issuer_id_invalid: 'Нужен App Store Connect Issuer ID в формате UUID, а не Apple Team ID.',
         appstore_review_webhook_private_key: 'Private key (.p8)',
         appstore_review_webhook_private_key_placeholder:
             'Вставь сюда полный .p8 private key. Он сохранится в connector secrets и больше не будет показан.',

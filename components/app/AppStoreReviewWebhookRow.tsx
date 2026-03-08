@@ -103,6 +103,8 @@ const sameHost = (left: string, right: string) => {
     }
 };
 
+const APPLE_ISSUER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const isDisallowedDirectSupabaseWebhookUrl = (value: string | null | undefined) => {
     const raw = String(value || '').trim();
     const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
@@ -293,7 +295,12 @@ export function AppStoreReviewWebhookRow(props: {
     const lastSyncLabel = text(syncKeyForConfig(config));
     const credentialIssues = status?.credential_issues || [];
     const hasAppleAppSelection = Boolean(String(selectedAppleAppId || config?.asc_app_id || '').trim());
-    const hasRequiredIssuer = keyModeDraft === 'individual' || Boolean(String(issuerIdDraft || '').trim());
+    const normalizedIssuerIdDraft = String(issuerIdDraft || '').trim();
+    const teamIssuerIdInvalid =
+        keyModeDraft === 'team' &&
+        Boolean(normalizedIssuerIdDraft) &&
+        !APPLE_ISSUER_ID_PATTERN.test(normalizedIssuerIdDraft);
+    const hasRequiredIssuer = keyModeDraft === 'individual' || Boolean(normalizedIssuerIdDraft);
     const quickSetupConfigured =
         Boolean(config) &&
         Boolean(String(keyIdDraft || '').trim()) &&
@@ -632,6 +639,7 @@ export function AppStoreReviewWebhookRow(props: {
             if (!workingConfig) throw new Error(text('upload_failed'));
 
             const normalizedKeyMode = keyModeDraft === 'individual' ? 'individual' : 'team';
+            const normalizedIssuerId = normalizedKeyMode === 'team' ? normalizedIssuerIdDraft : '';
             const normalizedSelectedAppleAppId = String(selectedAppleAppId || '').trim();
             const selectedAppleApp = appleCandidates.find((candidate) => candidate.id === normalizedSelectedAppleAppId);
             const preservedLegacyExplicitUrl =
@@ -645,6 +653,13 @@ export function AppStoreReviewWebhookRow(props: {
                 String(workingConfig.public_subdomain || '').trim() ||
                 managedUrlSubdomain ||
                 '';
+
+            if (normalizedKeyMode === 'team' && !normalizedIssuerId) {
+                throw new Error('Issuer ID is required for team keys.');
+            }
+            if (normalizedKeyMode === 'team' && !APPLE_ISSUER_ID_PATTERN.test(normalizedIssuerId)) {
+                throw new Error(text('appstore_review_webhook_issuer_id_invalid'));
+            }
 
             if (!preservedLegacyExplicitUrl) {
                 if (!claimedPublicSubdomain && !String(publicSubdomainDraft || '').trim() && !String(appStoreNameHint || '').trim()) {
@@ -669,7 +684,7 @@ export function AppStoreReviewWebhookRow(props: {
                     public_subdomain: claimedPublicSubdomain || null,
                     key_mode: normalizedKeyMode,
                     key_id: String(keyIdDraft || '').trim() || null,
-                    issuer_id: normalizedKeyMode === 'team' ? String(issuerIdDraft || '').trim() || null : null,
+                    issuer_id: normalizedKeyMode === 'team' ? normalizedIssuerId || null : null,
                     public_webhook_url: preservedLegacyExplicitUrl,
                     asc_app_id: normalizedSelectedAppleAppId || null,
                     asc_app_name: normalizedSelectedAppleAppId
@@ -1082,6 +1097,19 @@ export function AppStoreReviewWebhookRow(props: {
                                                 }
                                                 className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                             />
+                                            {keyModeDraft === 'team' ? (
+                                                <p
+                                                    className={`mt-2 text-[11px] ${
+                                                        teamIssuerIdInvalid ? 'text-rose-300/95' : 'text-indigo-200/55'
+                                                    }`}
+                                                >
+                                                    {text(
+                                                        teamIssuerIdInvalid
+                                                            ? 'appstore_review_webhook_issuer_id_invalid'
+                                                            : 'appstore_review_webhook_issuer_id_hint'
+                                                    )}
+                                                </p>
+                                            ) : null}
                                         </label>
                                     </div>
 
