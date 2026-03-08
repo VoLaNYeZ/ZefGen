@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { BellRing, Check, ChevronDown, Copy, RefreshCcw, RotateCw, Save, Send, Upload } from 'lucide-react';
+import { BellRing, Check, ChevronDown, Copy, Pencil, RefreshCcw, RotateCw, Save, Send, Upload } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import type {
     AppItem,
@@ -237,6 +237,7 @@ export function AppStoreReviewWebhookRow(props: {
     const [serverStatusWarning, setServerStatusWarning] = React.useState<string | null>(null);
     const [appStoreNameHint, setAppStoreNameHint] = React.useState('');
     const [expanded, setExpanded] = React.useState(false);
+    const [quickSetupEditing, setQuickSetupEditing] = React.useState(false);
     const requestIdRef = React.useRef(0);
     const copiedTimerRef = React.useRef<number | null>(null);
     const hydratedAppIdRef = React.useRef('');
@@ -291,12 +292,30 @@ export function AppStoreReviewWebhookRow(props: {
     const lastDeliveryLabel = text(deliveryKeyForConfig(config));
     const lastSyncLabel = text(syncKeyForConfig(config));
     const credentialIssues = status?.credential_issues || [];
+    const hasAppleAppSelection = Boolean(String(selectedAppleAppId || config?.asc_app_id || '').trim());
+    const hasRequiredIssuer = keyModeDraft === 'individual' || Boolean(String(issuerIdDraft || '').trim());
+    const quickSetupConfigured =
+        Boolean(config) &&
+        Boolean(String(keyIdDraft || '').trim()) &&
+        hasRequiredIssuer &&
+        privateKeyConfigured &&
+        hasAppleAppSelection;
+    const showQuickSetupEditor = !quickSetupConfigured || quickSetupEditing || hasAppleDraftChanges;
+    const selectedAppleAppSummary = String(
+        config?.asc_app_name || config?.asc_bundle_id || selectedAppleAppId || config?.asc_app_id || ''
+    ).trim();
 
     React.useEffect(() => {
         return () => {
             if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
         };
     }, []);
+
+    React.useEffect(() => {
+        if (hasAppleDraftChanges) {
+            setQuickSetupEditing(true);
+        }
+    }, [hasAppleDraftChanges]);
 
     React.useEffect(() => {
         hydrationSnapshotRef.current = hydrationSnapshot ?? null;
@@ -360,6 +379,7 @@ export function AppStoreReviewWebhookRow(props: {
         hydratedAppIdRef.current = '';
         requestIdRef.current += 1;
         setExpanded(false);
+        setQuickSetupEditing(false);
         if (!appId || !userId) {
             setLoading(false);
             setBusyAction(null);
@@ -677,6 +697,7 @@ export function AppStoreReviewWebhookRow(props: {
 
             clearAppleDraftDirty();
             setPrivateKeyDraft('');
+            setQuickSetupEditing(false);
 
             if (options?.refreshAfter !== false) {
                 await refresh({ forceDraftHydrate: true });
@@ -1022,6 +1043,8 @@ export function AppStoreReviewWebhookRow(props: {
                                         <p className="mt-2 text-xs text-rose-300/95">{config.last_error}</p>
                                     ) : null}
 
+                                    {showQuickSetupEditor ? (
+                                        <>
                                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                                         <label className="block">
                                             <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
@@ -1182,19 +1205,75 @@ export function AppStoreReviewWebhookRow(props: {
                                             {text('appstore_review_webhook_no_apps_found')}
                                         </p>
                                     ) : null}
+                                        </>
+                                    ) : (
+                                        <div className="mt-4 rounded-2xl border border-white/8 bg-slate-950/20 p-3">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div className="grid gap-2 sm:grid-cols-2">
+                                                    <div className="min-w-0 rounded-xl border border-white/8 bg-slate-950/25 px-3 py-2">
+                                                        <div className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                                                            {text('appstore_review_webhook_key_id')}
+                                                        </div>
+                                                        <div className="mt-1 truncate text-xs text-indigo-100/90">{keyIdDraft || '—'}</div>
+                                                    </div>
+                                                    <div className="min-w-0 rounded-xl border border-white/8 bg-slate-950/25 px-3 py-2">
+                                                        <div className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                                                            {text('appstore_review_webhook_key_mode')}
+                                                        </div>
+                                                        <div className="mt-1 truncate text-xs text-indigo-100/90">
+                                                            {text(
+                                                                keyModeDraft === 'individual'
+                                                                    ? 'appstore_review_webhook_key_mode_individual'
+                                                                    : 'appstore_review_webhook_key_mode_team'
+                                                            )}
+                                                            {keyModeDraft === 'team' && issuerIdDraft ? ` · ${issuerIdDraft}` : ''}
+                                                        </div>
+                                                    </div>
+                                                    <div className="min-w-0 rounded-xl border border-white/8 bg-slate-950/25 px-3 py-2">
+                                                        <div className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                                                            {text('appstore_review_webhook_private_key')}
+                                                        </div>
+                                                        <div className="mt-1 truncate text-xs text-indigo-100/90">
+                                                            {text('appstore_review_webhook_private_key_stored')}
+                                                        </div>
+                                                    </div>
+                                                    <div className="min-w-0 rounded-xl border border-white/8 bg-slate-950/25 px-3 py-2">
+                                                        <div className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                                                            {text('appstore_review_webhook_apple_app')}
+                                                        </div>
+                                                        <div className="mt-1 truncate text-xs text-indigo-100/90">
+                                                            {selectedAppleAppSummary || '—'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQuickSetupEditing(true)}
+                                                    disabled={isReadOnly}
+                                                    className="inline-flex items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-2 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                                    title={text('edit')}
+                                                >
+                                                    <Pencil size={13} />
+                                                    {text('edit')}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleSaveAppleConfig()}
-                                            disabled={busyAction !== null || isReadOnly}
-                                            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
-                                        >
-                                            <Save size={13} />
-                                            {busyAction === 'save'
-                                                ? text('saving')
-                                                : text('appstore_review_webhook_save_apple')}
-                                        </button>
+                                        {showQuickSetupEditor ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleSaveAppleConfig()}
+                                                disabled={busyAction !== null || isReadOnly}
+                                                className="inline-flex items-center justify-center gap-1.5 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                                            >
+                                                <Save size={13} />
+                                                {busyAction === 'save'
+                                                    ? text('saving')
+                                                    : text('appstore_review_webhook_save_apple')}
+                                            </button>
+                                        ) : null}
                                         <button
                                             type="button"
                                             onClick={() => void handleSync()}
@@ -1252,14 +1331,9 @@ export function AppStoreReviewWebhookRow(props: {
                                             </span>
                                             <input
                                                 value={publicSubdomainDraft}
-                                                onChange={(event) => {
-                                                    if (isReadOnly) return;
-                                                    setPublicSubdomainDraft(event.target.value);
-                                                    markAppleDraftDirty();
-                                                }}
-                                                readOnly={isReadOnly}
+                                                readOnly
                                                 placeholder={suggestedPublicSubdomain || text('appstore_review_webhook_public_subdomain_placeholder')}
-                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white/85 placeholder:text-indigo-200/35 outline-none"
                                             />
                                             <p className="mt-2 text-[11px] text-indigo-200/45">
                                                 {text('appstore_review_webhook_public_subdomain_hint')}

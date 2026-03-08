@@ -423,14 +423,13 @@ const createAppStoreConnectJwt = (payload) => {
         ...(normalizedKeyMode === 'team' ? { iss: normalizedIssuerId } : { sub: 'user' }),
     };
     const signingInput = `${base64UrlEncode(header)}.${base64UrlEncode(tokenPayload)}`;
-    let privateKey;
     try {
-        privateKey = crypto.createPrivateKey(normalizedPrivateKey);
+        crypto.createPrivateKey(normalizedPrivateKey);
     } catch {
         throw createHttpError(400, 'Private key is not a valid .p8 key.');
     }
     const signature = crypto.sign('sha256', Buffer.from(signingInput), {
-        key: privateKey,
+        key: normalizedPrivateKey,
         dsaEncoding: 'ieee-p1363',
     });
     return `${signingInput}.${base64UrlEncode(signature)}`;

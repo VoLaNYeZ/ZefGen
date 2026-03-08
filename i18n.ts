@@ -402,7 +402,7 @@ export const translations = {
         appstore_review_webhook_key_mode_team: 'Team key',
         appstore_review_webhook_key_mode_individual: 'Individual key',
         appstore_review_webhook_key_id: 'Key ID',
-        appstore_review_webhook_issuer_id: 'Team / Issuer ID',
+        appstore_review_webhook_issuer_id: 'Team ID',
         appstore_review_webhook_issuer_id_not_needed: 'Not used for individual keys',
         appstore_review_webhook_private_key: 'Private key (.p8)',
         appstore_review_webhook_private_key_placeholder:
@@ -1065,7 +1065,7 @@ export const translations = {
         appstore_review_webhook_key_mode_team: 'Team key',
         appstore_review_webhook_key_mode_individual: 'Individual key',
         appstore_review_webhook_key_id: 'Key ID',
-        appstore_review_webhook_issuer_id: 'Team / Issuer ID',
+        appstore_review_webhook_issuer_id: 'Team ID',
         appstore_review_webhook_issuer_id_not_needed: 'Для individual key не нужен',
         appstore_review_webhook_private_key: 'Private key (.p8)',
         appstore_review_webhook_private_key_placeholder:
