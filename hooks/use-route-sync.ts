@@ -14,10 +14,9 @@ type RouteSyncParams = {
     brands: Brand[];
     apps: AppItem[];
     orderedApps: AppItem[];
-    selectedBrand: Brand | null;
-    selectedApp: AppItem | null;
-    setSelectedBrandId: (value: string | null) => void;
-    setSelectedAppId: (value: string | null) => void;
+    routeBrand: Brand | null;
+    routeApp: AppItem | null;
+    requestWorkspaceSelection: (payload: { brandId: string | null; appId: string | null }) => void;
     canNavigate?: (next: ReturnType<typeof parseRoute>) => boolean;
 };
 
@@ -31,10 +30,9 @@ export const useRouteSync = (params: RouteSyncParams) => {
         brands,
         apps,
         orderedApps,
-        selectedBrand,
-        selectedApp,
-        setSelectedBrandId,
-        setSelectedAppId,
+        routeBrand,
+        routeApp,
+        requestWorkspaceSelection,
         canNavigate,
     } = params;
 
@@ -64,17 +62,21 @@ export const useRouteSync = (params: RouteSyncParams) => {
 
         if (!nextBrand) nextBrand = brands[0];
 
-        setSelectedBrandId(nextBrand?.id ?? null);
-
         if (nextBrand && appAlias) {
             const targetAlias = normalizeAlias(appAlias);
             const nextApp = apps.find(
                 (app) => app.brand_id === nextBrand?.id && normalizeAlias(app.alias) === targetAlias
             );
-            setSelectedAppId(nextApp?.id ?? null);
+            requestWorkspaceSelection({
+                brandId: nextBrand?.id ?? null,
+                appId: nextApp?.id ?? null,
+            });
         } else {
             const firstApp = orderedApps.find((app) => app.brand_id === nextBrand?.id);
-            setSelectedAppId(firstApp?.id ?? null);
+            requestWorkspaceSelection({
+                brandId: nextBrand?.id ?? null,
+                appId: firstApp?.id ?? null,
+            });
         }
 
         setHasParsedRoute(true);
@@ -84,36 +86,35 @@ export const useRouteSync = (params: RouteSyncParams) => {
         brands,
         apps,
         orderedApps,
+        requestWorkspaceSelection,
         setHasParsedRoute,
-        setSelectedBrandId,
-        setSelectedAppId,
         setActivePage,
     ]);
 
     useEffect(() => {
         if (dataLoading || !hasParsedRoute) return;
         if (activePage !== 'workspace') return;
-        if (brands.length > 0 && !selectedBrand) {
+        if (brands.length > 0 && !routeBrand) {
             setHasParsedRoute(false);
         }
-    }, [dataLoading, hasParsedRoute, activePage, brands.length, selectedBrand, setHasParsedRoute]);
+    }, [dataLoading, hasParsedRoute, activePage, brands.length, routeBrand, setHasParsedRoute]);
 
     useEffect(() => {
         if (!hasParsedRoute || dataLoading) return;
         if (activePage !== 'workspace') return;
 
-        if (!selectedBrand) {
+        if (!routeBrand) {
             window.history.replaceState({}, '', '/');
             return;
         }
 
-        const currentApp = selectedApp && selectedApp.brand_id === selectedBrand.id ? selectedApp : null;
-        const nextRoute = buildRoute(selectedBrand, currentApp);
+        const currentApp = routeApp && routeApp.brand_id === routeBrand.id ? routeApp : null;
+        const nextRoute = buildRoute(routeBrand, currentApp);
 
         if (window.location.pathname !== nextRoute) {
             window.history.replaceState({}, '', nextRoute);
         }
-    }, [hasParsedRoute, dataLoading, activePage, selectedBrand, selectedApp]);
+    }, [hasParsedRoute, dataLoading, activePage, routeBrand, routeApp]);
 
     useEffect(() => {
         if (!hasParsedRoute) return;
@@ -140,11 +141,13 @@ export const useRouteSync = (params: RouteSyncParams) => {
                 ? apps.find((app) => app.brand_id === brandMatch.id && normalizeAlias(app.alias) === targetAlias)
                 : null;
 
-            setSelectedBrandId(brandMatch?.id ?? null);
-            setSelectedAppId(appMatch?.id ?? null);
+            requestWorkspaceSelection({
+                brandId: brandMatch?.id ?? null,
+                appId: appMatch?.id ?? null,
+            });
         };
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [brands, apps, dataLoading, hasParsedRoute, setSelectedBrandId, setSelectedAppId, setActivePage, canNavigate]);
+    }, [brands, apps, dataLoading, hasParsedRoute, requestWorkspaceSelection, setActivePage, canNavigate]);
 };

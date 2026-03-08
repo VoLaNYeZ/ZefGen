@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink, FileText, LifeBuoy, Loader2, Plus, Shield } 
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
+import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 
 const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder?: string }> = [
     { key: 'appstore_name', label: 'connector_appstore_name' },
@@ -425,6 +426,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                     <p className="mt-3 text-sm text-indigo-200/60">{text('connector_config_subtitle')}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <ConnectorAutosaveStatus connectorForm={connectorForm} text={text} />
                     <span title={generateButtonTitle} className="inline-flex">
                         <button
                             type="button"
@@ -463,14 +465,6 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 : text(webpageButtonLabelKey)}
                         </button>
                     </span>
-                    <button
-                        type="button"
-                        onClick={() => connectorForm.savePatch({ variables: connectorForm.variables })}
-                        disabled={!isEnabled || connectorForm.saving}
-                        className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
-                    >
-                        {connectorForm.saving ? text('saving') : text('save')}
-                    </button>
                 </div>
             </div>
 

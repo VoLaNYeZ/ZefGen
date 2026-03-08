@@ -23,12 +23,19 @@ import { useAppstoreAccounts } from '../../hooks/use-appstore-accounts';
 import { useAppIdeas } from '../../hooks/use-app-ideas';
 import { useBrandReferences } from '../../hooks/use-brand-references';
 import { useAppScreenshots } from '../../hooks/use-app-screenshots';
-import { useGeneratedAssets } from '../../hooks/use-generated-assets';
-import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
+import { useGeneratedAssets, type GeneratedAssetsAppSnapshot } from '../../hooks/use-generated-assets';
+import { useAppScreenshotPrompts, type AppScreenshotPromptsSnapshot } from '../../hooks/use-app-screenshot-prompts';
 import { signOut } from '../../data/auth';
 import { moveAppToBrand } from '../../data/apps';
 import { generateNoBrandIconPrompt } from '../../data/icon-prompt';
 import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../../data/app-indicators';
+import { fetchConnectorAppConfig } from '../../data/connector-app-config';
+import { fetchConnectorSecretMetas } from '../../data/connector-secrets';
+import { fetchAppstoreReviewEvents, fetchAppstoreReviewWebhook } from '../../data/appstore-review-webhooks';
+import { fetchScreenshotSets } from '../../data/screenshot-sets';
+import { fetchAssetPicks } from '../../data/asset-picks';
+import { fetchExportStatus } from '../../data/export-status';
+import { fetchAppScreenshotPrompts } from '../../data/app-screenshot-prompts';
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
 import { Sidebar } from './Sidebar';
@@ -40,6 +47,7 @@ import { AppFormCard } from './AppFormCard';
 import { AppSimulatorSection } from './AppSimulatorSection';
 import { GeneratedScreenshotsModule, IconGenerationModule, ScreenshotPromptsModule } from './AppGenerationSection';
 import { Lightbox } from './Lightbox';
+import { BreathingText } from '../fancy/text';
 import { GenerationQueueWidget } from './GenerationQueueWidget';
 import { ConfirmIconButton } from './ConfirmIconButton';
 import { DeliverablesPanel } from './DeliverablesPanel';
@@ -51,16 +59,25 @@ import { ConnectorVariablesSecretsPanel } from './ConnectorVariablesSecretsPanel
 import { IntegrationModulePanel } from './IntegrationModulePanel';
 import { AutoReleaseModulePanel } from './AutoReleaseModulePanel';
 import { AppStoreLinkRow } from './AppStoreLinkRow';
-import { AppStoreReviewWebhookRow } from './AppStoreReviewWebhookRow';
+import {
+    AppStoreReviewWebhookRow,
+    buildFallbackAppstoreReviewWebhookStatus,
+    extractAppStoreNameHintFromConnectorConfig,
+    type AppStoreReviewPanelSnapshot,
+} from './AppStoreReviewWebhookRow';
 import { StepBlock } from './StepBlock';
 import { AccountsPage } from './AccountsPage';
 import { IdeasPage } from './IdeasPage';
-import type { GeneratedAsset, TextLayer } from '../../types/zefgen';
-import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
+import type { AppExportStatus, AppItem, AppScreenshotSet, AssetPick, Brand, GeneratedAsset, TextLayer } from '../../types/zefgen';
+import { useConnectorConfigForm, type ConnectorConfigFormSnapshot } from '../../hooks/use-connector-config-form';
 import type { AppPage } from '../../utils/routes';
 import { buildAccountsRoute, buildIdeasRoute, buildRoute, parseRoute } from '../../utils/routes';
 import { makeUniqueAlias, slugify } from '../../utils/slug';
 import { isNoBrand } from '../../utils/no-brand';
+import {
+    buildManagedAppstoreReviewPublicPageUrl,
+    extractManagedAppstoreReviewPublicSubdomain,
+} from '../../utils/appstore-review-webhook';
 import {
     findLatestSuccessfulIntegrationForBranch,
     getIntegrationReadiness,
@@ -69,7 +86,32 @@ import {
 type AppShellProps = {
     session: Session;
 };
+
+type WorkspaceSelection = {
+    brandId: string | null;
+    appId: string | null;
+};
+
+type WorkspaceSwitchState = {
+    label: string;
+};
+
+type AppWorkspaceSnapshot = {
+    appId: string;
+    brandId: string;
+    connectorForm: ConnectorConfigFormSnapshot;
+    generatedAssets: GeneratedAssetsAppSnapshot;
+    screenshotPrompts: AppScreenshotPromptsSnapshot;
+    appStoreReviewPanel: AppStoreReviewPanelSnapshot | null;
+};
+
 const MAIN_BRANCH = 'main';
+const WORKSPACE_SWITCH_DIM_DELAY_MS = 180;
+const WORKSPACE_SWITCH_LOADER_DELAY_MS = 700;
+const WORKSPACE_SWITCH_LOADER_MIN_VISIBLE_MS = 320;
+
+type WorkspaceOverlayStage = 'hidden' | 'shield' | 'dim' | 'loader';
+
 export function AppShell({ session }: AppShellProps) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [lang, setLang] = useState<'en' | 'ru'>(() => {
@@ -93,6 +135,8 @@ export function AppShell({ session }: AppShellProps) {
 
     const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
     const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+    const [requestedBrandId, setRequestedBrandId] = useState<string | null>(null);
+    const [requestedAppId, setRequestedAppId] = useState<string | null>(null);
     const [assetsCollapsed, setAssetsCollapsed] = useState(false);
     const [dataError, setDataError] = useState<string | null>(null);
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
@@ -134,6 +178,17 @@ export function AppShell({ session }: AppShellProps) {
     const [moveTargetBrandId, setMoveTargetBrandId] = useState<string>('');
     const [moveToBrandLoading, setMoveToBrandLoading] = useState(false);
     const seenExportCompletedByAppRef = useRef<Record<string, boolean>>({});
+    const workspaceSnapshotsRef = useRef<Record<string, AppWorkspaceSnapshot>>({});
+    const workspaceSwitchSeqRef = useRef(0);
+    const lockFallbackAttemptRef = useRef('');
+    const [workspaceSwitchState, setWorkspaceSwitchState] = useState<WorkspaceSwitchState | null>(null);
+    const [isWorkspaceCommitPending, startWorkspaceCommitTransition] = React.useTransition();
+    const [workspaceOverlayStage, setWorkspaceOverlayStage] = useState<WorkspaceOverlayStage>('hidden');
+    const workspaceOverlayStageRef = useRef<WorkspaceOverlayStage>('hidden');
+    const workspaceOverlayDimTimerRef = useRef<number | null>(null);
+    const workspaceOverlayLoaderTimerRef = useRef<number | null>(null);
+    const workspaceOverlayHideTimerRef = useRef<number | null>(null);
+    const workspaceLoaderVisibleAtRef = useRef<number | null>(null);
 
     const reportActionError = useCallback((message: string) => {
         setActionError(message);
@@ -203,6 +258,12 @@ export function AppShell({ session }: AppShellProps) {
     const selectedBrand = useMemo(
         () => brands.find((brand) => brand.id === selectedBrandId) || null,
         [brands, selectedBrandId]
+    );
+    const routeBrandId = requestedBrandId ?? selectedBrandId;
+    const routeAppId = requestedAppId ?? selectedAppId;
+    const requestedBrand = useMemo(
+        () => brands.find((brand) => brand.id === routeBrandId) || null,
+        [brands, routeBrandId]
     );
     const isNoBrandMode = isNoBrand(selectedBrand);
 
@@ -292,10 +353,17 @@ export function AppShell({ session }: AppShellProps) {
         () => apps.find((app) => app.id === selectedAppId) || null,
         [apps, selectedAppId]
     );
+    const requestedApp = useMemo(() => {
+        const candidate = apps.find((app) => app.id === routeAppId) || null;
+        if (!candidate) return null;
+        if (requestedBrand && candidate.brand_id !== requestedBrand.id) return null;
+        return candidate;
+    }, [apps, requestedBrand, routeAppId]);
     const regularBrands = useMemo(
         () => brands.filter((brand) => !isNoBrand(brand)),
         [brands]
     );
+    const selectedAppSnapshot = selectedAppId ? workspaceSnapshotsRef.current[selectedAppId] ?? null : null;
 
     useEffect(() => {
         if (!selectedApp || !isNoBrandMode) {
@@ -514,10 +582,13 @@ export function AppShell({ session }: AppShellProps) {
     const {
         promptsByRefId,
         setPrompt,
+        flushPending: flushAppScreenshotPrompts,
+        buildSnapshot: buildAppScreenshotPromptsSnapshot,
     } = useAppScreenshotPrompts({
         session,
         selectedBrand,
         selectedApp,
+        hydrationSnapshot: selectedAppSnapshot?.screenshotPrompts ?? null,
         reportError: reportActionError,
     });
 
@@ -556,6 +627,7 @@ export function AppShell({ session }: AppShellProps) {
         screenshotSets,
         activeScreenshotSetId,
         setActiveScreenshotSetId,
+        buildMetadataSnapshot,
         handleAddScreenshotSet,
         handleDeleteScreenshotSet,
         assetPicks,
@@ -651,6 +723,7 @@ export function AppShell({ session }: AppShellProps) {
         session,
         selectedBrand,
         selectedApp,
+        metadataSnapshot: selectedAppSnapshot?.generatedAssets ?? null,
         selectedAppScreenshots,
         appScreenshotUrls,
         brandIconReference,
@@ -666,6 +739,7 @@ export function AppShell({ session }: AppShellProps) {
     const connectorForm = useConnectorConfigForm({
         session,
         selectedApp,
+        hydrationSnapshot: selectedAppSnapshot?.connectorForm ?? null,
         reportError: reportActionError,
         queueJobs: {
             createJob: queueCreateJob,
@@ -674,6 +748,9 @@ export function AppShell({ session }: AppShellProps) {
             finishJob: queueFinishJob,
         },
     });
+    const buildConnectorFormSnapshot = connectorForm.buildSnapshot;
+    const flushConnectorFormPending = connectorForm.flushPending;
+    const setConnectorFormVariable = connectorForm.setVariable;
 
     const selectedAppAccountCompanyName = useMemo(() => {
         return String(selectedAppstoreAccount?.company_name || '').trim();
@@ -683,19 +760,366 @@ export function AppShell({ session }: AppShellProps) {
     );
     const currentCompanyName = String((connectorForm.variables as any)?.company_name || '').trim();
 
+    const workspaceSwitchPending = Boolean(workspaceSwitchState) || isWorkspaceCommitPending;
+
+    const buildPageRoute = useCallback((page: AppPage, brand: Brand | null, app: AppItem | null) => {
+        if (page === 'accounts') return buildAccountsRoute();
+        if (page === 'ideas') return buildIdeasRoute();
+        return buildRoute(brand, app);
+    }, []);
+
+    useEffect(() => {
+        workspaceOverlayStageRef.current = workspaceOverlayStage;
+    }, [workspaceOverlayStage]);
+
+    useEffect(() => {
+        const clearTimer = (timerRef: React.MutableRefObject<number | null>) => {
+            if (timerRef.current) {
+                window.clearTimeout(timerRef.current);
+                timerRef.current = null;
+            }
+        };
+
+        clearTimer(workspaceOverlayDimTimerRef);
+        clearTimer(workspaceOverlayLoaderTimerRef);
+
+        if (workspaceSwitchPending) {
+            clearTimer(workspaceOverlayHideTimerRef);
+            setWorkspaceOverlayStage((previous) => (previous === 'loader' ? 'loader' : 'shield'));
+
+            workspaceOverlayDimTimerRef.current = window.setTimeout(() => {
+                setWorkspaceOverlayStage((previous) => (previous === 'loader' ? 'loader' : 'dim'));
+            }, WORKSPACE_SWITCH_DIM_DELAY_MS);
+
+            workspaceOverlayLoaderTimerRef.current = window.setTimeout(() => {
+                workspaceLoaderVisibleAtRef.current = performance.now();
+                setWorkspaceOverlayStage('loader');
+            }, WORKSPACE_SWITCH_LOADER_DELAY_MS);
+
+            return () => {
+                clearTimer(workspaceOverlayDimTimerRef);
+                clearTimer(workspaceOverlayLoaderTimerRef);
+            };
+        }
+
+        if (workspaceOverlayStageRef.current === 'loader' && workspaceLoaderVisibleAtRef.current) {
+            const elapsed = performance.now() - workspaceLoaderVisibleAtRef.current;
+            const remaining = Math.max(0, WORKSPACE_SWITCH_LOADER_MIN_VISIBLE_MS - elapsed);
+            if (remaining > 0) {
+                workspaceOverlayHideTimerRef.current = window.setTimeout(() => {
+                    workspaceLoaderVisibleAtRef.current = null;
+                    setWorkspaceOverlayStage('hidden');
+                }, remaining);
+                return () => clearTimer(workspaceOverlayHideTimerRef);
+            }
+        }
+
+        workspaceLoaderVisibleAtRef.current = null;
+        clearTimer(workspaceOverlayHideTimerRef);
+        setWorkspaceOverlayStage('hidden');
+
+        return () => {
+            clearTimer(workspaceOverlayHideTimerRef);
+        };
+    }, [workspaceSwitchPending]);
+
+    const restoreRequestedNavigationToDisplayed = useCallback((page: AppPage, accountsFocusAppId: string | null = null) => {
+        setRequestedBrandId(selectedBrandId);
+        setRequestedAppId(selectedAppId);
+        setAccountsFocusAppId(page === 'accounts' ? accountsFocusAppId : null);
+        setActivePage(page);
+        const route = buildPageRoute(page, selectedBrand, selectedApp);
+        if (window.location.pathname !== route) {
+            window.history.replaceState({}, '', route);
+        }
+    }, [buildPageRoute, selectedApp, selectedAppId, selectedBrand, selectedBrandId]);
+
+    const resolveWorkspaceSelection = useCallback(
+        (payload: WorkspaceSelection) => {
+            const nextBrand = payload.brandId ? brands.find((brand) => brand.id === payload.brandId) || null : null;
+            if (!nextBrand) {
+                return {
+                    brand: null as Brand | null,
+                    app: null as AppItem | null,
+                    brandId: null,
+                    appId: null,
+                };
+            }
+
+            const knownApp = payload.appId
+                ? apps.find((app) => app.id === payload.appId) ||
+                  (selectedApp?.id === payload.appId ? selectedApp : null)
+                : null;
+            const explicitApp =
+                knownApp && (knownApp.brand_id === nextBrand.id || knownApp.id === selectedApp?.id)
+                    ? ({ ...knownApp, brand_id: nextBrand.id } as AppItem)
+                    : null;
+            const fallbackApp = orderedApps.find((app) => app.brand_id === nextBrand.id) || null;
+            const nextApp = explicitApp || fallbackApp;
+
+            return {
+                brand: nextBrand,
+                app: nextApp,
+                brandId: nextBrand.id,
+                appId: nextApp?.id ?? null,
+            };
+        },
+        [apps, brands, orderedApps, selectedApp]
+    );
+
+    const resolveActiveScreenshotSetId = useCallback((appId: string, sets: AppScreenshotSet[], originalId?: string | null) => {
+        const storageKey = `zefgen.activeScreenshotSet.${appId}`;
+        const storedId = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null;
+        const resolvedId =
+            storedId && sets.some((set) => set.id === storedId)
+                ? storedId
+                : (String(originalId || '').trim() || sets[0]?.id || null);
+        if (typeof window !== 'undefined') {
+            if (resolvedId) window.localStorage.setItem(storageKey, resolvedId);
+            else window.localStorage.removeItem(storageKey);
+        }
+        return resolvedId;
+    }, []);
+
+    const hydrateWorkspaceSnapshot = useCallback(
+        async (brand: Brand | null, app: AppItem | null): Promise<AppWorkspaceSnapshot | null> => {
+            if (!brand || !app) return null;
+
+            const cached = workspaceSnapshotsRef.current[app.id];
+            if (cached && cached.brandId === brand.id) {
+                return cached;
+            }
+
+            const [configResp, secretsResp, webhookResp, eventsResp, setsResp, picksResp, statusResp, promptsResp] =
+                await Promise.all([
+                    fetchConnectorAppConfig({ userId: session.user.id, appId: app.id }),
+                    fetchConnectorSecretMetas({ userId: session.user.id, appId: app.id }),
+                    fetchAppstoreReviewWebhook({ userId: session.user.id, appId: app.id }),
+                    fetchAppstoreReviewEvents({ userId: session.user.id, appId: app.id, limit: 6 }),
+                    fetchScreenshotSets({ userId: session.user.id, appId: app.id }),
+                    fetchAssetPicks({ userId: session.user.id, appId: app.id }),
+                    fetchExportStatus({ userId: session.user.id, appId: app.id }),
+                    fetchAppScreenshotPrompts({ userId: session.user.id, brandId: brand.id, appId: app.id }),
+                ]);
+
+            if (configResp.error) throw configResp.error;
+            if (secretsResp.error) throw secretsResp.error;
+            if (webhookResp.error) throw webhookResp.error;
+            if (eventsResp.error) throw eventsResp.error;
+            if (setsResp.error) throw setsResp.error;
+            if (picksResp.error) throw picksResp.error;
+            if (statusResp.error) throw statusResp.error;
+            if (promptsResp.error) throw promptsResp.error;
+
+            const screenshotSetsForApp = (setsResp.data as AppScreenshotSet[]) || [];
+            const webhook = webhookResp.data || null;
+            const publicSubdomain =
+                String((webhook as any)?.public_subdomain || '').trim() ||
+                extractManagedAppstoreReviewPublicSubdomain((webhook as any)?.public_webhook_url);
+            const promptsByRefId: Record<string, string> = {};
+            for (const row of promptsResp.data || []) {
+                const refId = String((row as any)?.brand_reference_id || '').trim();
+                if (!refId) continue;
+                promptsByRefId[refId] = String((row as any)?.prompt || '');
+            }
+
+            const snapshot: AppWorkspaceSnapshot = {
+                appId: app.id,
+                brandId: brand.id,
+                connectorForm: {
+                    appId: app.id,
+                    projectBrief: String((configResp.data as any)?.project_brief || ''),
+                    ideaId: String((configResp.data as any)?.idea_id || '').trim() || null,
+                    baseBranch: String((configResp.data as any)?.base_branch || '').trim() || MAIN_BRANCH,
+                    variables: { ...((configResp.data as any)?.variables || {}) },
+                    secretMetas: Array.isArray(secretsResp.data) ? ([...secretsResp.data] as any) : [],
+                    publicWebpageUrl: publicSubdomain
+                        ? buildManagedAppstoreReviewPublicPageUrl({
+                              publicSubdomain,
+                          })
+                        : '',
+                    publicPagePublishedAt: String((webhook as any)?.public_page_published_at || '').trim() || null,
+                },
+                generatedAssets: {
+                    appId: app.id,
+                    screenshotSets: screenshotSetsForApp,
+                    activeScreenshotSetId: resolveActiveScreenshotSetId(app.id, screenshotSetsForApp, null),
+                    assetPicks: ((picksResp.data as AssetPick[]) || []).slice(),
+                    exportStatus: ((statusResp.data as AppExportStatus | null) ?? null)
+                        ? ({ ...(statusResp.data as AppExportStatus) } as AppExportStatus)
+                        : null,
+                },
+                screenshotPrompts: {
+                    appId: app.id,
+                    brandId: brand.id,
+                    promptsByRefId,
+                },
+                appStoreReviewPanel: {
+                    appId: app.id,
+                    status: buildFallbackAppstoreReviewWebhookStatus({
+                        webhook: (webhookResp.data as any) || null,
+                        events: ((eventsResp.data || []) as any) || [],
+                        connectorConfig: configResp.data || null,
+                        secretMetas: Array.isArray(secretsResp.data) ? secretsResp.data : [],
+                        text,
+                    }),
+                    appStoreNameHint: extractAppStoreNameHintFromConnectorConfig(configResp.data || null),
+                },
+            };
+
+            workspaceSnapshotsRef.current[app.id] = snapshot;
+            return snapshot;
+        },
+        [resolveActiveScreenshotSetId, session.user.id, text]
+    );
+
+    const requestWorkspaceSelection = useCallback(
+        async (
+            payload: WorkspaceSelection & {
+                historyMode?: 'push' | 'replace' | 'none';
+                closeSidebar?: boolean;
+            }
+        ) => {
+            const previousPage = activePage;
+            const previousAccountsFocusAppId = accountsFocusAppId;
+            const shouldEnterWorkspace = previousPage !== 'workspace';
+            const resolved = resolveWorkspaceSelection(payload);
+            const sameDisplayed = resolved.brandId === selectedBrandId && resolved.appId === selectedAppId;
+            const sameRequested = resolved.brandId === routeBrandId && resolved.appId === routeAppId;
+
+            setRequestedBrandId(resolved.brandId);
+            setRequestedAppId(resolved.appId);
+
+            const targetRoute = buildRoute(resolved.brand, resolved.app);
+            if (payload.historyMode === 'push' && window.location.pathname !== targetRoute) {
+                window.history.pushState({}, '', targetRoute);
+            } else if (payload.historyMode === 'replace' && window.location.pathname !== targetRoute) {
+                window.history.replaceState({}, '', targetRoute);
+            }
+
+            if (payload.closeSidebar && window.innerWidth < 768) {
+                setIsSidebarOpen(false);
+            }
+
+            if (sameDisplayed && sameRequested) {
+                if (shouldEnterWorkspace) {
+                    setAccountsFocusAppId(null);
+                    setActivePage('workspace');
+                }
+                setWorkspaceSwitchState(null);
+                return true;
+            }
+
+            const token = workspaceSwitchSeqRef.current + 1;
+            workspaceSwitchSeqRef.current = token;
+            setWorkspaceSwitchState({
+                label: resolved.app?.name || resolved.brand?.name || text('loading'),
+            });
+
+            const flushes = await Promise.all([
+                flushConnectorFormPending(),
+                flushAppScreenshotPrompts(),
+            ]);
+            if (workspaceSwitchSeqRef.current !== token) return false;
+            if (flushes.some((result) => !result)) {
+                restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                setWorkspaceSwitchState(null);
+                return false;
+            }
+
+            try {
+                await hydrateWorkspaceSnapshot(resolved.brand, resolved.app);
+                if (workspaceSwitchSeqRef.current !== token) return false;
+
+                startWorkspaceCommitTransition(() => {
+                    if (shouldEnterWorkspace) {
+                        setAccountsFocusAppId(null);
+                        setActivePage('workspace');
+                    }
+                    setSelectedBrandId(resolved.brandId);
+                    setSelectedAppId(resolved.appId);
+                    setWorkspaceSwitchState(null);
+                });
+                return true;
+            } catch (error: any) {
+                if (workspaceSwitchSeqRef.current !== token) return false;
+                restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                setWorkspaceSwitchState(null);
+                reportActionError(String(error?.message || text('download_failed')));
+                return false;
+            }
+        },
+        [
+            activePage,
+            accountsFocusAppId,
+            flushConnectorFormPending,
+            flushAppScreenshotPrompts,
+            hydrateWorkspaceSnapshot,
+            reportActionError,
+            resolveWorkspaceSelection,
+            restoreRequestedNavigationToDisplayed,
+            routeAppId,
+            routeBrandId,
+            selectedAppId,
+            selectedBrandId,
+            startWorkspaceCommitTransition,
+            text,
+        ]
+    );
+
+    useEffect(() => {
+        if (workspaceSwitchPending) return;
+        if (requestedBrandId === selectedBrandId && requestedAppId === selectedAppId) return;
+        setRequestedBrandId(selectedBrandId);
+        setRequestedAppId(selectedAppId);
+    }, [requestedAppId, requestedBrandId, selectedAppId, selectedBrandId, workspaceSwitchPending]);
+
+    useEffect(() => {
+        if (!selectedBrand?.id || !selectedApp?.id) return;
+        const connectorSnapshot = buildConnectorFormSnapshot(selectedApp.id);
+        const generatedSnapshot = buildMetadataSnapshot();
+        const promptsSnapshot = buildAppScreenshotPromptsSnapshot();
+        if (!generatedSnapshot || !promptsSnapshot) return;
+
+        workspaceSnapshotsRef.current[selectedApp.id] = {
+            appId: selectedApp.id,
+            brandId: selectedBrand.id,
+            connectorForm: connectorSnapshot,
+            generatedAssets: generatedSnapshot,
+            screenshotPrompts: promptsSnapshot,
+            appStoreReviewPanel: workspaceSnapshotsRef.current[selectedApp.id]?.appStoreReviewPanel ?? null,
+        };
+    }, [
+        buildAppScreenshotPromptsSnapshot,
+        buildConnectorFormSnapshot,
+        buildMetadataSnapshot,
+        selectedApp?.id,
+        selectedBrand?.id,
+    ]);
+
+    const handleAppStoreReviewSnapshotChange = useCallback((snapshot: AppStoreReviewPanelSnapshot | null) => {
+        if (!selectedBrand?.id || !selectedApp?.id || !snapshot || snapshot.appId !== selectedApp.id) return;
+        const currentSnapshot = workspaceSnapshotsRef.current[selectedApp.id];
+        if (!currentSnapshot) return;
+        workspaceSnapshotsRef.current[selectedApp.id] = {
+            ...currentSnapshot,
+            appStoreReviewPanel: snapshot,
+        };
+    }, [selectedApp?.id, selectedBrand?.id]);
+
     useEffect(() => {
         if (!selectedApp) return;
         if (appstoreAccountsLoading) return;
         const next = selectedAppAccountUsable ? selectedAppAccountCompanyName : '';
         if (currentCompanyName === next) return;
-        connectorForm.setVariable('company_name', next);
+        setConnectorFormVariable('company_name', next);
     }, [
         selectedApp?.id,
         appstoreAccountsLoading,
         selectedAppAccountUsable,
         selectedAppAccountCompanyName,
         currentCompanyName,
-        connectorForm.setVariable,
+        setConnectorFormVariable,
     ]);
 
     // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
@@ -953,10 +1377,15 @@ export function AppShell({ session }: AppShellProps) {
         brands,
         apps,
         orderedApps,
-        selectedBrand,
-        selectedApp,
-        setSelectedBrandId,
-        setSelectedAppId,
+        routeBrand: requestedBrand,
+        routeApp: requestedApp,
+        requestWorkspaceSelection: ({ brandId, appId }) => {
+            void requestWorkspaceSelection({
+                brandId,
+                appId,
+                historyMode: 'none',
+            });
+        },
         canNavigate: (next) => {
             if (activePage === 'accounts' && accountsHasUnsavedChanges && next.page !== 'accounts') {
                 reportActionError(text('accounts_unsaved_block'));
@@ -986,30 +1415,55 @@ export function AppShell({ session }: AppShellProps) {
     }, [isCurrentBrandReadOnly, reportLockedBrandWarning]);
 
     useEffect(() => {
-        if (!WORKSPACE_COLLAB_ENABLED || !WORKSPACE_LOCK_ENFORCEMENT_ENABLED) return;
-        if (softLockViewModeEnabled) return;
-        if (activePage !== 'workspace') return;
-        if (!selectedBrandId) return;
+        if (!WORKSPACE_COLLAB_ENABLED || !WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
+            lockFallbackAttemptRef.current = '';
+            return;
+        }
+        if (softLockViewModeEnabled) {
+            lockFallbackAttemptRef.current = '';
+            return;
+        }
+        if (activePage !== 'workspace') {
+            lockFallbackAttemptRef.current = '';
+            return;
+        }
+        if (!selectedBrandId) {
+            lockFallbackAttemptRef.current = '';
+            return;
+        }
 
         const conflictOnSelectedBrand =
             (lockConflictBrandId && lockConflictBrandId === selectedBrandId) ||
             lockedBrandIdSet.has(selectedBrandId);
-        if (!conflictOnSelectedBrand) return;
+        if (!conflictOnSelectedBrand) {
+            lockFallbackAttemptRef.current = '';
+            return;
+        }
 
         const fallbackBrand = brands.find((brand) => !lockedBrandIdSet.has(brand.id)) || null;
+        const fallbackApp = fallbackBrand
+            ? orderedApps.find((app) => app.brand_id === fallbackBrand.id) || null
+            : null;
+        const attemptKey = `${selectedBrandId}->${fallbackBrand?.id ?? 'none'}:${fallbackApp?.id ?? 'none'}`;
+        if (workspaceSwitchPending) return;
+        if (lockFallbackAttemptRef.current === attemptKey) return;
+        lockFallbackAttemptRef.current = attemptKey;
+
         if (!fallbackBrand) {
-            setSelectedBrandId(null);
-            setSelectedAppId(null);
-            window.history.replaceState({}, '', '/');
+            void requestWorkspaceSelection({
+                brandId: null,
+                appId: null,
+                historyMode: 'replace',
+            });
             return;
         }
 
         if (fallbackBrand.id === selectedBrandId) return;
-
-        const fallbackApp = orderedApps.find((app) => app.brand_id === fallbackBrand.id) || null;
-        setSelectedBrandId(fallbackBrand.id);
-        setSelectedAppId(fallbackApp?.id ?? null);
-        window.history.replaceState({}, '', buildRoute(fallbackBrand, fallbackApp));
+        void requestWorkspaceSelection({
+            brandId: fallbackBrand.id,
+            appId: fallbackApp?.id ?? null,
+            historyMode: 'replace',
+        });
     }, [
         activePage,
         selectedBrandId,
@@ -1017,9 +1471,9 @@ export function AppShell({ session }: AppShellProps) {
         lockedBrandIdSet,
         brands,
         orderedApps,
-        setSelectedBrandId,
-        setSelectedAppId,
         softLockViewModeEnabled,
+        requestWorkspaceSelection,
+        workspaceSwitchPending,
     ]);
 
     const handleRetry = () => {
@@ -1100,12 +1554,12 @@ export function AppShell({ session }: AppShellProps) {
                     void tryClaimBrand(brand.id);
                 }
 
-                setAccountsFocusAppId(null);
-                setActivePage('workspace');
-                setSelectedBrandId(brand.id);
-                setSelectedAppId(app.id);
-                window.history.pushState({}, '', buildRoute(brand, app));
-                if (window.innerWidth < 768) setIsSidebarOpen(false);
+                await requestWorkspaceSelection({
+                    brandId: brand.id,
+                    appId: app.id,
+                    historyMode: 'push',
+                    closeSidebar: true,
+                });
             })();
         },
         [
@@ -1120,9 +1574,8 @@ export function AppShell({ session }: AppShellProps) {
             softLockViewModeEnabled,
             reportLockedBrandWarning,
             releaseCurrentBrand,
+            requestWorkspaceSelection,
             setActivePage,
-            setSelectedBrandId,
-            setSelectedAppId,
         ]
     );
 
@@ -1222,14 +1675,12 @@ export function AppShell({ session }: AppShellProps) {
                     }
                 }
 
-                setAccountsFocusAppId(null);
-                if (activePage !== 'workspace') {
-                    const brand = brands.find((b) => b.id === brandId) || null;
-                    const route = brand ? `/${brand.slug}` : '/';
-                    window.history.pushState({}, '', route);
-                }
-                setActivePage('workspace');
-                setSelectedBrandId(brandId);
+                void requestWorkspaceSelection({
+                    brandId,
+                    appId: null,
+                    historyMode: 'push',
+                    closeSidebar: true,
+                });
             })();
         },
         [
@@ -1243,7 +1694,7 @@ export function AppShell({ session }: AppShellProps) {
             releaseCurrentBrand,
             softLockViewModeEnabled,
             reportLockedBrandWarning,
-            setSelectedBrandId,
+            requestWorkspaceSelection,
             setActivePage,
         ]
     );
@@ -1414,10 +1865,11 @@ export function AppShell({ session }: AppShellProps) {
                     refreshGeneratedAssets(),
                 ]);
 
-                setActivePage('workspace');
-                setSelectedBrandId(targetBrand.id);
-                setSelectedAppId(selectedApp.id);
-                window.history.pushState({}, '', buildRoute(targetBrand, movedApp));
+                await requestWorkspaceSelection({
+                    brandId: targetBrand.id,
+                    appId: selectedApp.id,
+                    historyMode: 'push',
+                });
             } catch (error: any) {
                 reportActionError(String(error?.message || text('upload_failed')));
             } finally {
@@ -1443,9 +1895,8 @@ export function AppShell({ session }: AppShellProps) {
         refreshApps,
         refreshAppScreenshots,
         refreshGeneratedAssets,
+        requestWorkspaceSelection,
         setActivePage,
-        setSelectedBrandId,
-        setSelectedAppId,
     ]);
 
     const runWriteAction = useCallback(
@@ -1743,6 +2194,9 @@ export function AppShell({ session }: AppShellProps) {
         [isCurrentBrandReadOnly, reportReadOnlyBlocked, connectorJobQueue, cancelGenerationJob]
     );
 
+    const showWorkspaceSwitchOverlay = activePage === 'workspace' && workspaceOverlayStage !== 'hidden';
+    const showWorkspaceSwitchLoader = workspaceOverlayStage === 'loader';
+    const workspaceSwitchLabel = workspaceSwitchState?.label || requestedApp?.name || requestedBrand?.name || text('loading');
     
     return (
         <div data-ui-lang={lang} className="flex h-screen overflow-hidden bg-slate-950 text-slate-100 font-['Manrope']">
@@ -1778,7 +2232,7 @@ export function AppShell({ session }: AppShellProps) {
                 sessionEmail={session.user.email ?? ''}
                 brands={brands}
                 brandAppSummaryByBrandId={brandAppSummaryByBrandId}
-                selectedBrandId={selectedBrandId}
+                selectedBrandId={routeBrandId}
                 activeSessionCount={activeSessionCount}
                 activeSessionCountries={activeSessionCountries}
                 lockedBrandIdSet={sidebarLockedBrandIdSet}
@@ -2054,51 +2508,52 @@ export function AppShell({ session }: AppShellProps) {
 
                             {activePage === 'workspace' && selectedBrand && (
                                 <>
-                                <div className="space-y-6">
-                                    {!isNoBrandMode && (
-                                        <>
-                                            <BrandReleaseInfoPanel
-                                                selectedBrand={selectedBrand}
-                                                patchBrand={async (brandId, patch) => {
-                                                    if (isCurrentBrandReadOnly) {
-                                                        reportReadOnlyBlocked();
-                                                        return;
-                                                    }
-                                                    await patchBrand(brandId, patch);
-                                                }}
-                                                reportError={reportActionError}
-                                                text={text}
-                                                isReadOnly={isCurrentBrandReadOnly}
-                                            />
-                                            <BrandReferencesPanel
-                                                key={selectedBrand.id}
-                                                brandId={selectedBrand.id}
-                                                brandScreenshotReferences={brandScreenshotReferences}
-                                                brandRefUrls={brandRefUrls}
-                                                handleReorderBrandReference={(fromIndex, toIndex) =>
-                                                    runWriteAction(() => handleReorderBrandReference(fromIndex, toIndex))
-                                                }
-                                                handleDeleteBrandReference={(ref) =>
-                                                    runWriteAction(() => handleDeleteBrandReference(ref))
-                                                }
-                                                handleBrandReferenceDragOver={handleBrandReferenceDragOver}
-                                                handleBrandReferenceDragLeave={handleBrandReferenceDragLeave}
-                                                handleBrandReferenceDrop={(event) => runWriteAction(() => handleBrandReferenceDrop(event))}
-                                                handleBrandScreenshotUpload={(event) =>
-                                                    runWriteAction(() => handleBrandScreenshotUpload(event))
-                                                }
-                                                isBrandRefDropActive={isBrandRefDropActive}
-                                                brandScreenshotsUploading={brandScreenshotsUploading}
-                                                maxScreenshotRefs={MAX_SCREENSHOT_REFS}
-                                                openLightbox={openLightbox}
-                                                text={text}
-                                                isReadOnly={isCurrentBrandReadOnly}
-                                            />
-                                        </>
-                                    )}
-
+                                <div className="relative">
                                     <div className="space-y-6">
-                                        <AppFolder
+                                        {!isNoBrandMode && (
+                                            <>
+                                                <BrandReleaseInfoPanel
+                                                    selectedBrand={selectedBrand}
+                                                    patchBrand={async (brandId, patch) => {
+                                                        if (isCurrentBrandReadOnly) {
+                                                            reportReadOnlyBlocked();
+                                                            return;
+                                                        }
+                                                        await patchBrand(brandId, patch);
+                                                    }}
+                                                    reportError={reportActionError}
+                                                    text={text}
+                                                    isReadOnly={isCurrentBrandReadOnly}
+                                                />
+                                                <BrandReferencesPanel
+                                                    key={selectedBrand.id}
+                                                    brandId={selectedBrand.id}
+                                                    brandScreenshotReferences={brandScreenshotReferences}
+                                                    brandRefUrls={brandRefUrls}
+                                                    handleReorderBrandReference={(fromIndex, toIndex) =>
+                                                        runWriteAction(() => handleReorderBrandReference(fromIndex, toIndex))
+                                                    }
+                                                    handleDeleteBrandReference={(ref) =>
+                                                        runWriteAction(() => handleDeleteBrandReference(ref))
+                                                    }
+                                                    handleBrandReferenceDragOver={handleBrandReferenceDragOver}
+                                                    handleBrandReferenceDragLeave={handleBrandReferenceDragLeave}
+                                                    handleBrandReferenceDrop={(event) => runWriteAction(() => handleBrandReferenceDrop(event))}
+                                                    handleBrandScreenshotUpload={(event) =>
+                                                        runWriteAction(() => handleBrandScreenshotUpload(event))
+                                                    }
+                                                    isBrandRefDropActive={isBrandRefDropActive}
+                                                    brandScreenshotsUploading={brandScreenshotsUploading}
+                                                    maxScreenshotRefs={MAX_SCREENSHOT_REFS}
+                                                    openLightbox={openLightbox}
+                                                    text={text}
+                                                    isReadOnly={isCurrentBrandReadOnly}
+                                                />
+                                            </>
+                                        )}
+
+                                        <div className="space-y-6">
+                                            <AppFolder
                                                 appFolderLayout={appFolderLayout}
                                                 appFolderTheme={appFolderTheme}
                                                 bodyCornerRadius={bodyCornerRadius}
@@ -2190,8 +2645,14 @@ export function AppShell({ session }: AppShellProps) {
                                                         {hasAnyAppsForBrand ? (
                                                             <AppPills
                                                             visibleApps={visibleApps}
-                                                            selectedAppId={selectedAppId}
-                                                            setSelectedAppId={setSelectedAppId}
+                                                            selectedAppId={routeBrandId === selectedBrandId ? routeAppId : selectedAppId}
+                                                            setSelectedAppId={(value) => {
+                                                                void requestWorkspaceSelection({
+                                                                    brandId: selectedBrandId,
+                                                                    appId: value,
+                                                                    historyMode: 'push',
+                                                                });
+                                                            }}
                                                             isBusy={false}
                                                         onBlockedAction={() => reportActionError(text('generation_in_progress'))}
                                                         lockedAppId={appFormOpen && editingAppId ? editingAppId : null}
@@ -2308,6 +2769,8 @@ export function AppShell({ session }: AppShellProps) {
                                                                             text={text}
                                                                             reportError={reportActionError}
                                                                             isReadOnly={isCurrentBrandReadOnly}
+                                                                            hydrationSnapshot={selectedAppSnapshot?.appStoreReviewPanel ?? null}
+                                                                            onSnapshotChange={handleAppStoreReviewSnapshotChange}
                                                                         />
                                                                     </div>
                                                                     <div className="my-4 h-px bg-indigo-900/30" aria-hidden="true" />
@@ -2517,6 +2980,38 @@ export function AppShell({ session }: AppShellProps) {
                                                 endSections={null}
                                         />
                                     </div>
+                                </div>
+                                {showWorkspaceSwitchOverlay && (
+                                    <div
+                                        className={`absolute inset-0 z-20 rounded-[36px] transition-all duration-150 ${
+                                            workspaceOverlayStage === 'shield'
+                                                ? 'bg-transparent'
+                                                : workspaceOverlayStage === 'dim'
+                                                  ? 'bg-slate-950/20 backdrop-blur-[2px]'
+                                                  : 'bg-slate-950/55 backdrop-blur-sm ring-1 ring-white/10'
+                                        }`}
+                                    >
+                                        <div className="flex h-full items-center justify-center">
+                                            {showWorkspaceSwitchLoader ? (
+                                                <div className="pointer-events-none select-none text-center">
+                                                    <BreathingText
+                                                        className="text-5xl leading-none text-white font-roboto-flex tracking-[0.08em]"
+                                                        fromFontVariationSettings="'wght' 260, 'slnt' 0"
+                                                        toFontVariationSettings="'wght' 820, 'slnt' -8"
+                                                    >
+                                                        ZEFGEN
+                                                    </BreathingText>
+                                                    <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-200/45">
+                                                        {text('loading')}
+                                                    </div>
+                                                    <div className="mt-1 text-xs font-medium text-indigo-100/65">
+                                                        {workspaceSwitchLabel}
+                                                    </div>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                )}
                                 </div>
                                 </>
                             )}

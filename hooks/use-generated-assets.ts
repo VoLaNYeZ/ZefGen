@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type {
@@ -67,6 +67,14 @@ type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like' | 'em
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
+export type GeneratedAssetsAppSnapshot = {
+    appId: string;
+    screenshotSets: AppScreenshotSet[];
+    activeScreenshotSetId: string | null;
+    assetPicks: AssetPick[];
+    exportStatus: AppExportStatus | null;
+};
+
 
 const compareAssetsByVersion = (a: GeneratedAsset, b: GeneratedAsset) => {
     const versionDiff = (a.version_index ?? 1) - (b.version_index ?? 1);
@@ -82,6 +90,7 @@ type Params = {
     session: Session | null;
     selectedBrand: Brand | null;
     selectedApp: AppItem | null;
+    metadataSnapshot?: GeneratedAssetsAppSnapshot | null;
     selectedAppScreenshots: AppScreenshot[];
     appScreenshotUrls: Record<string, string>;
     brandIconReference: BrandReference | null;
@@ -98,6 +107,7 @@ export const useGeneratedAssets = ({
     session,
     selectedBrand,
     selectedApp,
+    metadataSnapshot,
     selectedAppScreenshots,
     appScreenshotUrls,
     brandIconReference,
@@ -204,6 +214,46 @@ export const useGeneratedAssets = ({
     const [exportStatus, setExportStatus] = useState<AppExportStatus | null>(null);
     const setsLoadedForAppRef = useRef<string | null>(null);
     const backfillDoneForAppRef = useRef<Record<string, boolean>>({});
+    const primedSnapshotAppIdRef = useRef<string | null>(null);
+    const metadataSnapshotRef = useRef<GeneratedAssetsAppSnapshot | null>(metadataSnapshot ?? null);
+    const metadataRequestContextRef = useRef<{
+        userId: string;
+        brandId: string;
+        appId: string;
+        version: number;
+    }>({
+        userId: '',
+        brandId: '',
+        appId: '',
+        version: 0,
+    });
+
+    useEffect(() => {
+        metadataSnapshotRef.current = metadataSnapshot ?? null;
+    }, [metadataSnapshot]);
+
+    useLayoutEffect(() => {
+        metadataRequestContextRef.current = {
+            userId: String(session?.user.id || ''),
+            brandId: String(selectedBrand?.id || ''),
+            appId: String(selectedApp?.id || ''),
+            version: metadataRequestContextRef.current.version + 1,
+        };
+    }, [selectedApp?.id, selectedBrand?.id, session?.user.id]);
+
+    const getMetadataRequestContext = useCallback(() => ({ ...metadataRequestContextRef.current }), []);
+
+    const isCurrentMetadataRequest = useCallback(
+        (requestContext: { userId: string; brandId: string; appId: string; version: number }) => {
+            return (
+                requestContext.version === metadataRequestContextRef.current.version &&
+                requestContext.userId === metadataRequestContextRef.current.userId &&
+                requestContext.brandId === metadataRequestContextRef.current.brandId &&
+                requestContext.appId === metadataRequestContextRef.current.appId
+            );
+        },
+        []
+    );
 
     const setExportCompleted = useCallback(
         async (isCompleted: boolean) => {
@@ -327,14 +377,18 @@ export const useGeneratedAssets = ({
             setAssetPicks([]);
             setExportStatus(null);
             setsLoadedForAppRef.current = null;
+            primedSnapshotAppIdRef.current = null;
             return;
         }
+
+        const requestContext = getMetadataRequestContext();
 
         try {
             const { data: setsData, error: setsError } = await fetchScreenshotSets({
                 userId: session.user.id,
                 appId: selectedApp.id,
             });
+            if (!isCurrentMetadataRequest(requestContext)) return;
             if (setsError) {
                 const msg = String((setsError as any)?.message || setsError);
                 if (msg.toLowerCase().includes('app_screenshot_sets')) {
@@ -348,7 +402,9 @@ export const useGeneratedAssets = ({
             }
 
             let sets = (setsData as any as AppScreenshotSet[]) || [];
+            if (!isCurrentMetadataRequest(requestContext)) return;
             const ensured = await ensureOriginalScreenshotSet(sets);
+            if (!isCurrentMetadataRequest(requestContext)) return;
             sets = ensured.sets;
 
             // Decide active set (persisted per app).
@@ -369,6 +425,7 @@ export const useGeneratedAssets = ({
                 fetchAssetPicks({ userId: session.user.id, appId: selectedApp.id }),
                 fetchExportStatus({ userId: session.user.id, appId: selectedApp.id }),
             ]);
+            if (!isCurrentMetadataRequest(requestContext)) return;
 
             if (picksError) {
                 const msg = String((picksError as any)?.message || picksError);
@@ -397,14 +454,79 @@ export const useGeneratedAssets = ({
                 setExportStatus((statusData as any) ?? null);
             }
         } catch (error: any) {
+            if (!isCurrentMetadataRequest(requestContext)) return;
             reportError(error?.message || 'Failed to load sets.');
         }
-    }, [session, selectedBrand, selectedApp, ensureOriginalScreenshotSet, reportError]);
+    }, [
+        session,
+        selectedBrand,
+        selectedApp,
+        ensureOriginalScreenshotSet,
+        getMetadataRequestContext,
+        isCurrentMetadataRequest,
+        reportError,
+    ]);
+
+    const applyMetadataSnapshot = useCallback(
+        (snapshot: GeneratedAssetsAppSnapshot | null | undefined) => {
+            const appId = String(selectedApp?.id || '').trim();
+            if (!appId) return;
+            const safeSnapshot =
+                snapshot && String(snapshot.appId || '').trim() === appId
+                    ? snapshot
+                    : {
+                          appId,
+                          screenshotSets: [],
+                          activeScreenshotSetId: null,
+                          assetPicks: [],
+                          exportStatus: null,
+                      };
+            setScreenshotSets(Array.isArray(safeSnapshot.screenshotSets) ? [...safeSnapshot.screenshotSets] : []);
+            setActiveScreenshotSetId(String(safeSnapshot.activeScreenshotSetId || '').trim() || null);
+            setAssetPicks(Array.isArray(safeSnapshot.assetPicks) ? [...safeSnapshot.assetPicks] : []);
+            setExportStatus(safeSnapshot.exportStatus ? { ...safeSnapshot.exportStatus } : null);
+            setsLoadedForAppRef.current = appId;
+            primedSnapshotAppIdRef.current = appId;
+        },
+        [selectedApp?.id]
+    );
+
+    useLayoutEffect(() => {
+        if (!selectedBrand?.id || !selectedApp?.id) {
+            setScreenshotSets([]);
+            setActiveScreenshotSetId(null);
+            setAssetPicks([]);
+            setExportStatus(null);
+            setsLoadedForAppRef.current = null;
+            primedSnapshotAppIdRef.current = null;
+            return;
+        }
+
+        const matchingSnapshot =
+            metadataSnapshotRef.current && String(metadataSnapshotRef.current.appId || '') === String(selectedApp.id)
+                ? metadataSnapshotRef.current
+                : null;
+        if (matchingSnapshot) {
+            applyMetadataSnapshot(matchingSnapshot);
+            return;
+        }
+
+        setScreenshotSets([]);
+        setActiveScreenshotSetId(null);
+        setAssetPicks([]);
+        setExportStatus(null);
+        setsLoadedForAppRef.current = null;
+        primedSnapshotAppIdRef.current = null;
+    }, [applyMetadataSnapshot, selectedApp?.id, selectedBrand?.id]);
 
     useEffect(() => {
         // Reload when app changes or user changes.
         if (!session || !selectedApp?.id) return;
-        if (setsLoadedForAppRef.current === selectedApp.id) return;
+        const shouldRevalidatePrimedSnapshot = primedSnapshotAppIdRef.current === selectedApp.id;
+        if (setsLoadedForAppRef.current === selectedApp.id && !shouldRevalidatePrimedSnapshot) return;
+        if (shouldRevalidatePrimedSnapshot) {
+            primedSnapshotAppIdRef.current = null;
+        }
         loadSetsPicksStatus();
     }, [session, selectedApp?.id, loadSetsPicksStatus]);
 
@@ -433,6 +555,18 @@ export const useGeneratedAssets = ({
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
     }, [session, selectedApp?.id, loadSetsPicksStatus]);
+
+    const buildMetadataSnapshot = useCallback((): GeneratedAssetsAppSnapshot | null => {
+        const appId = String(selectedApp?.id || '').trim();
+        if (!appId) return null;
+        return {
+            appId,
+            screenshotSets: Array.isArray(screenshotSets) ? [...screenshotSets] : [],
+            activeScreenshotSetId: String(activeScreenshotSetId || '').trim() || null,
+            assetPicks: Array.isArray(assetPicks) ? [...assetPicks] : [],
+            exportStatus: exportStatus ? { ...exportStatus } : null,
+        };
+    }, [activeScreenshotSetId, assetPicks, exportStatus, screenshotSets, selectedApp?.id]);
 
     const selectedGeneratedAssets = useMemo(
         () => generatedAssets.filter((asset) => asset.app_id === selectedApp?.id),
@@ -3476,6 +3610,7 @@ export const useGeneratedAssets = ({
         screenshotSets,
         activeScreenshotSetId,
         setActiveScreenshotSetId: setActiveScreenshotSet,
+        buildMetadataSnapshot,
         handleAddScreenshotSet,
         handleDeleteScreenshotSet,
         assetPicks,

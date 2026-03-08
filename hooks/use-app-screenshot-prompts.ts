@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { AppItem, AppScreenshotPrompt, Brand } from '../types/zefgen';
 import {
@@ -10,10 +10,17 @@ import {
 const PROMPT_DEBOUNCE_MS = 1500;
 const PROMPT_FLUSH_MS = 30000;
 
+export type AppScreenshotPromptsSnapshot = {
+    appId: string;
+    brandId: string;
+    promptsByRefId: Record<string, string>;
+};
+
 type Params = {
     session: Session | null;
     selectedBrand: Brand | null;
     selectedApp: AppItem | null;
+    hydrationSnapshot?: AppScreenshotPromptsSnapshot | null;
     reportError?: (message: string) => void;
 };
 
@@ -21,6 +28,7 @@ export const useAppScreenshotPrompts = ({
     session,
     selectedBrand,
     selectedApp,
+    hydrationSnapshot,
     reportError,
 }: Params) => {
     const [promptsByRefId, setPromptsByRefId] = useState<Record<string, string>>({});
@@ -33,6 +41,7 @@ export const useAppScreenshotPrompts = ({
     const sessionRef = useRef<Session | null>(session);
     const brandRef = useRef<Brand | null>(selectedBrand);
     const appRef = useRef<AppItem | null>(selectedApp);
+    const hydrationSnapshotRef = useRef<AppScreenshotPromptsSnapshot | null>(hydrationSnapshot ?? null);
 
     useEffect(() => {
         promptsRef.current = promptsByRefId;
@@ -44,13 +53,17 @@ export const useAppScreenshotPrompts = ({
         appRef.current = selectedApp;
     }, [session, selectedBrand, selectedApp]);
 
+    useEffect(() => {
+        hydrationSnapshotRef.current = hydrationSnapshot ?? null;
+    }, [hydrationSnapshot]);
+
     const flushDirty = useCallback(
         async (override?: { userId: string; brandId: string; appId: string }) => {
             const userId = override?.userId ?? sessionRef.current?.user.id;
             const brandId = override?.brandId ?? brandRef.current?.id;
             const appId = override?.appId ?? appRef.current?.id;
-            if (!userId || !brandId || !appId) return;
-            if (!dirtyRef.current.size) return;
+            if (!userId || !brandId || !appId) return true;
+            if (!dirtyRef.current.size) return true;
 
             const dirtyIds = Array.from(dirtyRef.current.values()) as string[];
             const rows: Array<{ refId: string; value: string }> = dirtyIds.map((refId) => ({
@@ -84,10 +97,12 @@ export const useAppScreenshotPrompts = ({
                     if (error) throw error;
                 }
                 dirtyRef.current = new Set();
+                return true;
             } catch (err: any) {
                 const message = err?.message || 'Failed to save prompts.';
                 setError(message);
                 reportError?.(message);
+                return false;
             }
         },
         [reportError]
@@ -109,11 +124,48 @@ export const useAppScreenshotPrompts = ({
         return () => window.clearInterval(intervalId);
     }, [flushDirty]);
 
+    const applySnapshot = useCallback((snapshot: AppScreenshotPromptsSnapshot | null | undefined) => {
+        const appId = String(selectedApp?.id || '').trim();
+        const brandId = String(selectedBrand?.id || '').trim();
+        if (!appId || !brandId) return;
+        const safeSnapshot =
+            snapshot &&
+            String(snapshot.appId || '').trim() === appId &&
+            String(snapshot.brandId || '').trim() === brandId
+                ? snapshot
+                : {
+                      appId,
+                      brandId,
+                      promptsByRefId: {},
+                  };
+        const nextPrompts = { ...(safeSnapshot.promptsByRefId || {}) };
+        setPromptsByRefId(nextPrompts);
+        promptsRef.current = nextPrompts;
+        dirtyRef.current = new Set();
+        setLoading(false);
+    }, [selectedApp?.id, selectedBrand?.id]);
+
+    useLayoutEffect(() => {
+        if (!selectedBrand?.id || !selectedApp?.id) return;
+        const matchingHydrationSnapshot =
+            hydrationSnapshotRef.current &&
+            String(hydrationSnapshotRef.current.appId || '') === String(selectedApp?.id || '') &&
+            String(hydrationSnapshotRef.current.brandId || '') === String(selectedBrand?.id || '')
+                ? hydrationSnapshotRef.current
+                : null;
+        if (!matchingHydrationSnapshot) return;
+        applySnapshot(matchingHydrationSnapshot);
+    }, [applySnapshot, selectedApp?.id, selectedBrand?.id]);
+
     useEffect(() => {
         let isMounted = true;
         const userId = session?.user.id;
         const brandId = selectedBrand?.id;
         const appId = selectedApp?.id;
+        const hasHydrationSnapshot =
+            Boolean(hydrationSnapshotRef.current) &&
+            String(hydrationSnapshotRef.current?.appId || '') === String(appId || '') &&
+            String(hydrationSnapshotRef.current?.brandId || '') === String(brandId || '');
 
         if (!userId || !brandId || !appId) {
             setPromptsByRefId({});
@@ -124,7 +176,7 @@ export const useAppScreenshotPrompts = ({
         }
 
         dirtyRef.current = new Set();
-        setLoading(true);
+        setLoading(!hasHydrationSnapshot);
         setError(null);
 
         const load = async () => {
@@ -142,7 +194,21 @@ export const useAppScreenshotPrompts = ({
                 (data || []).forEach((row) => {
                     nextPrompts[row.brand_reference_id] = row.prompt ?? '';
                 });
-                setPromptsByRefId(nextPrompts);
+                if (dirtyRef.current.size > 0) {
+                    setPromptsByRefId((prev) => {
+                        const merged = { ...nextPrompts };
+                        dirtyRef.current.forEach((refId) => {
+                            if (Object.prototype.hasOwnProperty.call(prev, refId)) {
+                                merged[refId] = prev[refId] ?? '';
+                            }
+                        });
+                        promptsRef.current = merged;
+                        return merged;
+                    });
+                } else {
+                    promptsRef.current = nextPrompts;
+                    setPromptsByRefId(nextPrompts);
+                }
             }
             setLoading(false);
 
@@ -194,10 +260,25 @@ export const useAppScreenshotPrompts = ({
         scheduleFlush();
     };
 
+    const flushPending = useCallback(async () => {
+        return await flushDirty();
+    }, [flushDirty]);
+
+    const buildSnapshot = useCallback((): AppScreenshotPromptsSnapshot | null => {
+        const appId = String(selectedApp?.id || '').trim();
+        const brandId = String(selectedBrand?.id || '').trim();
+        if (!appId || !brandId) return null;
+        return {
+            appId,
+            brandId,
+            promptsByRefId: { ...promptsRef.current },
+        };
+    }, [selectedApp?.id, selectedBrand?.id]);
+
     return {
         promptsByRefId,
         setPrompt,
-        loading,
-        error,
+        flushPending,
+        buildSnapshot,
     };
 };

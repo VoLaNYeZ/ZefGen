@@ -197,8 +197,9 @@ export const AppPills = ({
                     style={{
                         width: tabButtonWidth || 120,
                         height: tabButtonHeight ? Math.max(28, Math.round(tabButtonHeight * 0.55)) : 32,
+                        top: 'calc(50% - 4px)',
                     }}
-                    className={`absolute right-0 top-1/2 -translate-y-1/2 rounded-2xl border px-0 py-0 text-center transition flex items-center justify-center leading-none ${
+                    className={`absolute right-0 -translate-y-1/2 rounded-2xl border px-0 py-0 text-center transition flex items-center justify-center leading-none ${
                         isBannedView
                             ? 'border-indigo-400/40 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25'
                             : 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'

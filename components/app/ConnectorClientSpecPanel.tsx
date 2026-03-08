@@ -2,6 +2,7 @@ import React from 'react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppIdea, AppIdeaCategory, IdeaAppAssignment } from '../../types/zefgen';
+import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 
 const formatIdeaPreview = (description: string) => {
     const normalized = String(description || '').replace(/\s+/g, ' ').trim();
@@ -266,6 +267,7 @@ export function ConnectorClientSpecPanel(props: {
                         <span className="rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-200/70">
                             iOS
                         </span>
+                        <ConnectorAutosaveStatus connectorForm={connectorForm} text={text} />
                         <button
                             type="button"
                             onClick={connectorForm.refresh}
@@ -273,19 +275,6 @@ export function ConnectorClientSpecPanel(props: {
                             className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 hover:border-indigo-400/40 disabled:opacity-60"
                         >
                             {connectorForm.loading ? text('loading') : text('refresh')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() =>
-                                connectorForm.savePatch({
-                                    project_brief: connectorForm.projectBrief,
-                                    idea_id: connectorForm.ideaId,
-                                })
-                            }
-                            disabled={!isEnabled || connectorForm.saving}
-                            className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
-                        >
-                            {connectorForm.saving ? text('saving') : text('save')}
                         </button>
                     </div>
                 </div>

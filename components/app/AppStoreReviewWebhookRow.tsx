@@ -129,14 +129,96 @@ const buildLocalCredentialIssues = (payload: {
 
 type BusyAction = 'create' | 'rotate' | 'save' | 'apps' | 'sync' | 'ping' | null;
 
+export type AppStoreReviewPanelSnapshot = {
+    appId: string;
+    status: AppstoreReviewWebhookStatus | null;
+    appStoreNameHint: string;
+};
+
+export const extractAppStoreNameHintFromConnectorConfig = (connectorConfig: any) =>
+    String((connectorConfig as any)?.variables?.appstore_name || '').trim();
+
+export const buildFallbackAppstoreReviewWebhookStatus = (payload: {
+    webhook: AppstoreReviewWebhook | null;
+    events: AppstoreReviewWebhookStatus['events'];
+    connectorConfig: any;
+    secretMetas: any[];
+    text: (key: TranslationKey) => string;
+}): AppstoreReviewWebhookStatus => {
+    const webhook = payload.webhook;
+    const bundleIdFallback = String((payload.connectorConfig as any)?.variables?.bundle_id || '').trim() || null;
+    const appStoreNameFallback = extractAppStoreNameHintFromConnectorConfig(payload.connectorConfig) || null;
+    const privateKeyConfiguredFallback = Boolean(
+        (payload.secretMetas || []).some(
+            (meta: any) => String(meta?.key || '').trim() === APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY
+        )
+    );
+    const resolvedPublicSubdomainFallback =
+        String(webhook?.public_subdomain || '').trim() ||
+        extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url) ||
+        '';
+    const defaultPublicWebhookUrlFallback = webhook
+        ? buildAppstoreReviewWebhookUrl(webhook.public_token, resolvedPublicSubdomainFallback)
+        : '';
+    const explicitPublicWebhookUrlFallback =
+        String(webhook?.public_webhook_url || '').trim() &&
+        !isManagedAppstoreReviewWebhookUrl(webhook?.public_webhook_url) &&
+        !isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)
+            ? String(webhook?.public_webhook_url || '').trim()
+            : '';
+    const effectivePublicWebhookUrlFallback = explicitPublicWebhookUrlFallback || defaultPublicWebhookUrlFallback;
+    const effectivePublicPageUrlFallback = buildManagedAppstoreReviewPublicPageUrl({
+        publicSubdomain: resolvedPublicSubdomainFallback,
+    });
+    const webhookReadinessIssuesFallback: string[] = [];
+    if (!resolvedPublicSubdomainFallback && !appStoreNameFallback) {
+        webhookReadinessIssuesFallback.push(payload.text('appstore_review_webhook_appstore_name_required'));
+    }
+    if (String(webhook?.public_webhook_url || '').trim() && isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)) {
+        webhookReadinessIssuesFallback.push(
+            'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.'
+        );
+    }
+    if (webhook && !effectivePublicWebhookUrlFallback && !webhookReadinessIssuesFallback.length) {
+        webhookReadinessIssuesFallback.push('Public webhook URL is not ready yet for this app.');
+    }
+
+    return {
+        webhook:
+            webhook && resolvedPublicSubdomainFallback && !String(webhook.public_subdomain || '').trim()
+                ? { ...webhook, public_subdomain: resolvedPublicSubdomainFallback }
+                : webhook,
+        events: Array.isArray(payload.events) ? [...payload.events] : [],
+        bundle_id: bundleIdFallback,
+        private_key_configured: privateKeyConfiguredFallback,
+        effective_public_webhook_url: effectivePublicWebhookUrlFallback,
+        effective_public_page_url: effectivePublicPageUrlFallback,
+        credential_issues: buildLocalCredentialIssues({
+            webhook,
+            privateKeyConfigured: privateKeyConfiguredFallback,
+        }),
+        webhook_readiness_issues: webhookReadinessIssuesFallback,
+    };
+};
+
 export function AppStoreReviewWebhookRow(props: {
     selectedApp: AppItem | null;
     session: Session | null;
     text: (key: TranslationKey) => string;
     reportError: (message: string) => void;
     isReadOnly?: boolean;
+    hydrationSnapshot?: AppStoreReviewPanelSnapshot | null;
+    onSnapshotChange?: (snapshot: AppStoreReviewPanelSnapshot | null) => void;
 }) {
-    const { selectedApp, session, text, reportError, isReadOnly = false } = props;
+    const {
+        selectedApp,
+        session,
+        text,
+        reportError,
+        isReadOnly = false,
+        hydrationSnapshot = null,
+        onSnapshotChange,
+    } = props;
     const [loading, setLoading] = React.useState(false);
     const [busyAction, setBusyAction] = React.useState<BusyAction>(null);
     const [notice, setNotice] = React.useState<string | null>(null);
@@ -158,6 +240,7 @@ export function AppStoreReviewWebhookRow(props: {
     const copiedTimerRef = React.useRef<number | null>(null);
     const hydratedAppIdRef = React.useRef('');
     const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
+    const hydrationSnapshotRef = React.useRef<AppStoreReviewPanelSnapshot | null>(hydrationSnapshot);
 
     const appId = String(selectedApp?.id || '').trim();
     const userId = String(session?.user?.id || '').trim();
@@ -204,26 +287,8 @@ export function AppStoreReviewWebhookRow(props: {
     }, []);
 
     React.useEffect(() => {
-        hydratedAppIdRef.current = '';
-        requestIdRef.current += 1;
-        setLoading(Boolean(appId && userId));
-        setBusyAction(null);
-        setNotice(null);
-        setStatus(null);
-        setAppleCandidates([]);
-        setAppleCandidatesLoaded(false);
-        setCopiedKey(null);
-        setKeyModeDraft('team');
-        setKeyIdDraft('');
-        setIssuerIdDraft('');
-        setPublicSubdomainDraft('');
-        setPrivateKeyDraft('');
-        setSelectedAppleAppId('');
-        setHasAppleDraftChanges(false);
-        setIsPrivateKeyDragActive(false);
-        setServerStatusWarning(null);
-        setAppStoreNameHint('');
-    }, [appId, userId]);
+        hydrationSnapshotRef.current = hydrationSnapshot ?? null;
+    }, [hydrationSnapshot]);
 
     React.useEffect(() => {
         if (!appId || !userId) return;
@@ -254,16 +319,23 @@ export function AppStoreReviewWebhookRow(props: {
     }, [config?.public_subdomain, hasAppleDraftChanges, legacyExplicitWebhookUrl, suggestedPublicSubdomain]);
 
     const hydrateDraftsFromStatus = React.useCallback(
-        (nextStatus: AppstoreReviewWebhookStatus | null, force = false) => {
+        (
+            nextStatus: AppstoreReviewWebhookStatus | null,
+            force = false,
+            options?: {
+                appStoreNameHint?: string;
+            }
+        ) => {
             if (!force && hasAppleDraftChanges) return;
             const webhook = nextStatus?.webhook;
+            const effectiveAppStoreNameHint = String(options?.appStoreNameHint ?? appStoreNameHint ?? '').trim();
             setKeyModeDraft(webhook?.key_mode === 'individual' ? 'individual' : 'team');
             setKeyIdDraft(String(webhook?.key_id || ''));
             setIssuerIdDraft(String(webhook?.issuer_id || ''));
             setPublicSubdomainDraft(
                 String(webhook?.public_subdomain || '').trim() ||
                     extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url) ||
-                    buildSuggestedAppstoreReviewPublicSubdomain(String(appStoreNameHint || ''))
+                    buildSuggestedAppstoreReviewPublicSubdomain(effectiveAppStoreNameHint)
             );
             setSelectedAppleAppId(String(webhook?.asc_app_id || ''));
             if (force) setPrivateKeyDraft('');
@@ -271,6 +343,99 @@ export function AppStoreReviewWebhookRow(props: {
         },
         [appStoreNameHint, hasAppleDraftChanges]
     );
+
+    const applyHydrationSnapshot = React.useCallback(
+        (snapshot: AppStoreReviewPanelSnapshot | null | undefined) => {
+            if (!appId) return;
+            const safeSnapshot =
+                snapshot && String(snapshot.appId || '').trim() === appId
+                    ? snapshot
+                    : {
+                          appId,
+                          status: null,
+                          appStoreNameHint: '',
+                      };
+            const nextAppStoreNameHint = String(safeSnapshot.appStoreNameHint || '').trim();
+            setLoading(false);
+            setBusyAction(null);
+            setNotice(null);
+            setStatus(safeSnapshot.status || null);
+            setAppleCandidates([]);
+            setAppleCandidatesLoaded(false);
+            setCopiedKey(null);
+            setIsPrivateKeyDragActive(false);
+            setServerStatusWarning(null);
+            setAppStoreNameHint(nextAppStoreNameHint);
+            hydrateDraftsFromStatus(safeSnapshot.status, true, { appStoreNameHint: nextAppStoreNameHint });
+            hydratedAppIdRef.current = appId;
+        },
+        [appId, hydrateDraftsFromStatus]
+    );
+
+    React.useLayoutEffect(() => {
+        hydratedAppIdRef.current = '';
+        requestIdRef.current += 1;
+        if (!appId || !userId) {
+            setLoading(false);
+            setBusyAction(null);
+            setNotice(null);
+            setStatus(null);
+            setAppleCandidates([]);
+            setAppleCandidatesLoaded(false);
+            setCopiedKey(null);
+            setKeyModeDraft('team');
+            setKeyIdDraft('');
+            setIssuerIdDraft('');
+            setPublicSubdomainDraft('');
+            setPrivateKeyDraft('');
+            setSelectedAppleAppId('');
+            setHasAppleDraftChanges(false);
+            setIsPrivateKeyDragActive(false);
+            setServerStatusWarning(null);
+            setAppStoreNameHint('');
+            return;
+        }
+
+        const matchingHydrationSnapshot =
+            hydrationSnapshotRef.current && String(hydrationSnapshotRef.current.appId || '').trim() === appId
+                ? hydrationSnapshotRef.current
+                : null;
+        if (matchingHydrationSnapshot) {
+            applyHydrationSnapshot(matchingHydrationSnapshot);
+            return;
+        }
+
+        setLoading(true);
+        setBusyAction(null);
+        setNotice(null);
+        setStatus(null);
+        setAppleCandidates([]);
+        setAppleCandidatesLoaded(false);
+        setCopiedKey(null);
+        setKeyModeDraft('team');
+        setKeyIdDraft('');
+        setIssuerIdDraft('');
+        setPublicSubdomainDraft('');
+        setPrivateKeyDraft('');
+        setSelectedAppleAppId('');
+        setHasAppleDraftChanges(false);
+        setIsPrivateKeyDragActive(false);
+        setServerStatusWarning(null);
+        setAppStoreNameHint('');
+    }, [appId, userId, applyHydrationSnapshot]);
+
+    React.useEffect(() => {
+        if (!onSnapshotChange) return;
+        if (!appId) {
+            onSnapshotChange(null);
+            return;
+        }
+        onSnapshotChange({
+            appId,
+            status,
+            appStoreNameHint: String(appStoreNameHint || '').trim(),
+        });
+    }, [appId, appStoreNameHint, onSnapshotChange, status]);
 
     const loadFallbackStatus = React.useCallback(async () => {
         const [webhookRes, eventsRes, connectorConfigRes, secretMetasRes] = await Promise.all([
@@ -285,62 +450,13 @@ export function AppStoreReviewWebhookRow(props: {
         if (connectorConfigRes.error) throw connectorConfigRes.error;
         if (secretMetasRes.error) throw secretMetasRes.error;
 
-        const webhook = (webhookRes.data as AppstoreReviewWebhook) || null;
-        const bundleIdFallback = String((connectorConfigRes.data as any)?.variables?.bundle_id || '').trim() || null;
-        const appStoreNameFallback =
-            String((connectorConfigRes.data as any)?.variables?.appstore_name || '').trim() || null;
-        const privateKeyConfiguredFallback = Boolean(
-            (secretMetasRes.data || []).some(
-                (meta: any) => String(meta?.key || '').trim() === APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY
-            )
-        );
-        const resolvedPublicSubdomainFallback =
-            String(webhook?.public_subdomain || '').trim() ||
-            extractManagedAppstoreReviewPublicSubdomain(webhook?.public_webhook_url) ||
-            '';
-        const defaultPublicWebhookUrlFallback = webhook
-            ? buildAppstoreReviewWebhookUrl(webhook.public_token, resolvedPublicSubdomainFallback)
-            : '';
-        const explicitPublicWebhookUrlFallback =
-            String(webhook?.public_webhook_url || '').trim() &&
-            !isManagedAppstoreReviewWebhookUrl(webhook?.public_webhook_url) &&
-            !isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)
-                ? String(webhook?.public_webhook_url || '').trim()
-                : '';
-        const effectivePublicWebhookUrlFallback =
-            explicitPublicWebhookUrlFallback || defaultPublicWebhookUrlFallback;
-        const effectivePublicPageUrlFallback = buildManagedAppstoreReviewPublicPageUrl({
-            publicSubdomain: resolvedPublicSubdomainFallback,
-        });
-        const webhookReadinessIssuesFallback: string[] = [];
-        if (!resolvedPublicSubdomainFallback && !appStoreNameFallback) {
-            webhookReadinessIssuesFallback.push(text('appstore_review_webhook_appstore_name_required'));
-        }
-        if (String(webhook?.public_webhook_url || '').trim() && isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)) {
-            webhookReadinessIssuesFallback.push(
-                'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.'
-            );
-        }
-        if (webhook && !effectivePublicWebhookUrlFallback && !webhookReadinessIssuesFallback.length) {
-            webhookReadinessIssuesFallback.push('Public webhook URL is not ready yet for this app.');
-        }
-
-        return {
-            webhook:
-                webhook && resolvedPublicSubdomainFallback && !String(webhook.public_subdomain || '').trim()
-                    ? { ...webhook, public_subdomain: resolvedPublicSubdomainFallback }
-                    : webhook,
+        return buildFallbackAppstoreReviewWebhookStatus({
+            webhook: (webhookRes.data as AppstoreReviewWebhook) || null,
             events: ((eventsRes.data || []) as AppstoreReviewWebhookStatus['events']) || [],
-            bundle_id: bundleIdFallback,
-            private_key_configured: privateKeyConfiguredFallback,
-            effective_public_webhook_url: effectivePublicWebhookUrlFallback,
-            effective_public_page_url: effectivePublicPageUrlFallback,
-            credential_issues: buildLocalCredentialIssues({
-                webhook,
-                privateKeyConfigured: privateKeyConfiguredFallback,
-            }),
-            webhook_readiness_issues: webhookReadinessIssuesFallback,
-        } as AppstoreReviewWebhookStatus;
+            connectorConfig: connectorConfigRes.data || null,
+            secretMetas: Array.isArray(secretMetasRes.data) ? secretMetasRes.data : [],
+            text,
+        });
     }, [appId, text, userId]);
 
     const refresh = React.useCallback(
@@ -387,8 +503,13 @@ export function AppStoreReviewWebhookRow(props: {
     );
 
     React.useEffect(() => {
-        void refresh({ forceDraftHydrate: true });
-    }, [refresh]);
+        const hasHydrationSnapshot =
+            Boolean(hydrationSnapshotRef.current) && String(hydrationSnapshotRef.current?.appId || '').trim() === appId;
+        void refresh({
+            forceDraftHydrate: true,
+            silent: hasHydrationSnapshot,
+        });
+    }, [appId, refresh]);
 
     React.useEffect(() => {
         if (!appId || !userId) return undefined;

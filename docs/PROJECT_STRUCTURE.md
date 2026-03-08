@@ -60,7 +60,7 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command), read-only aware.
 - `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries), read-only aware.
-- `components/app/AppStoreReviewWebhookRow.tsx` - Manual App Store Connect review-webhook setup row (listener URL + shared secret + recent delivery timeline), read-only aware.
+- `components/app/AppStoreReviewWebhookRow.tsx` - App Store Connect review-webhook control row (receiver creation, Apple credential save, `appshelp.cc` bridge sync/test, recent delivery timeline), read-only aware.
 - `components/app/ConnectorClientSpecPanel.tsx` - Step 2 idea picker (category + idea dropdowns) + client spec editor.
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
@@ -133,7 +133,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, lock conflict state, and optional `heartbeatBrandId` lock-hold override.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
 - `hooks/use-slot-mappings.ts` - Slot mapping persistence.
-- `hooks/use-app-folder-layout.ts` - Gooey layout measurements + refs.
+- `hooks/use-app-folder-layout.ts` - Gooey layout measurements + refs; background height is derived from normal-flow content bounds so the folder can shrink correctly after collapsed sections.
 - `hooks/use-app-pill-pan.ts` - Pointer-based horizontal panning logic.
 - `hooks/use-detect-browser.ts` - Browser detection helper.
 - `hooks/use-screen-size.ts` - Screen size tracking.
@@ -209,7 +209,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - Picks + completion:
   - Users explicitly pick 1 icon and 1 screenshot per slot per set for export (`app_asset_picks`).
   - “Mark as completed” validates picks and can prune unpicked generated assets to save storage (`app_export_status`).
-  - When the workspace is collapsed, the deliverables panel shows download-only ZIP buttons per set.
+  - When deliverables are collapsed, only the deliverables/generation workspace is compacted; the App Store link, review webhook row, and icon step remain visible in setup.
+  - In collapsed mode, the deliverables panel shows download-only ZIP buttons per set.
 
 ## GitHub Repo Creation
 - Serverless endpoint: `api/create-github-repo.ts` (Vercel Function) creates a private repo, adds default collaborators, and seeds template files.
@@ -259,13 +260,26 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - Migration: `supabase/migrations/2026-03-07_appstore_review_webhooks.sql`
   - Adds `public.appstore_review_webhooks` (one listener config per app).
   - Adds `public.appstore_review_events` (append-only delivery timeline per app).
+- Migration: `supabase/migrations/2026-03-07_appstore_review_webhooks_apple_connect.sql`
+  - Adds Apple binding/sync metadata (`key_mode`, `key_id`, `issuer_id`, `asc_app_id`, `apple_webhook_id`, etc).
+- Migration: `supabase/migrations/2026-03-08_appstore_review_webhook_public_subdomain.sql`
+  - Adds persistent clean `public_subdomain` allocation for `*.appshelp.cc`.
+- Migration: `supabase/migrations/2026-03-08_appstore_review_webhook_publish_and_bridge.sql`
+  - Adds `public_page_published_at` and bridge/public-page support fields.
 - UI: `components/app/AppStoreReviewWebhookRow.tsx` (rendered below the App Store URL row in the workspace).
 - Data layer: `data/appstore-review-webhooks.ts`.
-- Utility: `utils/appstore-review-webhook.ts` (public listener URL builder + local token/secret rotation helpers).
-- Receiver: `supabase/functions/appstore-review-webhook/index.ts` (public Apple-facing endpoint; deploy with `--no-verify-jwt`).
+- Bridge client: `data/appstore-review-webhook-api.ts` (browser calls to `https://{subdomain}.appshelp.cc/_bridge/appstore/...`).
+- Utility: `utils/appstore-review-webhook.ts` (clean `public_subdomain` + effective public webhook/page URL helpers).
+- Status/read API: `api/appstore-review-webhook-status.js` (shared ZefGen reads current webhook state for the UI).
+- Worker bridge/public surface: `cloudflare/appstore-review-bridge/worker.js`
+  - `/_bridge/appstore/apps|sync|ping` = Apple-facing setup/test actions
+  - `/appstore-review` = raw webhook forwarder to the hidden Supabase receiver
+  - `/`, `/privacy`, `/terms`, `/support`, `/icon` = public app page/redirect/icon routes on the same subdomain
+- Hidden receiver: `supabase/functions/appstore-review-webhook/index.ts` (called behind the Worker; deploy with `--no-verify-jwt`).
 - Public URL behavior:
   - Managed/default flow is `https://{subdomain}.appshelp.cc/appstore-review?token=...`.
-  - Legacy explicit custom HTTPS URLs are still honored if they are not the raw Supabase host.
+  - Public landing page flow is `https://{subdomain}.appshelp.cc/` after explicit `Generate webpage`.
+  - Legacy explicit custom HTTPS webhook URLs are still honored if they are not the raw Supabase host.
 
 ## Alias Uniqueness & Allocation
 - DB contract:
