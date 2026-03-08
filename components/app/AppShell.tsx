@@ -30,6 +30,7 @@ import { moveAppToBrand } from '../../data/apps';
 import { generateNoBrandIconPrompt } from '../../data/icon-prompt';
 import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../../data/app-indicators';
 import { fetchConnectorAppConfig } from '../../data/connector-app-config';
+import { fetchCurrentConnectorLegalLinks } from '../../data/connector-legal-links';
 import { fetchConnectorSecretMetas } from '../../data/connector-secrets';
 import { fetchAppstoreReviewEvents, fetchAppstoreReviewWebhook } from '../../data/appstore-review-webhooks';
 import { fetchScreenshotSets } from '../../data/screenshot-sets';
@@ -881,10 +882,11 @@ export function AppShell({ session }: AppShellProps) {
                 return cached;
             }
 
-            const [configResp, secretsResp, webhookResp, eventsResp, setsResp, picksResp, statusResp, promptsResp] =
+            const [configResp, secretsResp, legalLinksResp, webhookResp, eventsResp, setsResp, picksResp, statusResp, promptsResp] =
                 await Promise.all([
                     fetchConnectorAppConfig({ userId: session.user.id, appId: app.id }),
                     fetchConnectorSecretMetas({ userId: session.user.id, appId: app.id }),
+                    fetchCurrentConnectorLegalLinks({ appId: app.id }),
                     fetchAppstoreReviewWebhook({ userId: session.user.id, appId: app.id }),
                     fetchAppstoreReviewEvents({ userId: session.user.id, appId: app.id, limit: 6 }),
                     fetchScreenshotSets({ userId: session.user.id, appId: app.id }),
@@ -895,6 +897,7 @@ export function AppShell({ session }: AppShellProps) {
 
             if (configResp.error) throw configResp.error;
             if (secretsResp.error) throw secretsResp.error;
+            if (legalLinksResp.error) throw legalLinksResp.error;
             if (webhookResp.error) throw webhookResp.error;
             if (eventsResp.error) throw eventsResp.error;
             if (setsResp.error) throw setsResp.error;
@@ -923,6 +926,19 @@ export function AppShell({ session }: AppShellProps) {
                     ideaId: String((configResp.data as any)?.idea_id || '').trim() || null,
                     baseBranch: String((configResp.data as any)?.base_branch || '').trim() || MAIN_BRANCH,
                     variables: { ...((configResp.data as any)?.variables || {}) },
+                    configUpdatedAt: String((configResp.data as any)?.updated_at || '').trim() || null,
+                    legalLinks:
+                        ((legalLinksResp.data as any) && typeof legalLinksResp.data === 'object'
+                            ? { ...(legalLinksResp.data as any) }
+                            : {
+                                  id: null,
+                                  fingerprint: null,
+                                  privacy_policy_url: '',
+                                  terms_of_use_url: '',
+                                  support_form_url: '',
+                                  updated_at: null,
+                                  created_at: null,
+                              }) as any,
                     secretMetas: Array.isArray(secretsResp.data) ? ([...secretsResp.data] as any) : [],
                     publicWebpageUrl: publicSubdomain
                         ? buildManagedAppstoreReviewPublicPageUrl({
@@ -1973,9 +1989,7 @@ export function AppShell({ session }: AppShellProps) {
         if (fromStateUrl) return true;
         return false;
     }, [connectorEnabled, githubRepoUrl, selectedApp]);
-    const setupCompanyName = String(
-        (connectorForm.variables as any)?.company_name || selectedAppstoreAccount?.company_name || ''
-    ).trim();
+    const setupCompanyName = String(selectedAppstoreAccount?.company_name || '').trim();
     const setupStepDone =
         connectorEnabled &&
         String((connectorForm.variables as any)?.bundle_id || '').trim().length > 0 &&
@@ -1990,9 +2004,10 @@ export function AppShell({ session }: AppShellProps) {
         if (!connectorEnabled) return false;
         return getIntegrationReadiness({
             variables: connectorForm.variables,
+            legalLinks: connectorForm.legalLinks,
             secretMetas: connectorForm.secretMetas,
         });
-    }, [connectorEnabled, connectorForm.secretMetas, connectorForm.variables]);
+    }, [connectorEnabled, connectorForm.legalLinks, connectorForm.secretMetas, connectorForm.variables]);
 
     const latestSuccessfulIntegrationForBranch = useMemo(
         () => findLatestSuccessfulIntegrationForBranch(connectorRunnerJobs, MAIN_BRANCH),

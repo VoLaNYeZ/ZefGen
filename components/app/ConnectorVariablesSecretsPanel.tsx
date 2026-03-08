@@ -4,6 +4,7 @@ import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
+import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 
 const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder?: string }> = [
     { key: 'appstore_name', label: 'connector_appstore_name' },
@@ -110,8 +111,8 @@ export function ConnectorVariablesSecretsPanel(props: {
     }, [account?.id]);
 
     const resolvedCompanyName = React.useMemo(() => {
-        return String((connectorForm.variables as any)?.company_name || account?.company_name || '').trim();
-    }, [connectorForm.variables, account?.company_name]);
+        return String(account?.company_name || '').trim();
+    }, [account?.company_name]);
 
     const resolvedAppStoreName = React.useMemo(() => {
         return String((connectorForm.variables as any)?.appstore_name || '').trim();
@@ -173,18 +174,18 @@ export function ConnectorVariablesSecretsPanel(props: {
     const hasGeneratedLegalLinks = React.useMemo(
         () =>
             legalLinks.some((link) => {
-                const rawUrl = String((connectorForm.variables as any)?.[link.key] ?? '').trim();
+                const rawUrl = String((connectorForm.legalLinks as any)?.[link.key] ?? '').trim();
                 return isUsableLegalUrl(rawUrl);
             }),
-        [connectorForm.variables, legalLinks]
+        [connectorForm.legalLinks, legalLinks]
     );
     const hasCompleteLegalLinks = React.useMemo(
         () =>
             legalLinks.every((link) => {
-                const rawUrl = String((connectorForm.variables as any)?.[link.key] ?? '').trim();
+                const rawUrl = String((connectorForm.legalLinks as any)?.[link.key] ?? '').trim();
                 return isUsableLegalUrl(rawUrl);
             }),
-        [connectorForm.variables, legalLinks]
+        [connectorForm.legalLinks, legalLinks]
     );
     const generateButtonLabelKey: TranslationKey = hasGeneratedLegalLinks
         ? 'connector_regenerate_links'
@@ -192,6 +193,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     const generateButtonTitle = generateBlocked
         ? String(text('connector_generate_blocked_missing') || '').replace('{items}', missingGenerateInputs.join(', '))
         : text('connector_generate_links_hint');
+    const generateButtonInlineReason = generateBlocked ? generateButtonTitle : '';
 
     const projectBriefLength = React.useMemo(
         () => String(connectorForm.projectBrief || '').trim().length,
@@ -207,13 +209,13 @@ export function ConnectorVariablesSecretsPanel(props: {
         if (!resolvedAppStoreDescription) missing.push(text('connector_appstore_description'));
         if (!hasCompleteLegalLinks) {
             legalLinks.forEach((link) => {
-                const rawUrl = String((connectorForm.variables as any)?.[link.key] ?? '').trim();
+                const rawUrl = String((connectorForm.legalLinks as any)?.[link.key] ?? '').trim();
                 if (!isUsableLegalUrl(rawUrl)) missing.push(link.fullLabel);
             });
         }
         return missing;
     }, [
-        connectorForm.variables,
+        connectorForm.legalLinks,
         hasCompleteLegalLinks,
         legalLinks,
         resolvedAppStoreDescription,
@@ -230,6 +232,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         : webpageGenerateBlocked
           ? String(text('connector_generate_blocked_missing') || '').replace('{items}', webpageMissingInputs.join(', '))
           : text('connector_generate_webpage_hint');
+    const webpageButtonInlineReason = !webpagePublished && webpageGenerateBlocked ? webpageButtonTitle : '';
 
     const compactVariables = React.useMemo(
         () => DEFAULT_VARIABLES.filter((f) => !WIDE_VARIABLE_KEYS.has(f.key)),
@@ -428,44 +431,58 @@ export function ConnectorVariablesSecretsPanel(props: {
                     </p>
                     <p className="mt-3 text-sm text-indigo-200/60">{text('connector_config_subtitle')}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-start justify-end gap-2">
                     <ConnectorAutosaveStatus connectorForm={connectorForm} text={text} />
-                    <span title={generateButtonTitle} className="inline-flex">
-                        <button
-                            type="button"
-                            onClick={() => void handleGenerateLinks()}
-                            disabled={
-                                !isEnabled ||
-                                connectorForm.loading ||
-                                connectorForm.saving ||
-                                connectorForm.generateLinksBusy ||
-                                connectorForm.generateDescriptionBusy
-                            }
-                            title={generateButtonTitle}
-                            className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
-                        >
-                            {connectorForm.generateLinksBusy ? text('loading') : text(generateButtonLabelKey)}
-                        </button>
-                    </span>
-                    <span title={webpageButtonTitle} className="inline-flex">
-                        <button
-                            type="button"
-                            onClick={() => void handleGenerateWebpage()}
-                            disabled={
-                                !webpagePublished &&
-                                (!isEnabled ||
+                    <div className="flex flex-col items-end gap-1">
+                        <span title={generateButtonTitle} className="inline-flex">
+                            <button
+                                type="button"
+                                onClick={() => void handleGenerateLinks()}
+                                disabled={
+                                    !isEnabled ||
                                     connectorForm.loading ||
                                     connectorForm.saving ||
-                                    connectorForm.publishWebpageBusy)
-                            }
-                            title={webpageButtonTitle}
-                            className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
-                        >
-                            {connectorForm.publishWebpageBusy
-                                ? text('loading')
-                                : text(webpageButtonLabelKey)}
-                        </button>
-                    </span>
+                                    connectorForm.generateLinksBusy ||
+                                    connectorForm.generateDescriptionBusy
+                                }
+                                title={generateButtonTitle}
+                                className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
+                            >
+                                {connectorForm.generateLinksBusy ? text('loading') : text(generateButtonLabelKey)}
+                            </button>
+                        </span>
+                        {generateButtonInlineReason ? (
+                            <div className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/80">
+                                {generateButtonInlineReason}
+                            </div>
+                        ) : null}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                        <span title={webpageButtonTitle} className="inline-flex">
+                            <button
+                                type="button"
+                                onClick={() => void handleGenerateWebpage()}
+                                disabled={
+                                    !webpagePublished &&
+                                    (!isEnabled ||
+                                        connectorForm.loading ||
+                                        connectorForm.saving ||
+                                        connectorForm.publishWebpageBusy)
+                                }
+                                title={webpageButtonTitle}
+                                className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
+                            >
+                                {connectorForm.publishWebpageBusy
+                                    ? text('loading')
+                                    : text(webpageButtonLabelKey)}
+                            </button>
+                        </span>
+                        {webpageButtonInlineReason ? (
+                            <div className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/80">
+                                {webpageButtonInlineReason}
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
             </div>
 
@@ -474,6 +491,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                     {connectorForm.error}
                 </div>
             )}
+            <ConnectorSaveConflictBanner connectorForm={connectorForm} text={text} />
             {generateNotice && (
                 <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-xs text-emerald-100/90">
                     {generateNotice}
@@ -721,7 +739,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             <div className="text-[11px] text-indigo-200/60">{text('connector_legal_links')}</div>
                             <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
                                 {legalLinks.map((link) => {
-                                    const rawUrl = String((connectorForm.variables as any)?.[link.key] ?? '').trim();
+                                    const rawUrl = String((connectorForm.legalLinks as any)?.[link.key] ?? '').trim();
                                     const usable = isUsableLegalUrl(rawUrl);
                                     const hint = usable
                                         ? `${text('connector_legal_link_open_hint')}: ${link.fullLabel}`

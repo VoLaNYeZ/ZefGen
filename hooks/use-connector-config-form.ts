@@ -1,7 +1,12 @@
 import React from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { AppItem } from '../types/zefgen';
-import { fetchConnectorAppConfig, upsertConnectorAppConfig } from '../data/connector-app-config';
+import {
+    fetchConnectorAppConfig,
+    saveConnectorAppConfigSnapshot,
+    type ConnectorAppConfig,
+    type SaveConnectorAppConfigResponse,
+} from '../data/connector-app-config';
 import {
     deleteConnectorSecret,
     fetchConnectorSecretMetas,
@@ -10,8 +15,10 @@ import {
 } from '../data/connector-secrets';
 import {
     computeLegalLinksFingerprint,
+    fetchCurrentConnectorLegalLinks,
     fetchLatestSucceededLegalLinksRun,
     invokeGenerateLegalLinks,
+    type CurrentConnectorLegalLinks,
     type GenerateLegalLinksResponse,
 } from '../data/connector-legal-links';
 import {
@@ -34,6 +41,12 @@ const APP_NAME_MAX_LENGTH = 30;
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
 const APPHUD_VARIABLE_KEY = 'apphud_api_key';
 const LEGACY_APPHUD_VARIABLE_KEY = 'apphud_api_url';
+const SYSTEM_OWNED_VARIABLE_KEYS = new Set([
+    'company_name',
+    'privacy_policy_url',
+    'terms_of_use_url',
+    'support_form_url',
+]);
 const AUTOSAVE_BASE_DELAY_MS = 900;
 const AUTOSAVE_BACKOFF_BASE_MS = 1_000;
 const AUTOSAVE_BACKOFF_MAX_MS = 30_000;
@@ -49,7 +62,7 @@ const clampVariableValue = (key: string, value: any) => {
 const normalizeVariables = (raw: Record<string, any> | null | undefined): Record<string, any> => {
     const out: Record<string, any> = {};
     for (const [key, value] of Object.entries(raw || {})) {
-        if (key === APPHUD_VARIABLE_KEY || key === LEGACY_APPHUD_VARIABLE_KEY) continue;
+        if (key === APPHUD_VARIABLE_KEY || key === LEGACY_APPHUD_VARIABLE_KEY || SYSTEM_OWNED_VARIABLE_KEYS.has(key)) continue;
         out[key] = clampVariableValue(key, value);
     }
     const source = raw || {};
@@ -103,9 +116,37 @@ type SavePatchOptions = {
     reportError?: boolean;
 };
 
+type RefreshOptions = {
+    mode?: ConnectorConfigLoadingMode;
+    preserveConflict?: boolean;
+    forceConfigOverwrite?: boolean;
+};
+
 type RequestContext = {
     appId: string;
     appContextVersion: number;
+};
+
+export type ConnectorLegalLinksState = {
+    id: string | null;
+    fingerprint: string | null;
+    privacy_policy_url: string;
+    terms_of_use_url: string;
+    support_form_url: string;
+    updated_at: string | null;
+    created_at: string | null;
+};
+
+type ConnectorEditableSnapshot = {
+    projectBrief: string;
+    ideaId: string | null;
+    baseBranch: string;
+    variables: Record<string, any>;
+};
+
+type ConnectorSaveConflictState = {
+    pendingSnapshot: ConnectorEditableSnapshot;
+    serverRow: ConnectorAppConfig | null;
 };
 
 type LegalLinksPrecheckResult = {
@@ -126,6 +167,8 @@ export type ConnectorConfigFormSnapshot = {
     ideaId: string | null;
     baseBranch: string;
     variables: Record<string, any>;
+    configUpdatedAt: string | null;
+    legalLinks: ConnectorLegalLinksState;
     secretMetas: ConnectorSecretMeta[];
     publicWebpageUrl: string;
     publicPagePublishedAt: string | null;
@@ -133,6 +176,26 @@ export type ConnectorConfigFormSnapshot = {
 
 export type ConnectorConfigLoadingMode = 'idle' | 'initial' | 'switch' | 'background';
 export type ConnectorConfigSaveState = 'idle' | 'saving' | 'saved' | 'dirty' | 'error';
+
+const emptyLegalLinks = (): ConnectorLegalLinksState => ({
+    id: null,
+    fingerprint: null,
+    privacy_policy_url: '',
+    terms_of_use_url: '',
+    support_form_url: '',
+    updated_at: null,
+    created_at: null,
+});
+
+const toLegalLinksState = (raw: CurrentConnectorLegalLinks | null | undefined): ConnectorLegalLinksState => ({
+    id: String(raw?.id || '').trim() || null,
+    fingerprint: String(raw?.fingerprint || '').trim() || null,
+    privacy_policy_url: String(raw?.privacy_policy_url || '').trim(),
+    terms_of_use_url: String(raw?.terms_of_use_url || '').trim(),
+    support_form_url: String(raw?.support_form_url || '').trim(),
+    updated_at: String(raw?.updated_at || '').trim() || null,
+    created_at: String(raw?.created_at || '').trim() || null,
+});
 
 export const useConnectorConfigForm = (payload: {
     session: Session | null;
@@ -157,9 +220,12 @@ export const useConnectorConfigForm = (payload: {
     const [ideaId, setIdeaId] = React.useState<string | null>(null);
     const [baseBranch, setBaseBranchState] = React.useState(DEFAULT_BASE_BRANCH);
     const [variables, setVariablesState] = React.useState<Record<string, any>>({});
+    const [configUpdatedAt, setConfigUpdatedAt] = React.useState<string | null>(null);
+    const [legalLinks, setLegalLinks] = React.useState<ConnectorLegalLinksState>(() => emptyLegalLinks());
     const [secretMetas, setSecretMetas] = React.useState<any[]>([]);
     const [publicWebpageUrl, setPublicWebpageUrl] = React.useState('');
     const [publicPagePublishedAt, setPublicPagePublishedAt] = React.useState<string | null>(null);
+    const [staleConflict, setStaleConflict] = React.useState<ConnectorSaveConflictState | null>(null);
     const autosaveTimerRef = React.useRef<number | null>(null);
     const lastSavedVariablesHashRef = React.useRef<string>('');
     const lastSavedProjectBriefRef = React.useRef<string>('');
@@ -173,6 +239,9 @@ export const useConnectorConfigForm = (payload: {
     const variablesRef = React.useRef<Record<string, any>>({});
     const isDirtyRef = React.useRef(false);
     const hydrationSnapshotRef = React.useRef<ConnectorConfigFormSnapshot | null>(payload.hydrationSnapshot ?? null);
+    const legalLinksRef = React.useRef<ConnectorLegalLinksState>(emptyLegalLinks());
+    const configUpdatedAtRef = React.useRef<string | null>(null);
+    const staleConflictRef = React.useRef<ConnectorSaveConflictState | null>(null);
 
     const setVariables = React.useCallback((next: React.SetStateAction<Record<string, any>>) => {
         setVariablesState((prev) => {
@@ -193,6 +262,18 @@ export const useConnectorConfigForm = (payload: {
     React.useEffect(() => {
         variablesRef.current = normalizeVariables(variables);
     }, [variables]);
+
+    React.useEffect(() => {
+        legalLinksRef.current = legalLinks;
+    }, [legalLinks]);
+
+    React.useEffect(() => {
+        configUpdatedAtRef.current = configUpdatedAt;
+    }, [configUpdatedAt]);
+
+    React.useEffect(() => {
+        staleConflictRef.current = staleConflict;
+    }, [staleConflict]);
 
     const getRequestContext = React.useCallback((): RequestContext => {
         return {
@@ -247,6 +328,8 @@ export const useConnectorConfigForm = (payload: {
             ideaId: String(ideaId || '').trim() || null,
             baseBranch: normalizeBaseBranch(baseBranch),
             variables: normalizeVariables(variablesRef.current),
+            configUpdatedAt: String(configUpdatedAtRef.current || '').trim() || null,
+            legalLinks: { ...legalLinksRef.current },
             secretMetas: Array.isArray(secretMetas) ? [...secretMetas] : [],
             publicWebpageUrl: String(publicWebpageUrl || ''),
             publicPagePublishedAt: String(publicPagePublishedAt || '').trim() || null,
@@ -267,6 +350,8 @@ export const useConnectorConfigForm = (payload: {
                           ideaId: null,
                           baseBranch: DEFAULT_BASE_BRANCH,
                           variables: {},
+                          configUpdatedAt: null,
+                          legalLinks: emptyLegalLinks(),
                           secretMetas: [],
                           publicWebpageUrl: '',
                           publicPagePublishedAt: null,
@@ -281,6 +366,8 @@ export const useConnectorConfigForm = (payload: {
             setIdeaId(normalizedIdeaId);
             setBaseBranchState(normalizedBaseBranch);
             setVariables(normalizedVariables);
+            setConfigUpdatedAt(String(safeSnapshot.configUpdatedAt || '').trim() || null);
+            setLegalLinks(toLegalLinksState(safeSnapshot.legalLinks));
             setSecretMetas(Array.isArray(safeSnapshot.secretMetas) ? [...safeSnapshot.secretMetas] : []);
             setPublicWebpageUrl(String(safeSnapshot.publicWebpageUrl || ''));
             setPublicPagePublishedAt(String(safeSnapshot.publicPagePublishedAt || '').trim() || null);
@@ -289,7 +376,8 @@ export const useConnectorConfigForm = (payload: {
             lastSavedVariablesHashRef.current = hashVariables(normalizedVariables);
             isDirtyRef.current = false;
             resetAutosaveBackoff();
-            setLastSaveAt(Date.now());
+            setStaleConflict(null);
+            setLastSaveAt(safeSnapshot.configUpdatedAt ? Date.now() : null);
             setLastSaveError(null);
             setLoading(false);
         },
@@ -316,11 +404,14 @@ export const useConnectorConfigForm = (payload: {
         setGenerateDescriptionBusy(false);
         setPublishWebpageBusy(false);
         setError(null);
+        setStaleConflict(null);
         if (!selectedApp?.id) {
             setProjectBrief('');
             setIdeaId(null);
             setBaseBranchState(DEFAULT_BASE_BRANCH);
             setVariables({});
+            setConfigUpdatedAt(null);
+            setLegalLinks(emptyLegalLinks());
             setSecretMetas([]);
             setPublicWebpageUrl('');
             setPublicPagePublishedAt(null);
@@ -348,6 +439,8 @@ export const useConnectorConfigForm = (payload: {
         setIdeaId(null);
         setBaseBranchState(DEFAULT_BASE_BRANCH);
         setVariables({});
+        setConfigUpdatedAt(null);
+        setLegalLinks(emptyLegalLinks());
         setSecretMetas([]);
         setPublicWebpageUrl('');
         setPublicPagePublishedAt(null);
@@ -363,12 +456,13 @@ export const useConnectorConfigForm = (payload: {
         session?.user?.id,
     ]);
 
-    const refresh = React.useCallback(async (options?: { mode?: ConnectorConfigLoadingMode }) => {
+    const refresh = React.useCallback(async (options?: RefreshOptions) => {
         if (!session || !selectedApp) return;
         const requestContext = getRequestContext();
         if (!isCurrentRequestContext(requestContext)) return;
         const mode = options?.mode ?? 'initial';
         const isBackground = mode === 'background';
+        const preserveConflict = options?.preserveConflict === true && Boolean(staleConflictRef.current);
         if (!isBackground) {
             setLoading(true);
             setError(null);
@@ -378,7 +472,8 @@ export const useConnectorConfigForm = (payload: {
             if (cfg.error) throw cfg.error;
             if (!isCurrentRequestContext(requestContext)) return;
 
-            const allowConfigOverwrite = !isBackground || !isDirtyRef.current;
+            const allowConfigOverwrite =
+                options?.forceConfigOverwrite === true || (!preserveConflict && (!isBackground || !isDirtyRef.current));
             if (cfg.data) {
                 if (allowConfigOverwrite) {
                     const normalizedBrief = String((cfg.data as any).project_brief || '');
@@ -391,54 +486,39 @@ export const useConnectorConfigForm = (payload: {
                     const normalizedVars = normalizeVariables((cfg.data as any).variables || {});
                     setVariables(normalizedVars);
                     lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
+                    setConfigUpdatedAt(String((cfg.data as any).updated_at || '').trim() || null);
                     resetAutosaveBackoff();
                 }
-            } else if (!isBackground) {
-                // First use: create a default row (keeps UI consistent).
-                const created = await upsertConnectorAppConfig({
-                    userId: session.user.id,
-                    appId: selectedApp.id,
-                    patch: {
-                        project_kind: 'ios',
-                        project_brief: '',
-                        idea_id: null,
-                        base_branch: DEFAULT_BASE_BRANCH,
-                        variables: {
-                            privacy_policy_url: 'https://google.com',
-                            terms_of_use_url: 'https://google.com',
-                            support_form_url: 'https://google.com',
-                        },
-                        verify_command: null,
-                    },
-                });
-                if (created.error) throw created.error;
-                if (!isCurrentRequestContext(requestContext)) return;
-                if (allowConfigOverwrite) {
-                    const normalizedBrief = String((created.data as any)?.project_brief || '');
-                    setProjectBrief(normalizedBrief);
-                    lastSavedProjectBriefRef.current = normalizedBrief;
-                    setIdeaId(String((created.data as any)?.idea_id || '').trim() || null);
-                    const normalizedBaseBranch = normalizeBaseBranch((created.data as any)?.base_branch);
-                    setBaseBranchState(normalizedBaseBranch);
-                    lastSavedBaseBranchRef.current = normalizedBaseBranch;
-                    const normalizedVars = normalizeVariables((created.data as any)?.variables || {});
-                    setVariables(normalizedVars);
-                    lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
-                    resetAutosaveBackoff();
-                }
+            } else if (allowConfigOverwrite) {
+                // Missing config should remain a read-only empty state until the user explicitly saves.
+                setProjectBrief('');
+                lastSavedProjectBriefRef.current = '';
+                setIdeaId(null);
+                setBaseBranchState(DEFAULT_BASE_BRANCH);
+                lastSavedBaseBranchRef.current = DEFAULT_BASE_BRANCH;
+                setVariables({});
+                lastSavedVariablesHashRef.current = hashVariables({});
+                setConfigUpdatedAt(null);
+                resetAutosaveBackoff();
             }
 
-            const [secrets, webhook] = await Promise.all([
+            const [secrets, webhook, currentLegalLinks] = await Promise.all([
                 fetchConnectorSecretMetas({ userId: session.user.id, appId: selectedApp.id }),
                 fetchAppstoreReviewWebhook({ userId: session.user.id, appId: selectedApp.id }),
+                fetchCurrentConnectorLegalLinks({ appId: selectedApp.id }),
             ]);
             if (secrets.error) throw secrets.error;
             if (webhook.error) throw webhook.error;
+            if (currentLegalLinks.error) throw currentLegalLinks.error;
             if (!isCurrentRequestContext(requestContext)) return;
             setSecretMetas(secrets.data || []);
             applyWebhookPageState(webhook.data || null);
-            setLastSaveAt(Date.now());
-            setLastSaveError(null);
+            setLegalLinks(toLegalLinksState((currentLegalLinks.data as CurrentConnectorLegalLinks | null) || null));
+            if (!preserveConflict) {
+                setStaleConflict(null);
+                setLastSaveAt(cfg.data ? Date.now() : null);
+                setLastSaveError(null);
+            }
         } catch (e: any) {
             if (!isCurrentRequestContext(requestContext)) return;
             const msg = String(e?.message || e);
@@ -468,10 +548,53 @@ export const useConnectorConfigForm = (payload: {
         });
     }, [refresh, selectedApp?.id]);
 
+    const buildEditableSnapshot = React.useCallback(
+        (patch?: { project_brief?: string; idea_id?: string | null; base_branch?: string; variables?: Record<string, any> }): ConnectorEditableSnapshot => {
+            const nextProjectBrief = Object.prototype.hasOwnProperty.call(patch || {}, 'project_brief')
+                ? String(patch?.project_brief ?? '')
+                : String(projectBrief || '');
+            const nextIdeaId = Object.prototype.hasOwnProperty.call(patch || {}, 'idea_id')
+                ? (String(patch?.idea_id || '').trim() || null)
+                : (String(ideaId || '').trim() || null);
+            const nextBaseBranch = Object.prototype.hasOwnProperty.call(patch || {}, 'base_branch')
+                ? normalizeBaseBranch(patch?.base_branch)
+                : normalizeBaseBranch(baseBranch);
+            const nextVariables = Object.prototype.hasOwnProperty.call(patch || {}, 'variables')
+                ? normalizeVariables(patch?.variables || {})
+                : normalizeVariables(variablesRef.current);
+            return {
+                projectBrief: nextProjectBrief,
+                ideaId: nextIdeaId,
+                baseBranch: nextBaseBranch,
+                variables: nextVariables,
+            };
+        },
+        [baseBranch, ideaId, projectBrief]
+    );
+
+    const applySavedConfigRow = React.useCallback(
+        (row: ConnectorAppConfig | null | undefined) => {
+            if (!row) return;
+            const normalizedBrief = String((row as any).project_brief || '');
+            const normalizedIdeaId = String((row as any).idea_id || '').trim() || null;
+            const normalizedBaseBranch = normalizeBaseBranch((row as any).base_branch);
+            const normalizedVars = normalizeVariables((row as any).variables || {});
+            setProjectBrief(normalizedBrief);
+            setIdeaId(normalizedIdeaId);
+            setBaseBranchState(normalizedBaseBranch);
+            setVariables(normalizedVars);
+            setConfigUpdatedAt(String((row as any).updated_at || '').trim() || null);
+            lastSavedProjectBriefRef.current = normalizedBrief;
+            lastSavedBaseBranchRef.current = normalizedBaseBranch;
+            lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
+        },
+        [setVariables]
+    );
+
     const savePatch = React.useCallback(
         async (
             patch: { project_brief?: string; idea_id?: string | null; base_branch?: string; variables?: Record<string, any> },
-            options?: SavePatchOptions
+            options?: SavePatchOptions & { forceOverwrite?: boolean; pendingSnapshot?: ConnectorEditableSnapshot }
         ) => {
             if (!session || !selectedApp) return false;
             const source = options?.source || 'manual';
@@ -486,76 +609,43 @@ export const useConnectorConfigForm = (payload: {
             }
 
             try {
-                const patchVariables = patch.variables ? normalizeVariables(patch.variables) : undefined;
-                const patchProjectBrief = Object.prototype.hasOwnProperty.call(patch, 'project_brief')
-                    ? String(patch.project_brief ?? '')
-                    : undefined;
-                const patchIdeaId = Object.prototype.hasOwnProperty.call(patch, 'idea_id')
-                    ? (String(patch.idea_id || '').trim() || null)
-                    : undefined;
-                const patchBaseBranch = Object.prototype.hasOwnProperty.call(patch, 'base_branch')
-                    ? normalizeBaseBranch(patch.base_branch)
-                    : undefined;
-                const resp = await upsertConnectorAppConfig({
-                    userId: session.user.id,
+                const nextSnapshot = options?.pendingSnapshot ?? buildEditableSnapshot(patch);
+                const resp = await saveConnectorAppConfigSnapshot({
                     appId: selectedApp.id,
-                    patch: {
-                        // UI invariant: always iOS for now.
-                        project_kind: 'ios',
-                        ...patch,
-                        ...(patchIdeaId !== undefined ? { idea_id: patchIdeaId } : {}),
-                        ...(patchBaseBranch !== undefined ? { base_branch: patchBaseBranch } : {}),
-                        ...(typeof patchProjectBrief === 'string' ? { project_brief: patchProjectBrief } : {}),
-                        ...(patchVariables ? { variables: patchVariables } : {}),
-                    } as any,
+                    expectedUpdatedAt: configUpdatedAtRef.current,
+                    projectBrief: nextSnapshot.projectBrief,
+                    ideaId: nextSnapshot.ideaId,
+                    baseBranch: nextSnapshot.baseBranch,
+                    variables: nextSnapshot.variables,
+                    forceOverwrite: options?.forceOverwrite === true,
                 });
                 if (resp.error) throw resp.error;
                 if (!isCurrentRequestContext(requestContext)) return false;
 
-                // Keep local state in sync with the canonical row.
-                if (resp.data) {
-                    if (typeof (resp.data as any).project_brief === 'string') {
-                        const normalizedBrief = String((resp.data as any).project_brief || '');
-                        setProjectBrief(normalizedBrief);
-                        lastSavedProjectBriefRef.current = normalizedBrief;
-                    } else if (typeof patchProjectBrief === 'string') {
-                        lastSavedProjectBriefRef.current = patchProjectBrief;
-                    }
-                    if (Object.prototype.hasOwnProperty.call(resp.data as any, 'idea_id')) {
-                        setIdeaId(String((resp.data as any).idea_id || '').trim() || null);
-                    } else if (patchIdeaId !== undefined) {
-                        setIdeaId(patchIdeaId);
-                    }
-                    if (Object.prototype.hasOwnProperty.call(resp.data as any, 'base_branch')) {
-                        const normalizedBaseBranch = normalizeBaseBranch((resp.data as any).base_branch);
-                        setBaseBranchState(normalizedBaseBranch);
-                        lastSavedBaseBranchRef.current = normalizedBaseBranch;
-                    } else if (patchBaseBranch !== undefined) {
-                        setBaseBranchState(patchBaseBranch);
-                        lastSavedBaseBranchRef.current = patchBaseBranch;
-                    }
-                    if ((resp.data as any).variables) {
-                        const normalizedVars = normalizeVariables((resp.data as any).variables || {});
-                        setVariables(normalizedVars);
-                        lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
-                    } else if (patchVariables) {
-                        lastSavedVariablesHashRef.current = hashVariables(patchVariables);
-                    }
-                } else {
-                    if (typeof patchProjectBrief === 'string') {
-                        lastSavedProjectBriefRef.current = patchProjectBrief;
-                    }
-                    if (patchIdeaId !== undefined) {
-                        setIdeaId(patchIdeaId);
-                    }
-                    if (patchBaseBranch !== undefined) {
-                        setBaseBranchState(patchBaseBranch);
-                        lastSavedBaseBranchRef.current = patchBaseBranch;
-                    }
-                    if (patchVariables) {
-                        lastSavedVariablesHashRef.current = hashVariables(patchVariables);
-                    }
+                const data = (resp.data as SaveConnectorAppConfigResponse | null) || null;
+                if (!data) {
+                    throw new Error('Missing response from connector_save_app_config.');
                 }
+                if (data.status === 'conflict') {
+                    const conflictState: ConnectorSaveConflictState = {
+                        pendingSnapshot: nextSnapshot,
+                        serverRow: data.row || null,
+                    };
+                    setStaleConflict(conflictState);
+                    const conflictMessage = 'This setup was updated elsewhere. Refresh or overwrite to continue.';
+                    if (source === 'autosave') {
+                        autosaveBlockedUntilRef.current = Number.MAX_SAFE_INTEGER;
+                    }
+                    setLastSaveError(conflictMessage);
+                    if (shouldReport && source !== 'autosave') {
+                        setError(conflictMessage);
+                        reportError?.(conflictMessage);
+                    }
+                    return false;
+                }
+
+                applySavedConfigRow(data.row || null);
+                setStaleConflict(null);
 
                 resetAutosaveBackoff();
                 setLastSaveAt(Date.now());
@@ -581,6 +671,8 @@ export const useConnectorConfigForm = (payload: {
             }
         },
         [
+            applySavedConfigRow,
+            buildEditableSnapshot,
             getRequestContext,
             isCurrentRequestContext,
             registerAutosaveFailure,
@@ -616,15 +708,17 @@ export const useConnectorConfigForm = (payload: {
     const saveState = React.useMemo<ConnectorConfigSaveState>(() => {
         if (!selectedApp?.id) return 'idle';
         if (saving) return 'saving';
+        if (staleConflict) return 'error';
         if (lastSaveError && isDirty) return 'error';
         if (isDirty) return 'dirty';
-        if (lastSaveAt) return 'saved';
+        if (configUpdatedAt && lastSaveAt) return 'saved';
         return 'idle';
-    }, [isDirty, lastSaveAt, lastSaveError, saving, selectedApp?.id]);
+    }, [configUpdatedAt, isDirty, lastSaveAt, lastSaveError, saving, selectedApp?.id, staleConflict]);
 
     React.useEffect(() => {
         if (!session || !selectedApp) return;
-        if (loading || saving || secretBusy || generateLinksBusy || generateDescriptionBusy || publishWebpageBusy) return;
+        if (loading || saving || secretBusy || generateLinksBusy || generateDescriptionBusy || publishWebpageBusy || staleConflictRef.current)
+            return;
 
         const normalizedVars = normalizeVariables(variables);
         const currentHash = hashVariables(normalizedVars);
@@ -665,6 +759,7 @@ export const useConnectorConfigForm = (payload: {
         savePatch,
         saving,
         secretBusy,
+        staleConflict,
         selectedApp?.id,
         session?.user?.id,
         baseBranch,
@@ -755,7 +850,7 @@ export const useConnectorConfigForm = (payload: {
                 const response = await generateAppstoreDescription({
                     clientSpec: String(projectBrief || ''),
                     appStoreName: String((variables as any)?.appstore_name || '').trim(),
-                    companyName: String(options?.companyName || (variables as any)?.company_name || '').trim(),
+                    companyName: String(options?.companyName || '').trim(),
                     accessTokenHint: String(session.access_token || ''),
                 });
                 if (!isCurrentRequestContext(requestContext)) return response;
@@ -926,14 +1021,7 @@ export const useConnectorConfigForm = (payload: {
                         queueJobs?.setJobMessage(queueJobId, 'Saving generated links…');
                         queueJobs?.setJobProgress(queueJobId, { current: 3, total: 4 });
                     }
-                    const urls = data.urls || ({} as any);
-                    setVariables((prev) => ({
-                        ...prev,
-                        privacy_policy_url: String((urls as any).privacy_policy_url || prev?.privacy_policy_url || ''),
-                        terms_of_use_url: String((urls as any).terms_of_use_url || prev?.terms_of_use_url || ''),
-                        support_form_url: String((urls as any).support_form_url || prev?.support_form_url || ''),
-                    }));
-                    await refresh();
+                    await refresh({ mode: 'background', preserveConflict: true });
                     if (queueJobId) {
                         queueJobs?.setJobProgress(queueJobId, { current: 4, total: 4 });
                         queueJobs?.finishJob(queueJobId, { status: 'success', message: 'Done' });
@@ -1007,9 +1095,10 @@ export const useConnectorConfigForm = (payload: {
             const normalizedVars = normalizeVariables(variablesRef.current);
             const appStoreName = String(normalizedVars?.appstore_name || '').trim();
             const description = String(normalizedVars?.appstore_description || '').trim();
-            const privacyPolicyUrl = String(normalizedVars?.privacy_policy_url || '').trim();
-            const termsOfUseUrl = String(normalizedVars?.terms_of_use_url || '').trim();
-            const supportFormUrl = String(normalizedVars?.support_form_url || '').trim();
+            const currentLegalLinks = legalLinksRef.current;
+            const privacyPolicyUrl = String(currentLegalLinks?.privacy_policy_url || '').trim();
+            const termsOfUseUrl = String(currentLegalLinks?.terms_of_use_url || '').trim();
+            const supportFormUrl = String(currentLegalLinks?.support_form_url || '').trim();
 
             if (!appStoreName) {
                 throw new Error("Fill App's App Store name first.");
@@ -1121,7 +1210,7 @@ export const useConnectorConfigForm = (payload: {
                 });
                 if (resp.error) throw resp.error;
                 if (!isCurrentRequestContext(requestContext)) return;
-                await refresh();
+                    await refresh({ mode: 'background', preserveConflict: true });
             } catch (e: any) {
                 if (!isCurrentRequestContext(requestContext)) return;
                 const msg = String(e?.message || e);
@@ -1150,7 +1239,7 @@ export const useConnectorConfigForm = (payload: {
                 const resp = await deleteConnectorSecret({ userId: session.user.id, appId: selectedApp.id, key: k });
                 if (resp.error) throw resp.error;
                 if (!isCurrentRequestContext(requestContext)) return;
-                await refresh();
+                    await refresh({ mode: 'background', preserveConflict: true });
             } catch (e: any) {
                 if (!isCurrentRequestContext(requestContext)) return;
                 const msg = String(e?.message || e);
@@ -1187,6 +1276,30 @@ export const useConnectorConfigForm = (payload: {
         return await savePatch(patch, { source: 'flush' });
     }, [baseBranch, clearAutosaveTimer, projectBrief, savePatch, selectedApp, session]);
 
+    const reloadAfterConflict = React.useCallback(async () => {
+        autosaveBlockedUntilRef.current = 0;
+        await refresh({ mode: 'initial', forceConfigOverwrite: true });
+    }, [refresh]);
+
+    const overwriteAfterConflict = React.useCallback(async () => {
+        const conflict = staleConflictRef.current;
+        if (!conflict) return false;
+        autosaveBlockedUntilRef.current = 0;
+        return await savePatch(
+            {
+                project_brief: conflict.pendingSnapshot.projectBrief,
+                idea_id: conflict.pendingSnapshot.ideaId,
+                base_branch: conflict.pendingSnapshot.baseBranch,
+                variables: conflict.pendingSnapshot.variables,
+            },
+            {
+                source: 'manual',
+                forceOverwrite: true,
+                pendingSnapshot: conflict.pendingSnapshot,
+            }
+        );
+    }, [savePatch]);
+
     return {
         loading,
         saving,
@@ -1197,6 +1310,7 @@ export const useConnectorConfigForm = (payload: {
         error,
         saveState,
         lastSaveError,
+        staleConflict,
         projectBrief,
         setProjectBrief,
         ideaId,
@@ -1207,11 +1321,15 @@ export const useConnectorConfigForm = (payload: {
         setVariables,
         setVariable,
         isDirty,
+        configUpdatedAt,
+        legalLinks,
         buildSnapshot,
         flushPending,
         saveMergedVariablesPatch,
         secretMetas,
         refresh,
+        reloadAfterConflict,
+        overwriteAfterConflict,
         savePatch,
         precheckLegalLinksRegeneration,
         regenerateAppstoreDescription,

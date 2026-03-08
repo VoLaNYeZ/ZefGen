@@ -3,6 +3,7 @@ import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppIdea, AppIdeaCategory, IdeaAppAssignment } from '../../types/zefgen';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
+import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 
 const formatIdeaPreview = (description: string) => {
     const normalized = String(description || '').replace(/\s+/g, ' ').trim();
@@ -284,6 +285,7 @@ export function ConnectorClientSpecPanel(props: {
                         {connectorForm.error}
                     </div>
                 )}
+                <ConnectorSaveConflictBanner connectorForm={connectorForm} text={text} />
 
                 <div className="mt-4">
                     <textarea

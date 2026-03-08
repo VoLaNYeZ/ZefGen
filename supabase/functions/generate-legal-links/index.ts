@@ -192,11 +192,11 @@ serve(async (req) => {
         if (!accountRow) return json(400, { error: 'No assigned App Store account for this app.' });
 
         const variables = ((cfgRow as { variables?: JsonRecord }).variables || {}) as JsonRecord;
-        const companyName = asNonEmpty((variables as { company_name?: string }).company_name) || asNonEmpty(accountRow.company_name);
+        const companyName = asNonEmpty(accountRow.company_name);
         const appstoreName = asNonEmpty((variables as { appstore_name?: string }).appstore_name);
         const accountEmail = asNonEmpty(accountRow.email);
 
-        if (!companyName) return json(400, { error: 'Missing company_name in setup data.' });
+        if (!companyName) return json(400, { error: 'Missing company name on the assigned App Store account.' });
         if (!appstoreName) return json(400, { error: 'Missing appstore_name in setup data.' });
         if (appstoreName.length > APPSTORE_NAME_MAX_LENGTH) {
             return json(400, {
@@ -218,8 +218,6 @@ serve(async (req) => {
             .eq('user_id', user.id)
             .eq('app_id', appId)
             .eq('status', 'succeeded')
-            .order('created_at', { ascending: false })
-            .limit(1)
             .maybeSingle();
         if (latestError) throw latestError;
 
@@ -227,12 +225,9 @@ serve(async (req) => {
             const confirmPayload: ConfirmRequiredResponse = {
                 status: 'confirm_required',
                 urls: {
-                    privacy_policy_url:
-                        asNonEmpty(latestSucceeded.privacy_url) || asNonEmpty((variables as { privacy_policy_url?: string }).privacy_policy_url),
-                    terms_of_use_url:
-                        asNonEmpty(latestSucceeded.terms_url) || asNonEmpty((variables as { terms_of_use_url?: string }).terms_of_use_url),
-                    support_form_url:
-                        asNonEmpty(latestSucceeded.support_url) || asNonEmpty((variables as { support_form_url?: string }).support_form_url),
+                    privacy_policy_url: asNonEmpty(latestSucceeded.privacy_url),
+                    terms_of_use_url: asNonEmpty(latestSucceeded.terms_url),
+                    support_form_url: asNonEmpty(latestSucceeded.support_url),
                 },
                 fingerprint,
             };
@@ -385,31 +380,6 @@ serve(async (req) => {
                         );
                     }
                 }
-            }
-            if (runContext) {
-                const { url, serviceRoleKey } = getSupabaseConfig();
-                const service = createClient(url, serviceRoleKey, {
-                    auth: { persistSession: false, autoRefreshToken: false },
-                });
-                await service.from('connector_legal_links').insert({
-                    user_id: runContext.userId,
-                    app_id: runContext.appId,
-                    fingerprint: runContext.fingerprint,
-                    company_name: runContext.companyName,
-                    appstore_name: runContext.appstoreName,
-                    account_email: runContext.accountEmail,
-                    privacy_doc_id: runContext.privacyDocId || '',
-                    privacy_url: runContext.privacyUrl || '',
-                    terms_doc_id: runContext.termsDocId || '',
-                    terms_url: runContext.termsUrl || '',
-                    support_form_id: runContext.supportFormId || '',
-                    support_url: runContext.supportUrl || '',
-                    support_schema: runContext.supportSchema || {},
-                    subtitle_variant: runContext.subtitleVariant,
-                    regenerated_with_confirmation: requestBody.confirmRegenerate === true,
-                    status: 'failed',
-                    error: message.slice(0, 5000),
-                });
             }
         } catch {
             // Best-effort failure logging; ignore nested failure.

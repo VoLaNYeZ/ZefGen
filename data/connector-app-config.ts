@@ -23,23 +23,29 @@ export const fetchConnectorAppConfig = async (payload: { userId: string; appId: 
         .eq('app_id', payload.appId)
         .maybeSingle();
 
-export const upsertConnectorAppConfig = async (payload: {
-    userId: string;
+export type SaveConnectorAppConfigStatus = 'saved' | 'conflict';
+
+export type SaveConnectorAppConfigResponse = {
+    status: SaveConnectorAppConfigStatus;
+    row: ConnectorAppConfig | null;
+};
+
+export const saveConnectorAppConfigSnapshot = async (payload: {
     appId: string;
-    patch: Partial<Omit<ConnectorAppConfig, 'app_id' | 'user_id'>>;
+    expectedUpdatedAt?: string | null;
+    projectBrief: string;
+    ideaId: string | null;
+    baseBranch: string;
+    variables: Record<string, any>;
+    forceOverwrite?: boolean;
 }) => {
-    const nowIso = new Date().toISOString();
-    return supabase
-        .from('connector_app_configs')
-        .upsert(
-            {
-                app_id: payload.appId,
-                user_id: payload.userId,
-                updated_at: nowIso,
-                ...payload.patch,
-            },
-            { onConflict: 'app_id' }
-        )
-        .select()
-        .single();
+    return supabase.rpc('connector_save_app_config', {
+        p_app_id: payload.appId,
+        p_expected_updated_at: payload.expectedUpdatedAt || null,
+        p_project_brief: String(payload.projectBrief || ''),
+        p_idea_id: payload.ideaId || null,
+        p_base_branch: String(payload.baseBranch || 'main'),
+        p_variables: payload.variables || {},
+        p_force_overwrite: payload.forceOverwrite === true,
+    });
 };

@@ -7,6 +7,7 @@ import { createConnectorJob, type ConnectorJob } from '../../data/connector-jobs
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { MatrixTerminal } from './MatrixTerminal';
+import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 import { buildIntegrationTerminalModel } from '../../utils/integration-terminal.js';
 import {
     buildIntegrationRequirements,
@@ -123,9 +124,10 @@ export function IntegrationModulePanel(props: {
         () =>
             buildIntegrationRequirements({
                 variables: connectorForm.variables,
+                legalLinks: connectorForm.legalLinks,
                 secretMetas: connectorForm.secretMetas,
             }),
-        [connectorForm.secretMetas, connectorForm.variables]
+        [connectorForm.legalLinks, connectorForm.secretMetas, connectorForm.variables]
     );
 
     const ready = React.useMemo(
@@ -212,7 +214,7 @@ export function IntegrationModulePanel(props: {
             const saved = await connectorForm.savePatch({
                 base_branch: MAIN_BRANCH,
             });
-            if (!saved) throw new Error(text('connector_base_branch_save_failed'));
+            if (!saved) return;
 
             const { error } = await createConnectorJob({
                 userId: session.user.id,
@@ -263,6 +265,7 @@ export function IntegrationModulePanel(props: {
                             {localError || connectorForm.error}
                         </div>
                     )}
+                    <ConnectorSaveConflictBanner connectorForm={connectorForm} text={text} />
 
                     {showBlockedState ? (
                         <div className="rounded-[24px] border border-white/10 bg-slate-950/20 px-5 py-5">

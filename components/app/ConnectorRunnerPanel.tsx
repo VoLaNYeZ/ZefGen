@@ -4,12 +4,12 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import type { TranslationKey } from '../../i18n';
 import type { AppItem } from '../../types/zefgen';
-import { upsertConnectorAppConfig } from '../../data/connector-app-config';
 import type { ConnectorJob, DownstreamCaptureMode } from '../../data/connector-jobs';
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { useConnectorJobArtifacts } from '../../hooks/use-connector-job-artifacts';
 import { MatrixTerminal } from './MatrixTerminal';
+import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 import { humanizeStage, parseRunnerLog } from '../../utils/runner-log';
 import { deriveConnectorJobState, groupConnectorArtifacts } from '../../utils/connector-runner-state.js';
 
@@ -369,17 +369,15 @@ export function ConnectorRunnerPanel(props: {
         setBusy(true);
         setLocalError(null);
         try {
-            const { error: saveError } = await upsertConnectorAppConfig({
-                userId: session.user.id,
-                appId: selectedApp.id,
-                patch: {
-                    project_kind: 'ios',
-                    project_brief: String(connectorForm.projectBrief || ''),
-                    base_branch: MAIN_BRANCH,
-                    variables: connectorForm.variables || {},
-                } as any,
+            const saved = await connectorForm.savePatch({
+                project_brief: String(connectorForm.projectBrief || ''),
+                base_branch: MAIN_BRANCH,
+                variables: connectorForm.variables || {},
             });
-            if (saveError) throw saveError;
+            if (!saved) {
+                setStartingGenerate(false);
+                return;
+            }
             const created = await createGenerateJob();
             if (created?.id) setSelectedJobId(String(created.id));
         } catch (e: any) {
@@ -517,7 +515,7 @@ export function ConnectorRunnerPanel(props: {
         };
     }, [artifactJsonById, groupedArtifacts]);
 
-    const combinedError = localError || error || artifactsError;
+    const combinedError = localError || connectorForm.error || error || artifactsError;
 
     return (
         <section className="rounded-[28px] bg-slate-900 ring-1 ring-white/5 p-6">
@@ -545,6 +543,7 @@ export function ConnectorRunnerPanel(props: {
                     {combinedError}
                 </div>
             )}
+            <ConnectorSaveConflictBanner connectorForm={connectorForm} text={text} />
 
             <div className="mt-5 grid gap-3">
                 <div className="rounded-2xl border border-white/10 bg-slate-900/25 p-4">

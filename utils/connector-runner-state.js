@@ -20,23 +20,24 @@ export const getSecretMetaKeySet = (secretMetas) =>
             .filter(Boolean)
     );
 
-export const buildIntegrationRequirements = ({ variables, secretMetas }) => {
+export const buildIntegrationRequirements = ({ variables, legalLinks, secretMetas }) => {
     const vars = variables && typeof variables === 'object' ? variables : {};
+    const links = legalLinks && typeof legalLinks === 'object' ? legalLinks : {};
 
     return [
         { key: 'apphud_api_key', source: 'variable', ok: isFilledConnectorValue(vars.apphud_api_key) },
         { key: 'domain', source: 'variable', ok: isFilledConnectorValue(vars.domain) },
         { key: 'bundle_id', source: 'variable', ok: isFilledConnectorValue(vars.bundle_id) },
-        { key: 'privacy_policy_url', source: 'variable', ok: isFilledConnectorValue(vars.privacy_policy_url) },
-        { key: 'terms_of_use_url', source: 'variable', ok: isFilledConnectorValue(vars.terms_of_use_url) },
-        { key: 'support_form_url', source: 'variable', ok: isFilledConnectorValue(vars.support_form_url) },
+        { key: 'privacy_policy_url', source: 'legal_link', ok: isFilledConnectorValue(links.privacy_policy_url) },
+        { key: 'terms_of_use_url', source: 'legal_link', ok: isFilledConnectorValue(links.terms_of_use_url) },
+        { key: 'support_form_url', source: 'legal_link', ok: isFilledConnectorValue(links.support_form_url) },
         { key: 'firebase_plist_snippet', source: 'variable', ok: isFilledConnectorValue(vars.firebase_plist_snippet) },
         { key: 'id_purchases', source: 'variable', ok: isFilledConnectorValue(vars.id_purchases), optional: true },
     ];
 };
 
-export const getIntegrationReadiness = ({ variables, secretMetas }) =>
-    buildIntegrationRequirements({ variables, secretMetas }).every((item) => item.optional || item.ok);
+export const getIntegrationReadiness = ({ variables, legalLinks, secretMetas }) =>
+    buildIntegrationRequirements({ variables, legalLinks, secretMetas }).every((item) => item.optional || item.ok);
 
 export const findLatestSuccessfulJob = (jobs, predicate) =>
     normalizeList(jobs).find((job) => String(job?.status ?? '') === 'succeeded' && predicate(job)) || null;

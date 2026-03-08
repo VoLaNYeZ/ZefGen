@@ -17,7 +17,18 @@ export type LatestSucceededLegalLinksRun = {
     privacy_url: string;
     terms_url: string;
     support_url: string;
+    updated_at: string | null;
     created_at: string;
+};
+
+export type CurrentConnectorLegalLinks = {
+    id: string;
+    fingerprint: string;
+    privacy_policy_url: string;
+    terms_of_use_url: string;
+    support_form_url: string;
+    updated_at: string | null;
+    created_at: string | null;
 };
 
 const AUTH_EXPIRED_MESSAGE = 'Auth session is invalid or expired. Please log in again.';
@@ -103,13 +114,16 @@ export const computeLegalLinksFingerprint = async (payload: {
 export const fetchLatestSucceededLegalLinksRun = async (payload: { userId: string; appId: string }) =>
     supabase
         .from('connector_legal_links')
-        .select('id,fingerprint,privacy_url,terms_url,support_url,created_at')
+        .select('id,fingerprint,privacy_url,terms_url,support_url,updated_at,created_at')
         .eq('user_id', payload.userId)
         .eq('app_id', payload.appId)
         .eq('status', 'succeeded')
-        .order('created_at', { ascending: false })
-        .limit(1)
         .maybeSingle();
+
+export const fetchCurrentConnectorLegalLinks = async (payload: { appId: string }) =>
+    supabase.rpc('connector_get_current_legal_links', {
+        p_app_id: payload.appId,
+    });
 
 export const invokeGenerateLegalLinks = async (payload: {
     appId: string;
