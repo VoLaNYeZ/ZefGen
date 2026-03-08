@@ -88,11 +88,34 @@ const stateTone = (value: string | null | undefined) => {
     return 'border-sky-400/30 bg-sky-500/10 text-sky-100';
 };
 
-const syncTone = (value: string | null | undefined) => {
+const syncSummaryTone = (value: string | null | undefined) => {
     const raw = String(value || '').trim().toLowerCase();
-    if (raw === 'connected') return 'text-emerald-200';
-    if (raw === 'error') return 'text-rose-200';
-    return 'text-amber-200';
+    if (raw === 'connected') return 'border-emerald-400/20 bg-emerald-500/8';
+    if (raw === 'error') return 'border-rose-400/25 bg-rose-500/8';
+    return 'border-amber-400/20 bg-amber-500/8';
+};
+
+const deliverySummaryTone = (value: string | null | undefined) => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === 'received') return 'border-emerald-400/20 bg-emerald-500/8';
+    if (raw === 'ignored') return 'border-sky-400/20 bg-sky-500/8';
+    if (raw === 'error' || raw === 'invalid_signature') return 'border-rose-400/25 bg-rose-500/8';
+    return 'border-amber-400/20 bg-amber-500/8';
+};
+
+const stateSummaryTone = (value: string | null | undefined) => {
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return 'border-white/8 bg-slate-950/25';
+    if (['READY_FOR_SALE', 'ACCEPTED', 'PENDING_APPLE_RELEASE', 'PENDING_DEVELOPER_RELEASE'].includes(raw)) {
+        return 'border-emerald-400/20 bg-emerald-500/8';
+    }
+    if (['REJECTED', 'METADATA_REJECTED', 'DEVELOPER_REJECTED', 'INVALID_BINARY'].includes(raw)) {
+        return 'border-rose-400/25 bg-rose-500/8';
+    }
+    if (['IN_REVIEW', 'WAITING_FOR_REVIEW'].includes(raw)) {
+        return 'border-amber-400/20 bg-amber-500/8';
+    }
+    return 'border-sky-400/20 bg-sky-500/8';
 };
 
 const sameHost = (left: string, right: string) => {
@@ -242,6 +265,7 @@ export function AppStoreReviewWebhookRow(props: {
     const [quickSetupEditing, setQuickSetupEditing] = React.useState(false);
     const requestIdRef = React.useRef(0);
     const copiedTimerRef = React.useRef<number | null>(null);
+    const pingRefreshTimersRef = React.useRef<number[]>([]);
     const hydratedAppIdRef = React.useRef('');
     const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const hydrationSnapshotRef = React.useRef<AppStoreReviewPanelSnapshot | null>(hydrationSnapshot);
@@ -323,8 +347,8 @@ export function AppStoreReviewWebhookRow(props: {
         ? ''
         : latestStateLabel
           ? latestStateLabel
-          : config.last_sync_status === 'connected' && !config.last_delivery_at
-            ? text('appstore_review_webhook_connected_waiting')
+          : config.last_sync_status === 'connected'
+            ? lastSyncLabel
             : lastDeliveryLabel;
     const headerStatusTone = !config
         ? ''
@@ -335,21 +359,6 @@ export function AppStoreReviewWebhookRow(props: {
             : config.last_sync_status === 'connected'
               ? 'border-sky-400/30 bg-sky-500/10 text-sky-100'
               : 'border-amber-400/35 bg-amber-500/10 text-amber-100';
-    const nextActionMessage = !config
-        ? text('appstore_review_webhook_setup_hint')
-        : config.last_sync_error || config.last_error
-          ? text('appstore_review_webhook_next_fix_error')
-          : credentialIssues.length
-            ? text('appstore_review_webhook_quick_setup_hint')
-            : !hasAppleAppSelection
-              ? text('appstore_review_webhook_next_load_apps')
-              : config.last_sync_status !== 'connected'
-                ? text('appstore_review_webhook_next_sync')
-                : !config.last_delivery_at
-                  ? text('appstore_review_webhook_next_wait_delivery')
-                  : !latestStateLabel
-                    ? text('appstore_review_webhook_next_wait_state')
-                    : text('appstore_review_webhook_next_live');
     const setupBadges = config ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
@@ -373,7 +382,7 @@ export function AppStoreReviewWebhookRow(props: {
     ) : null;
     const statusOverview = config ? (
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+            <div className={`rounded-2xl border p-3 ${syncSummaryTone(config.last_sync_status)}`}>
                 <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
                     {text('appstore_review_webhook_sync_title')}
                 </p>
@@ -382,7 +391,7 @@ export function AppStoreReviewWebhookRow(props: {
                     {lastSyncAtLabel || selectedAppleAppSummary || text('appstore_review_webhook_no_sync_yet')}
                 </p>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+            <div className={`rounded-2xl border p-3 ${deliverySummaryTone(config.last_delivery_status)}`}>
                 <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
                     {text('appstore_review_webhook_last_delivery')}
                 </p>
@@ -391,7 +400,7 @@ export function AppStoreReviewWebhookRow(props: {
                     {lastDeliveryAtLabel || text('appstore_review_webhook_no_events')}
                 </p>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+            <div className={`rounded-2xl border p-3 ${stateSummaryTone(config.latest_review_state)}`}>
                 <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
                     {text('appstore_review_webhook_latest_state')}
                 </p>
@@ -402,18 +411,12 @@ export function AppStoreReviewWebhookRow(props: {
             </div>
         </div>
     ) : null;
-    const nextActionPanel = config ? (
-        <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/20 p-3">
-            <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                {text('appstore_review_webhook_now_title')}
-            </p>
-            <p className="mt-1 text-xs text-indigo-100/90">{nextActionMessage}</p>
-        </div>
-    ) : null;
 
     React.useEffect(() => {
         return () => {
             if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+            pingRefreshTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+            pingRefreshTimersRef.current = [];
         };
     }, []);
 
@@ -966,6 +969,13 @@ export function AppStoreReviewWebhookRow(props: {
                 publicSubdomain: resolveBridgeSubdomain(config),
             });
             setNotice(text('appstore_review_webhook_ping_sent'));
+            void refresh({ silent: true, forceDraftHydrate: true, reportErrors: false });
+            pingRefreshTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+            pingRefreshTimersRef.current = [2500, 7000, 15000].map((delayMs) =>
+                window.setTimeout(() => {
+                    void refresh({ silent: true, forceDraftHydrate: true, reportErrors: false });
+                }, delayMs)
+            );
         } catch (error: any) {
             reportError(String(error?.message || text('upload_failed')));
         } finally {
@@ -1027,7 +1037,6 @@ export function AppStoreReviewWebhookRow(props: {
                                 <>
                                     {setupBadges}
                                     {statusOverview}
-                                    {nextActionPanel}
                                     {!bundleId ? (
                                         <p className="mt-3 text-xs text-amber-100/90">
                                             {text('appstore_review_webhook_bundle_missing_hint')}
@@ -1095,7 +1104,6 @@ export function AppStoreReviewWebhookRow(props: {
 
                                     {setupBadges}
                                     {statusOverview}
-                                    {nextActionPanel}
 
                                     {!bundleId ? (
                                         <p className="mt-3 text-xs text-amber-100/90">
@@ -1581,7 +1589,6 @@ export function AppStoreReviewWebhookRow(props: {
                         ) : null}
 
                         {notice ? <p className="mt-3 text-xs text-emerald-300/95">{notice}</p> : null}
-                        {expanded ? <p className="mt-3 text-[11px] text-indigo-200/45">{text('appstore_review_webhook_isolation_hint')}</p> : null}
                     </div>
                 </div>
                 <button
