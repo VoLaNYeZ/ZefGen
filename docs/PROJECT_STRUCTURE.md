@@ -40,7 +40,7 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `types/` - Domain types used across app features.
 - `constants/` - Shared constants and configuration.
 - `constants/countries.ts` - Static ISO country list + priority ordering for the Target countries dropdown.
-- `lib/` - External service clients (Supabase).
+- `lib/` - Shared runtime helpers, service clients, and server-only logic (including Supabase clients and webhook helpers).
 - `public/` - Static assets.
 - `docs/` - Product and design documentation.
 - `supabase/` - Supabase configuration and local dev assets.
@@ -55,14 +55,14 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `components/app/AppFolder.tsx` - App-folder wrapper and gooey layout container.
 - `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
-- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 6 in the AppFolder), read-only aware.
+- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 8 in the AppFolder), read-only aware.
 - `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots), read-only aware. In No Brand mode icon prompt is app-level (`apps.icon_prompt`) and does not require brand icon reference; screenshot slots omit brand references and may optionally reuse style from previously generated screenshots.
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
 - `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command), read-only aware.
 - `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries), read-only aware.
 - `components/app/AppStoreReviewWebhookRow.tsx` - App Store Connect review-webhook control row (receiver creation, Apple credential save, `appshelp.cc` bridge sync/test, recent delivery timeline), read-only aware.
 - `components/app/ConnectorClientSpecPanel.tsx` - Step 2 idea picker (category + idea dropdowns) + client spec editor.
-- `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3).
+- `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3), including `Generate links` and `Generate webpage` actions.
 - `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
 - `components/app/IdeasPage.tsx` - Ideas pool UI (`/ideas`): category + description rows with per-row save/delete.
 - `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5), read-only aware.
@@ -157,6 +157,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
 - `data/connector-legal-links.ts` - Legal links precheck/fingerprint + Edge Function invoke (`generate-legal-links`).
 - `data/appstore-description.ts` - App Store description generation API client (`/api/generate-appstore-description`) with auth refresh/retry.
+- `data/appstore-review-webhooks.ts` - App Store review webhook row/event queries and writes (`appstore_review_webhooks`, `appstore_review_events`).
+- `data/appstore-review-webhook-api.ts` - Webhook status + `appshelp.cc` bridge client (`/api/appstore-review-webhook-status`, `/_bridge/appstore/*`).
 - `data/icon-prompt.ts` - No Brand icon prompt generation API client (`/api/generate-icon-prompt`) with auth refresh/retry.
 - `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
 - `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
@@ -172,6 +174,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `api/generate-screenshot.ts` - Server-side screenshot generation proxy.
 - `api/generate-appstore-description.ts` - Server-side App Store description generator (OpenAI-backed, bearer-protected).
 - `api/generate-icon-prompt.ts` - Server-side No Brand icon-prompt generator (OpenAI-backed, bearer-protected).
+- `api/appstore-review-webhook-status.js` - Read-only webhook status/events endpoint for the workspace UI.
 - `api/create-github-repo.ts` - GitHub repository creation endpoint.
 - `api/delete-github-repo.ts` - GitHub repository deletion endpoint.
 
@@ -298,7 +301,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Auto-adjusted alias is surfaced to user via toast notification.
 
 ## Legal Links Generation (Step 3 Setup data)
-- Trigger UI: `Generate privacies` button in `components/app/ConnectorVariablesSecretsPanel.tsx`.
+- Trigger UI: `Generate links` / `Regenerate links` in `components/app/ConnectorVariablesSecretsPanel.tsx`.
+- Related publish action: `Generate webpage` / `Open webpage` in the same panel controls when the public `appshelp.cc` page goes live.
 - Backend: Supabase Edge Function `supabase/functions/generate-legal-links/index.ts`.
 - Output keys in `connector_app_configs.variables`:
   - `privacy_policy_url`

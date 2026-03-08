@@ -7,9 +7,18 @@ import type {
 import { buildManagedAppstoreReviewBridgeUrl } from '../utils/appstore-review-webhook';
 
 const AUTH_EXPIRED_MESSAGE = 'Auth session is invalid or expired. Please log in again.';
+const APPSTORE_BRIDGE_UNREACHABLE_MESSAGE =
+    'The appshelp.cc Apple bridge was blocked or unreachable. Check frontend CSP/deploy and try again.';
 
 const isAuthRetryable = (status: number, errorMessage: string) =>
     status === 401 || /invalid jwt|jwt/i.test(String(errorMessage || ''));
+
+const isBridgeTransportFailure = (error: any) => {
+    const status = Number(error?.context?.status || 0);
+    if (status > 0) return false;
+    const message = String(error?.message || '').trim();
+    return /failed to fetch|load failed|networkerror|network request failed/i.test(message);
+};
 
 const decodeJwtExpMs = (token: string) => {
     try {
@@ -148,12 +157,19 @@ const requestBridgeApi = async <T>(payload: {
     if (!url) {
         throw new Error('Public subdomain is required before calling the appshelp.cc Apple bridge.');
     }
-    return requestApi<T>({
-        url,
-        method: payload.method,
-        body: payload.body,
-        accessTokenHint: payload.accessTokenHint,
-    });
+    try {
+        return await requestApi<T>({
+            url,
+            method: payload.method,
+            body: payload.body,
+            accessTokenHint: payload.accessTokenHint,
+        });
+    } catch (error: any) {
+        if (isBridgeTransportFailure(error)) {
+            throw new Error(APPSTORE_BRIDGE_UNREACHABLE_MESSAGE);
+        }
+        throw error;
+    }
 };
 
 export const fetchAppstoreReviewWebhookStatus = async (payload: {
