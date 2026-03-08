@@ -481,7 +481,14 @@ export function ConnectorVariablesSecretsPanel(props: {
         setActionHint(null);
         setGenerateNotice(null);
         const result = await connectorForm.publishAppstoreReviewPublicPage();
-        if (!result?.publicWebpageUrl) return;
+        if (result?.error) {
+            setGenerateNotice(result.error);
+            return;
+        }
+        if (!result?.publicWebpageUrl) {
+            setGenerateNotice(text('connector_webpage_publish_failed'));
+            return;
+        }
         setGenerateNotice(text('connector_webpage_published'));
     }, [
         connectorForm,
@@ -550,7 +557,6 @@ export function ConnectorVariablesSecretsPanel(props: {
                     <p className="mt-3 text-sm text-indigo-200/60">{text('connector_config_subtitle')}</p>
                 </div>
                 <div className="flex flex-wrap items-start justify-end gap-2">
-                    <ConnectorAutosaveStatus connectorForm={connectorForm} text={text} />
                     <div className="flex flex-col items-end gap-1">
                         <span title={generateButtonTitle} className="inline-flex">
                             <button
@@ -592,6 +598,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             </div>
                         ) : null}
                     </div>
+                    <ConnectorAutosaveStatus connectorForm={connectorForm} text={text} />
                 </div>
             </div>
 

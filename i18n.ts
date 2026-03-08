@@ -500,6 +500,7 @@ export const translations = {
         connector_generate_webpage_hint:
             'Publish the live appshelp.cc page for this app once description and legal links are ready.',
         connector_webpage_publishing_busy: 'Publishing webpage...',
+        connector_webpage_publish_failed: 'Webpage publish failed.',
         connector_webpage_published: 'Webpage published on appshelp.cc.',
         connector_open_webpage: 'Open webpage',
         connector_open_webpage_hint: 'Open the published appshelp.cc page for this app.',
@@ -1163,6 +1164,7 @@ export const translations = {
         connector_generate_webpage_hint:
             'Опубликовать live appshelp.cc страницу для этого app, когда описание и legal links уже готовы.',
         connector_webpage_publishing_busy: 'Публикуем веб-страницу...',
+        connector_webpage_publish_failed: 'Не удалось опубликовать веб-страницу.',
         connector_webpage_published: 'Webpage опубликована на appshelp.cc.',
         connector_open_webpage: 'Open webpage',
         connector_open_webpage_hint: 'Открыть опубликованную appshelp.cc страницу для этого app.',

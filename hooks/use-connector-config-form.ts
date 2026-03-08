@@ -1188,13 +1188,18 @@ export const useConnectorConfigForm = (payload: {
             return {
                 publicWebpageUrl,
                 publishedAt,
+                error: null,
             };
         } catch (e: any) {
             if (!isCurrentRequestContext(requestContext)) return null;
             const msg = String(e?.message || e);
             setError(msg);
             reportError?.(msg);
-            return null;
+            return {
+                publicWebpageUrl: '',
+                publishedAt: null,
+                error: msg,
+            };
         } finally {
             if (isCurrentRequestContext(requestContext)) {
                 setPublishWebpageBusy(false);
