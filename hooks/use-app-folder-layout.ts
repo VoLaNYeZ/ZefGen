@@ -131,10 +131,14 @@ export const useAppFolderLayout = ({
                 bodyHeight = Math.max(bodyHeight, Math.max(0, contentBottom - bodyTop) + bodyTail);
             }
 
-            // Final guard: ensure the folder body always covers the full content height.
-            // This prevents the "background cuts through the last module" issue when new sections are added.
-            const wrapHeight = Math.max(wrapRect.height, wrap.scrollHeight || 0);
-            bodyHeight = Math.max(bodyHeight, Math.max(0, wrapHeight - bodyTop) + bodyTail);
+            const flowBottom = Math.max(
+                pickerRect.bottom - wrapRect.top,
+                appFolderContentRef.current ? appFolderContentRef.current.getBoundingClientRect().bottom - wrapRect.top : 0,
+                appFolderEndRef.current ? appFolderEndRef.current.getBoundingClientRect().bottom - wrapRect.top : 0
+            );
+            // Only measure normal-flow content here. Using wrap.scrollHeight can include the absolute
+            // gooey body itself, which prevents the folder from shrinking after a section collapses.
+            bodyHeight = Math.max(bodyHeight, Math.max(0, flowBottom - bodyTop) + bodyTail);
 
             setAppFolderLayout({
                 bodyTop,

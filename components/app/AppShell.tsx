@@ -749,10 +749,22 @@ export function AppShell({ session }: AppShellProps) {
             setAssetsCollapsed(false);
             return;
         }
+        // Default to the expanded workspace while app-specific export status is loading.
+        setAssetsCollapsed(false);
+    }, [selectedAppId]);
+
+    useEffect(() => {
+        if (!selectedAppId) return;
+        if (!exportStatus) return;
         const key = `zefgen.assetsCollapsed.${selectedAppId}`;
+        if (!exportStatus.is_completed) {
+            setAssetsCollapsed(false);
+            window.localStorage.setItem(key, '0');
+            return;
+        }
         const raw = window.localStorage.getItem(key);
         setAssetsCollapsed(raw === '1');
-    }, [selectedAppId]);
+    }, [selectedAppId, exportStatus]);
 
     useEffect(() => {
         if (!selectedAppId) return;
@@ -2268,7 +2280,7 @@ export function AppShell({ session }: AppShellProps) {
                                                         </div>
                                                     ) : (
                                                         <div className="space-y-0">
-                                                            {!assetsCollapsed && selectedApp ? (
+                                                            {selectedApp ? (
                                                                 <>
                                                                     <AppStoreLinkRow
                                                                         selectedApp={selectedApp}
@@ -2315,11 +2327,9 @@ export function AppShell({ session }: AppShellProps) {
                                                                     />
                                                                 </StepBlock>
                                                             )}
-                                                            {!assetsCollapsed && (
-                                                                <StepBlock step={iconStepNumber} done={step1Done}>
-                                                                    <IconGenerationModule {...generationModuleProps} />
-                                                                </StepBlock>
-                                                            )}
+                                                            <StepBlock step={iconStepNumber} done={step1Done}>
+                                                                <IconGenerationModule {...generationModuleProps} />
+                                                            </StepBlock>
 
                                                             {!isNoBrandMode && (
                                                                 <StepBlock step={ideaStepNumber} done={step2Done}>
