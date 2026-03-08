@@ -750,15 +750,6 @@ export function AppShell({ session }: AppShellProps) {
     });
     const buildConnectorFormSnapshot = connectorForm.buildSnapshot;
     const flushConnectorFormPending = connectorForm.flushPending;
-    const setConnectorFormVariable = connectorForm.setVariable;
-
-    const selectedAppAccountCompanyName = useMemo(() => {
-        return String(selectedAppstoreAccount?.company_name || '').trim();
-    }, [selectedAppstoreAccount?.company_name]);
-    const selectedAppAccountUsable = Boolean(
-        selectedAppstoreAccount && selectedAppstoreAccount.usability && !selectedAppstoreAccount.was_used_before
-    );
-    const currentCompanyName = String((connectorForm.variables as any)?.company_name || '').trim();
 
     const workspaceSwitchPending = Boolean(workspaceSwitchState) || isWorkspaceCommitPending;
 
@@ -1118,21 +1109,6 @@ export function AppShell({ session }: AppShellProps) {
             appStoreReviewPanel: snapshot,
         };
     }, [selectedApp?.id, selectedBrand?.id]);
-
-    useEffect(() => {
-        if (!selectedApp) return;
-        if (appstoreAccountsLoading) return;
-        const next = selectedAppAccountUsable ? selectedAppAccountCompanyName : '';
-        if (currentCompanyName === next) return;
-        setConnectorFormVariable('company_name', next);
-    }, [
-        selectedApp?.id,
-        appstoreAccountsLoading,
-        selectedAppAccountUsable,
-        selectedAppAccountCompanyName,
-        currentCompanyName,
-        setConnectorFormVariable,
-    ]);
 
     // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
     const { jobs: connectorRunnerJobs, refresh: refreshConnectorRunnerJobs } = useConnectorJobs({

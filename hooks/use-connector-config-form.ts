@@ -117,6 +117,7 @@ type LegalLinksPrecheckResult = {
 type RegenerateAppstoreDescriptionOptions = {
     silentOnShortSpec?: boolean;
     persistGenerated?: boolean;
+    companyName?: string;
 };
 
 export type ConnectorConfigFormSnapshot = {
@@ -392,7 +393,7 @@ export const useConnectorConfigForm = (payload: {
                     lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
                     resetAutosaveBackoff();
                 }
-            } else {
+            } else if (!isBackground) {
                 // First use: create a default row (keeps UI consistent).
                 const created = await upsertConnectorAppConfig({
                     userId: session.user.id,
@@ -754,7 +755,7 @@ export const useConnectorConfigForm = (payload: {
                 const response = await generateAppstoreDescription({
                     clientSpec: String(projectBrief || ''),
                     appStoreName: String((variables as any)?.appstore_name || '').trim(),
-                    companyName: String((variables as any)?.company_name || '').trim(),
+                    companyName: String(options?.companyName || (variables as any)?.company_name || '').trim(),
                     accessTokenHint: String(session.access_token || ''),
                 });
                 if (!isCurrentRequestContext(requestContext)) return response;

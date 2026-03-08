@@ -301,6 +301,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         const descriptionFirstAttemptPromise = connectorForm.regenerateAppstoreDescription({
             silentOnShortSpec: true,
             persistGenerated: false,
+            companyName: resolvedCompanyName,
         });
         const first = await connectorForm.generateLegalLinks(shouldRegenerate);
         const firstDescription = await descriptionFirstAttemptPromise;
@@ -318,6 +319,7 @@ export function ConnectorVariablesSecretsPanel(props: {
             const descriptionConfirmedAttemptPromise = connectorForm.regenerateAppstoreDescription({
                 silentOnShortSpec: true,
                 persistGenerated: false,
+                companyName: resolvedCompanyName,
             });
             const second = await connectorForm.generateLegalLinks(true);
             const secondDescription = await descriptionConfirmedAttemptPromise;
@@ -370,7 +372,9 @@ export function ConnectorVariablesSecretsPanel(props: {
     const handleRegenerateDescriptionOnly = async () => {
         if (!isEnabled || connectorForm.generateDescriptionBusy || appstoreDescriptionRegenerateBlocked) return;
         setGenerateNotice(null);
-        const result = await connectorForm.regenerateAppstoreDescription();
+        const result = await connectorForm.regenerateAppstoreDescription({
+            companyName: resolvedCompanyName,
+        });
         if (!result) return;
         if (result.status === 'generated') {
             setGenerateNotice(text('connector_appstore_desc_generated'));
