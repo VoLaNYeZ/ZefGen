@@ -453,6 +453,22 @@ const normalizeEcdsaJwtSignature = (signature, componentSize = 32) => {
     return Buffer.concat([r, s]);
 };
 
+const signEcdsaJwtInput = (signingInput, privateKeyPem) => {
+    const message = Buffer.from(signingInput);
+    try {
+        const signature = crypto.sign('sha256', message, {
+            key: privateKeyPem,
+            dsaEncoding: 'ieee-p1363',
+        });
+        return normalizeEcdsaJwtSignature(signature);
+    } catch {
+        const signature = crypto.sign('sha256', message, {
+            key: privateKeyPem,
+        });
+        return normalizeEcdsaJwtSignature(signature);
+    }
+};
+
 const createAppStoreConnectJwt = (payload) => {
     const normalizedKeyMode = String(payload?.keyMode || '').trim().toLowerCase();
     const normalizedKeyId = String(payload?.keyId || '').trim();
@@ -487,11 +503,7 @@ const createAppStoreConnectJwt = (payload) => {
     } catch {
         throw createHttpError(400, 'Private key is not a valid .p8 key.');
     }
-    const signature = normalizeEcdsaJwtSignature(
-        crypto.sign('sha256', Buffer.from(signingInput), {
-            key: normalizedPrivateKey,
-        })
-    );
+    const signature = signEcdsaJwtInput(signingInput, normalizedPrivateKey);
     return `${signingInput}.${base64UrlEncode(signature)}`;
 };
 
