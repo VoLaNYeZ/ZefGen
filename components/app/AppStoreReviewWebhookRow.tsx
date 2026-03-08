@@ -30,7 +30,6 @@ import {
     buildManagedAppstoreReviewPublicPageUrl,
     buildManagedAppstoreReviewWebhookUrl,
     buildSuggestedAppstoreReviewPublicSubdomain,
-    buildDirectAppstoreReviewWebhookUrl,
     extractManagedAppstoreReviewPublicSubdomain,
     formatAppstoreReviewState,
     generateAppstoreReviewWebhookSecret,
@@ -104,6 +103,17 @@ const sameHost = (left: string, right: string) => {
     }
 };
 
+const isDisallowedDirectSupabaseWebhookUrl = (value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
+    if (!raw || !supabaseUrl) return false;
+    try {
+        return new URL(raw).host === new URL(supabaseUrl).host;
+    } catch {
+        return false;
+    }
+};
+
 const buildLocalCredentialIssues = (payload: {
     webhook: AppstoreReviewWebhook | null;
     privateKeyConfigured: boolean;
@@ -154,7 +164,6 @@ export function AppStoreReviewWebhookRow(props: {
     const config = status?.webhook || null;
     const events = status?.events || [];
     const bundleId = String(status?.bundle_id || '').trim();
-    const defaultPublicWebhookUrl = String(status?.default_public_webhook_url || '').trim();
     const suggestedPublicSubdomain = React.useMemo(
         () => buildSuggestedAppstoreReviewPublicSubdomain(String(appStoreNameHint || '')),
         [appStoreNameHint]
@@ -180,16 +189,12 @@ export function AppStoreReviewWebhookRow(props: {
         legacyExplicitWebhookUrl ||
         managedPublicWebhookUrl ||
         String(status?.effective_public_webhook_url || '').trim();
-    const internalListenerUrl = String(status?.internal_listener_url || '').trim();
-    const pageReadinessIssues = status?.page_readiness_issues || [];
+    const webhookReadinessIssues = status?.webhook_readiness_issues || [];
     const privateKeyConfigured = Boolean(status?.private_key_configured);
     const latestStateLabel = formatAppstoreReviewState(config?.latest_review_state);
     const latestPrevStateLabel = formatAppstoreReviewState(config?.latest_previous_state);
     const lastDeliveryLabel = text(deliveryKeyForConfig(config));
     const lastSyncLabel = text(syncKeyForConfig(config));
-    const sharedHostWarning =
-        Boolean(effectivePublicWebhookUrl && internalListenerUrl) &&
-        sameHost(String(effectivePublicWebhookUrl || '').trim(), internalListenerUrl);
     const credentialIssues = status?.credential_issues || [];
 
     React.useEffect(() => {
@@ -296,15 +301,29 @@ export function AppStoreReviewWebhookRow(props: {
         const defaultPublicWebhookUrlFallback = webhook
             ? buildAppstoreReviewWebhookUrl(webhook.public_token, resolvedPublicSubdomainFallback)
             : '';
-        const internalListenerUrlFallback = webhook ? buildDirectAppstoreReviewWebhookUrl(webhook.public_token) : '';
-        const effectivePublicWebhookUrlFallback =
-            (String(webhook?.public_webhook_url || '').trim() &&
-            !isManagedAppstoreReviewWebhookUrl(webhook?.public_webhook_url)
+        const explicitPublicWebhookUrlFallback =
+            String(webhook?.public_webhook_url || '').trim() &&
+            !isManagedAppstoreReviewWebhookUrl(webhook?.public_webhook_url) &&
+            !isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)
                 ? String(webhook?.public_webhook_url || '').trim()
-                : defaultPublicWebhookUrlFallback);
+                : '';
+        const effectivePublicWebhookUrlFallback =
+            explicitPublicWebhookUrlFallback || defaultPublicWebhookUrlFallback;
         const effectivePublicPageUrlFallback = buildManagedAppstoreReviewPublicPageUrl({
             publicSubdomain: resolvedPublicSubdomainFallback,
         });
+        const webhookReadinessIssuesFallback: string[] = [];
+        if (!resolvedPublicSubdomainFallback && !appStoreNameFallback) {
+            webhookReadinessIssuesFallback.push(text('appstore_review_webhook_appstore_name_required'));
+        }
+        if (String(webhook?.public_webhook_url || '').trim() && isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)) {
+            webhookReadinessIssuesFallback.push(
+                'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.'
+            );
+        }
+        if (webhook && !effectivePublicWebhookUrlFallback && !webhookReadinessIssuesFallback.length) {
+            webhookReadinessIssuesFallback.push('Public webhook URL is not ready yet for this app.');
+        }
 
         return {
             webhook:
@@ -314,21 +333,13 @@ export function AppStoreReviewWebhookRow(props: {
             events: ((eventsRes.data || []) as AppstoreReviewWebhookStatus['events']) || [],
             bundle_id: bundleIdFallback,
             private_key_configured: privateKeyConfiguredFallback,
-            default_public_webhook_url: defaultPublicWebhookUrlFallback,
             effective_public_webhook_url: effectivePublicWebhookUrlFallback,
             effective_public_page_url: effectivePublicPageUrlFallback,
-            internal_listener_url: internalListenerUrlFallback,
-            using_shared_default_webhook_url:
-                Boolean(defaultPublicWebhookUrlFallback && internalListenerUrlFallback) &&
-                sameHost(defaultPublicWebhookUrlFallback, internalListenerUrlFallback),
             credential_issues: buildLocalCredentialIssues({
                 webhook,
                 privateKeyConfigured: privateKeyConfiguredFallback,
             }),
-            page_readiness_issues:
-                !resolvedPublicSubdomainFallback && !appStoreNameFallback
-                    ? [text('appstore_review_webhook_appstore_name_required')]
-                    : [],
+            webhook_readiness_issues: webhookReadinessIssuesFallback,
         } as AppstoreReviewWebhookStatus;
     }, [appId, text, userId]);
 
@@ -483,7 +494,8 @@ export function AppStoreReviewWebhookRow(props: {
             const selectedAppleApp = appleCandidates.find((candidate) => candidate.id === normalizedSelectedAppleAppId);
             const preservedLegacyExplicitUrl =
                 String(workingConfig.public_webhook_url || '').trim() &&
-                !isManagedAppstoreReviewWebhookUrl(workingConfig.public_webhook_url)
+                !isManagedAppstoreReviewWebhookUrl(workingConfig.public_webhook_url) &&
+                !isDisallowedDirectSupabaseWebhookUrl(workingConfig.public_webhook_url)
                     ? String(workingConfig.public_webhook_url || '').trim()
                     : null;
             const managedUrlSubdomain = extractManagedAppstoreReviewPublicSubdomain(workingConfig.public_webhook_url);
@@ -822,8 +834,8 @@ export function AppStoreReviewWebhookRow(props: {
                                             {text('appstore_review_webhook_bundle_missing_hint')}
                                         </p>
                                     ) : null}
-                                    {pageReadinessIssues.length ? (
-                                        <p className="mt-2 text-xs text-amber-100/90">{pageReadinessIssues.join(' ')}</p>
+                                    {webhookReadinessIssues.length ? (
+                                        <p className="mt-2 text-xs text-amber-100/90">{webhookReadinessIssues.join(' ')}</p>
                                     ) : null}
                                     {credentialIssues.length ? (
                                         <p className="mt-3 text-xs text-indigo-200/55">{credentialIssues.join(' ')}</p>
@@ -1091,14 +1103,6 @@ export function AppStoreReviewWebhookRow(props: {
                                         </div>
                                     ) : null}
 
-                                    {sharedHostWarning ? (
-                                        <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
-                                            <p className="text-xs text-amber-100/90">
-                                                {text('appstore_review_webhook_shared_host_warning')}
-                                            </p>
-                                        </div>
-                                    ) : null}
-
                                     <div className="mt-3 grid gap-3 lg:grid-cols-2">
                                         <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-3">
                                             <div className="flex items-center justify-between gap-3">
@@ -1118,16 +1122,6 @@ export function AppStoreReviewWebhookRow(props: {
                                             <code className="mt-2 block break-all text-[11px] text-indigo-100/90">
                                                 {effectivePublicWebhookUrl || text('appstore_review_webhook_public_url_missing')}
                                             </code>
-                                            {internalListenerUrl && internalListenerUrl !== effectivePublicWebhookUrl ? (
-                                                <div className="mt-3 rounded-xl border border-white/8 bg-slate-950/35 p-2">
-                                                    <p className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/65">
-                                                        {text('appstore_review_webhook_internal_url')}
-                                                    </p>
-                                                    <code className="mt-1 block break-all text-[11px] text-indigo-100/75">
-                                                        {internalListenerUrl}
-                                                    </code>
-                                                </div>
-                                            ) : null}
                                         </div>
 
                                         <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-3">

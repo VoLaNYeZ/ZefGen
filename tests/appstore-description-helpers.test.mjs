@@ -5,7 +5,7 @@ import {
     analyzeGeneratedDescription,
     MIN_DESCRIPTION_LENGTH,
     sanitizeClientSpecForPrompt,
-} from '../api/generate-appstore-description.shared.js';
+} from '../lib/server/generate-appstore-description.shared.js';
 
 test('sanitizeClientSpecForPrompt keeps legitimate feature details while stripping meta scaffolding', () => {
     const rawSpec = `

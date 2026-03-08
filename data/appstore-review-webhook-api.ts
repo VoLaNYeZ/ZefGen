@@ -189,7 +189,6 @@ export const syncAppstoreReviewWebhook = async (payload: {
         ok: boolean;
         webhook: AppstoreReviewWebhook;
         effective_public_webhook_url: string;
-        internal_listener_url: string;
     }>({
         publicSubdomain: payload.publicSubdomain,
         path: '/_bridge/appstore/sync',

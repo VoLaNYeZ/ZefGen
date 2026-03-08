@@ -6,7 +6,7 @@ import {
     requireAuthenticatedUser,
     requireOwnedApp,
     toPublicErrorStatus,
-} from './appstore-review-webhook.shared.js';
+} from '../lib/server/appstore-review-webhook.shared.js';
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {

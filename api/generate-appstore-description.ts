@@ -7,7 +7,7 @@ import {
     MIN_CLIENT_SPEC_LENGTH,
     sanitizeClientSpecForPrompt,
     sanitizeDescription,
-} from './generate-appstore-description.shared.js';
+} from '../lib/server/generate-appstore-description.shared.js';
 
 type GenerateAppstoreDescriptionRequestBody = {
     clientSpec: string;

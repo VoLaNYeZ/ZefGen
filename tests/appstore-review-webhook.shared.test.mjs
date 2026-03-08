@@ -3,19 +3,19 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import {
-    buildDefaultPublicWebhookUrl,
     buildManagedPublicPageUrl,
     buildManagedPublicWebhookUrl,
     createAppStoreConnectJwt,
     extractManagedPublicSubdomainFromUrl,
     getAppleCredentialIssues,
-    isUsingSharedDefaultWebhookUrl,
     normalizeAppleAppCandidates,
     normalizeApplePrivateKeyPem,
     normalizePublicSubdomain,
     pickAutoBoundAppleApp,
+    resolveEffectivePublicWebhookUrl,
+    validateExplicitPublicWebhookUrl,
     withSubdomainSuffix,
-} from '../api/appstore-review-webhook.shared.js';
+} from '../lib/server/appstore-review-webhook.shared.js';
 
 const decodeBase64UrlJson = (input) => {
     const normalized = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -105,34 +105,60 @@ test('normalizeAppleAppCandidates marks bundle matches and auto-binding only whe
     assert.equal(pickAutoBoundAppleApp(duplicateCandidates, 'com.duplicate.app'), null);
 });
 
-test('buildDefaultPublicWebhookUrl and shared-host detection distinguish shared vs custom hosts', () => {
-    const defaultUrl = buildDefaultPublicWebhookUrl({
-        publicToken: 'abc123',
-        publicBaseUrl: 'https://hooks.shared.example.com/appstore-review',
-        supabaseUrl: 'https://project.supabase.co',
-    });
+test('explicit custom webhook URLs are kept, direct Supabase URLs are rejected, and missing URLs fail closed', () => {
+    assert.deepEqual(
+        validateExplicitPublicWebhookUrl({
+            value: 'https://hooks.client-a.example.com/appstore-review',
+            supabaseUrl: 'https://project.supabase.co',
+            rootDomain: 'appshelp.cc',
+        }),
+        {
+            url: 'https://hooks.client-a.example.com/appstore-review',
+            issue: '',
+        }
+    );
 
-    assert.equal(defaultUrl, 'https://hooks.shared.example.com/appstore-review?token=abc123');
-    assert.equal(
-        isUsingSharedDefaultWebhookUrl({
-            configuredUrl: '',
-            defaultUrl,
+    assert.deepEqual(
+        validateExplicitPublicWebhookUrl({
+            value: 'https://project.supabase.co/functions/v1/appstore-review-webhook?token=abc123',
+            supabaseUrl: 'https://project.supabase.co',
+            rootDomain: 'appshelp.cc',
         }),
-        true
+        {
+            url: '',
+            issue: 'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.',
+        }
     );
-    assert.equal(
-        isUsingSharedDefaultWebhookUrl({
-            configuredUrl: 'https://hooks.shared.example.com/client-a/appstore-review',
-            defaultUrl,
+
+    assert.deepEqual(
+        resolveEffectivePublicWebhookUrl({
+            webhook: {
+                public_token: 'abc123',
+                public_subdomain: '',
+                public_webhook_url: '',
+            },
+            supabaseUrl: 'https://project.supabase.co',
+            rootDomain: 'appshelp.cc',
         }),
-        true
+        {
+            effectiveUrl: '',
+            explicitUrl: '',
+            managedUrl: '',
+            issue: '',
+        }
     );
+
     assert.equal(
-        isUsingSharedDefaultWebhookUrl({
-            configuredUrl: 'https://hooks.client-a.example.com/appstore-review',
-            defaultUrl,
-        }),
-        false
+        resolveEffectivePublicWebhookUrl({
+            webhook: {
+                public_token: 'abc123',
+                public_subdomain: 'holdlist-in-due-time',
+                public_webhook_url: '',
+            },
+            supabaseUrl: 'https://project.supabase.co',
+            rootDomain: 'appshelp.cc',
+        }).effectiveUrl,
+        'https://holdlist-in-due-time.appshelp.cc/appstore-review?token=abc123'
     );
 });
 

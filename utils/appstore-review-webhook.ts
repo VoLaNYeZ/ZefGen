@@ -15,29 +15,14 @@ const withTokenQuery = (baseUrl: string, publicToken: string) => {
     return `${rawBase}${separator}token=${encodeURIComponent(publicToken)}`;
 };
 
-export const buildDirectAppstoreReviewWebhookUrl = (publicToken: string) => {
-    const normalizedToken = String(publicToken || '').trim();
-    if (!normalizedToken) return '';
-
-    const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
-    if (!supabaseUrl) return '';
-    return withTokenQuery(`${supabaseUrl}/functions/v1/appstore-review-webhook`, normalizedToken);
-};
-
 export const buildAppstoreReviewWebhookUrl = (publicToken: string, publicSubdomain?: string | null) => {
     const normalizedToken = String(publicToken || '').trim();
     if (!normalizedToken) return '';
 
-    const managedUrl = buildManagedAppstoreReviewWebhookUrl({
+    return buildManagedAppstoreReviewWebhookUrl({
         publicToken: normalizedToken,
         publicSubdomain,
     });
-    if (managedUrl) return managedUrl;
-
-    const publicBaseUrl = String(import.meta.env.VITE_APPSTORE_REVIEW_WEBHOOK_BASE_URL || '').trim();
-    if (publicBaseUrl) return withTokenQuery(publicBaseUrl, normalizedToken);
-
-    return buildDirectAppstoreReviewWebhookUrl(normalizedToken);
 };
 
 export const normalizeAppstoreReviewProxyRootDomain = (value: string) =>
@@ -116,8 +101,7 @@ export const buildWildcardAppstoreReviewWebhookUrl = (payload: {
     publicSubdomain?: string | null;
 }) => {
     const managedUrl = buildManagedAppstoreReviewWebhookUrl(payload);
-    if (managedUrl) return managedUrl;
-    return buildAppstoreReviewWebhookUrl(payload.publicToken);
+    return managedUrl;
 };
 
 export const generateAppstoreReviewWebhookToken = () => {

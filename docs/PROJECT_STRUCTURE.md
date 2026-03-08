@@ -264,8 +264,8 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - Utility: `utils/appstore-review-webhook.ts` (public listener URL builder + local token/secret rotation helpers).
 - Receiver: `supabase/functions/appstore-review-webhook/index.ts` (public Apple-facing endpoint; deploy with `--no-verify-jwt`).
 - Public URL behavior:
-  - Defaults to the direct Supabase Edge Function URL built from `VITE_SUPABASE_URL`.
-  - Optional override via `VITE_APPSTORE_REVIEW_WEBHOOK_BASE_URL` for a custom public domain/proxy in front of the same receiver.
+  - Managed/default flow is `https://{subdomain}.appshelp.cc/appstore-review?token=...`.
+  - Legacy explicit custom HTTPS URLs are still honored if they are not the raw Supabase host.
 
 ## Alias Uniqueness & Allocation
 - DB contract:

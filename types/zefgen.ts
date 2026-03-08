@@ -214,13 +214,10 @@ export type AppstoreReviewWebhookStatus = {
     events: AppstoreReviewEvent[];
     bundle_id: string | null;
     private_key_configured: boolean;
-    default_public_webhook_url: string;
     effective_public_webhook_url: string;
     effective_public_page_url: string;
-    internal_listener_url: string;
-    using_shared_default_webhook_url: boolean;
     credential_issues: string[];
-    page_readiness_issues: string[];
+    webhook_readiness_issues: string[];
 };
 
 export type AppIdeaCategory = {

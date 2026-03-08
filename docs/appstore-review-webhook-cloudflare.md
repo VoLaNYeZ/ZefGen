@@ -12,6 +12,9 @@ What Apple does not see:
 
 - `https://onzswbbqaikkjpmvzplb.supabase.co/functions/v1/appstore-review-webhook`
 
+Managed/default flow is always `*.appshelp.cc`.
+Legacy explicit custom HTTPS webhook URLs can still work, but direct `supabase.co` webhook URLs are not supported anymore.
+
 ## What this isolates
 
 This setup isolates both:
@@ -43,18 +46,18 @@ Set:
 
 - `route`: `*.appshelp.cc/*`
 - `PUBLIC_ROOT_DOMAIN`: `appshelp.cc`
-- `SUPABASE_URL`: `https://onzswbbqaikkjpmvzplb.supabase.co`
-- `SUPABASE_ANON_KEY`: your Supabase anon key
-- `INTERNAL_WEBHOOK_BASE_URL`: `https://onzswbbqaikkjpmvzplb.supabase.co/functions/v1/appstore-review-webhook`
 
 Important:
 
 - Do not include `?token=...` in `INTERNAL_WEBHOOK_BASE_URL`.
 - The Worker forwards the incoming query string unchanged, so each app keeps its own existing token.
-- Set the Worker secret:
+- Set the Worker secrets:
 
 ```bash
+npx wrangler secret put SUPABASE_URL
+npx wrangler secret put SUPABASE_ANON_KEY
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+npx wrangler secret put INTERNAL_WEBHOOK_BASE_URL
 ```
 
 ## 3. Deploy the Worker
@@ -74,12 +77,12 @@ npx wrangler login
 
 ## 4. Verify the wildcard route works
 
-Open:
+There is no public health endpoint anymore.
 
-- `https://test.appshelp.cc/health`
+Use one of these checks instead:
 
-You should get JSON back from the Worker with `ok: true`.
-The health response should not expose the internal Supabase target.
+- After you publish a real app webpage, open its final URL like `https://holdlist-in-due-time.appshelp.cc/`
+- Before any app is published, opening `https://test.appshelp.cc/` should return `404 Not found` from the Worker instead of a Cloudflare connection error
 
 ## 5. Tell ZefGen to suggest `appshelp.cc` subdomains
 
@@ -134,7 +137,7 @@ If Apple automation is failing but the Worker is already live, you can still cre
 - `Public webhook URL Apple calls` still shows `supabase.co`
   - `VITE_APPSTORE_REVIEW_PROXY_ROOT_DOMAIN` is missing or the dev server was not restarted.
 
-- `https://test.appshelp.cc/health` does not load
+- `https://test.appshelp.cc/` fails with a Cloudflare connection error instead of returning `404`
   - the wildcard DNS record is missing or not proxied
   - the Worker route was not added for `*.appshelp.cc/*`
 

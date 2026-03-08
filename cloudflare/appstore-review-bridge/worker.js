@@ -24,6 +24,47 @@ const html = (markup, init = {}) =>
         },
     });
 
+const PUBLIC_CONTENT_SECURITY_POLICY = [
+    "default-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'none'",
+    "script-src 'none'",
+    "connect-src 'none'",
+    "img-src 'self' data:",
+    "style-src 'unsafe-inline'",
+    "font-src 'self'",
+].join('; ');
+
+export const buildPublicSecurityHeaders = (headers = {}) => ({
+    'content-security-policy': PUBLIC_CONTENT_SECURITY_POLICY,
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'x-frame-options': 'DENY',
+    ...headers,
+});
+
+export const withPublicHeaders = (response, headers = {}) => {
+    const nextHeaders = new Headers(response.headers);
+    Object.entries(buildPublicSecurityHeaders(headers)).forEach(([key, value]) => nextHeaders.set(key, value));
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: nextHeaders,
+    });
+};
+
+export const publicTextResponse = (message, init = {}) =>
+    withPublicHeaders(
+        new Response(String(message || ''), {
+            ...init,
+            headers: {
+                'content-type': 'text/plain; charset=utf-8',
+                ...(init.headers || {}),
+            },
+        })
+    );
+
 const escapeHtml = (value) =>
     String(value || '')
         .replace(/&/g, '&amp;')
@@ -120,6 +161,17 @@ const createHttpError = (status, message, details) => {
     error.status = status;
     error.details = details;
     return error;
+};
+
+const sameHost = (left, right) => {
+    const normalizedLeft = String(left || '').trim();
+    const normalizedRight = String(right || '').trim();
+    if (!normalizedLeft || !normalizedRight) return false;
+    try {
+        return new URL(normalizedLeft).host === new URL(normalizedRight).host;
+    } catch {
+        return false;
+    }
 };
 
 const supabaseTableUrl = (env, table) => {
@@ -506,6 +558,36 @@ const normalizePublicWebhookUrl = (value) => {
     }
 };
 
+export const validateExplicitPublicWebhookUrl = (env, value) => {
+    const normalizedUrl = normalizePublicWebhookUrl(value);
+    if (!normalizedUrl) {
+        return {
+            url: '',
+            issue: '',
+        };
+    }
+
+    const rootDomain = envValue(env, 'PUBLIC_ROOT_DOMAIN');
+    if (extractManagedPublicSubdomainFromUrl(normalizedUrl, rootDomain)) {
+        return {
+            url: '',
+            issue: '',
+        };
+    }
+
+    if (sameHost(normalizedUrl, envValue(env, 'SUPABASE_URL'))) {
+        return {
+            url: '',
+            issue: 'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.',
+        };
+    }
+
+    return {
+        url: normalizedUrl,
+        issue: '',
+    };
+};
+
 const extractManagedPublicSubdomainFromUrl = (value, rootDomain) => {
     const raw = normalizePublicWebhookUrl(value);
     const normalizedRootDomain = normalizeRootDomain(rootDomain);
@@ -540,19 +622,18 @@ const buildManagedPublicWebhookUrl = (payload) => {
     );
 };
 
-const buildInternalListenerUrl = (env, publicToken) =>
-    withTokenQuery(envValue(env, 'INTERNAL_WEBHOOK_BASE_URL'), publicToken);
-
-const buildEffectivePublicWebhookUrl = (env, webhook) => {
+export const buildEffectivePublicWebhookUrl = (env, webhook) => {
     const rootDomain = envValue(env, 'PUBLIC_ROOT_DOMAIN');
-    const explicitUrl = normalizePublicWebhookUrl(webhook?.public_webhook_url);
-    const explicitManaged = extractManagedPublicSubdomainFromUrl(explicitUrl, rootDomain);
+    const explicitValidation = validateExplicitPublicWebhookUrl(env, webhook?.public_webhook_url);
     const managedUrl = buildManagedPublicWebhookUrl({
         publicToken: webhook?.public_token,
         publicSubdomain: webhook?.public_subdomain,
         rootDomain,
     });
-    return explicitUrl && !explicitManaged ? explicitUrl : managedUrl;
+    return {
+        effectiveUrl: explicitValidation.url || managedUrl,
+        issue: explicitValidation.issue,
+    };
 };
 
 const webhookAttributesPayload = (payload) => ({
@@ -644,9 +725,9 @@ const handleBridgeSync = async (request, env, subdomain) => {
             });
         }
 
-        const effectiveUrl = buildEffectivePublicWebhookUrl(env, workingWebhook);
+        const { effectiveUrl, issue } = buildEffectivePublicWebhookUrl(env, workingWebhook);
         if (!effectiveUrl) {
-            throw createHttpError(400, 'Public webhook URL is not ready yet for this app.');
+            throw createHttpError(400, issue || 'Public webhook URL is not ready yet for this app.');
         }
 
         const attributes = webhookAttributesPayload({
@@ -720,7 +801,6 @@ const handleBridgeSync = async (request, env, subdomain) => {
             ok: true,
             webhook: updatedWebhook,
             effective_public_webhook_url: effectiveUrl,
-            internal_listener_url: buildInternalListenerUrl(env, workingWebhook.public_token),
         });
     } catch (error) {
         try {
@@ -776,7 +856,7 @@ const handleBridgePing = async (request, env, subdomain) => {
 const streamGeneratedIcon = async (env, imagePath) => {
     const supabaseUrl = envValue(env, 'SUPABASE_URL');
     if (!supabaseUrl || !String(imagePath || '').trim()) {
-        return new Response('Icon not found.', { status: 404 });
+        return publicTextResponse('Not found.', { status: 404 });
     }
 
     const encodedPath = String(imagePath || '')
@@ -787,18 +867,40 @@ const streamGeneratedIcon = async (env, imagePath) => {
         headers: getSupabaseHeaders(env),
     });
     if (!response.ok) {
-        return new Response('Icon not found.', { status: response.status === 404 ? 404 : 502 });
+        return publicTextResponse(response.status === 404 ? 'Not found.' : 'Server error.', {
+            status: response.status === 404 ? 404 : 502,
+        });
     }
 
-    const headers = new Headers(response.headers);
-    headers.set('cache-control', 'public, max-age=300');
-    return new Response(response.body, {
-        status: response.status,
-        headers,
-    });
+    return withPublicHeaders(
+        new Response(response.body, {
+            status: response.status,
+            headers: {
+                'content-type': response.headers.get('content-type') || 'image/png',
+                'cache-control': 'public, max-age=300',
+            },
+        })
+    );
 };
 
-const redirectTo = (targetUrl) => Response.redirect(String(targetUrl || '').trim(), 302);
+const normalizePublicRedirectUrl = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+        const parsed = new URL(raw);
+        return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : '';
+    } catch {
+        return '';
+    }
+};
+
+export const redirectTo = (targetUrl) => {
+    const normalizedTargetUrl = normalizePublicRedirectUrl(targetUrl);
+    if (!normalizedTargetUrl) {
+        return publicTextResponse('Not found.', { status: 404 });
+    }
+    return withPublicHeaders(Response.redirect(normalizedTargetUrl, 302));
+};
 
 const renderLandingPage = (surface, requestUrl) => {
     const title = String(surface?.title || surface?.app_name || 'App').trim() || 'App';
@@ -1013,19 +1115,10 @@ export default {
             return handleBridgeRequest(request, env, url);
         }
 
-        if (url.pathname === '/health') {
-            return json({
-                ok: true,
-                host: url.host,
-                root_domain: String(env.PUBLIC_ROOT_DOMAIN || ''),
-                mode: 'public-bridge',
-            });
-        }
-
         if (url.pathname === '/appstore-review') {
             const targetBase = envValue(env, 'INTERNAL_WEBHOOK_BASE_URL');
             if (!targetBase) {
-                return json({ error: 'Missing INTERNAL_WEBHOOK_BASE_URL.' }, { status: 500 });
+                return publicTextResponse('Server error.', { status: 500 });
             }
 
             const targetUrl = mergeQueryStrings(targetBase, request.url);
@@ -1044,48 +1137,50 @@ export default {
 
         const publicSubdomain = getPublicSubdomainFromHost(url.host, env.PUBLIC_ROOT_DOMAIN);
         if (!publicSubdomain) {
-            return new Response('Not found.', { status: 404 });
+            return publicTextResponse('Not found.', { status: 404 });
         }
 
         let surface = null;
         try {
             surface = await fetchPublicSurface(env, publicSubdomain);
         } catch (error) {
-            return json({ error: String(error?.message || error || 'Failed to load app surface.') }, { status: 502 });
+            return publicTextResponse('Server error.', { status: 502 });
         }
 
         if (!surface) {
-            return new Response('Not found.', { status: 404 });
+            return publicTextResponse('Not found.', { status: 404 });
         }
 
         if (!String(surface.public_page_published_at || '').trim()) {
-            return new Response('Not found.', { status: 404 });
+            return publicTextResponse('Not found.', { status: 404 });
         }
 
         if (url.pathname === '/' || url.pathname === '') {
-            return html(renderLandingPage(surface, url), {
-                headers: {
-                    'cache-control': 'public, max-age=120',
-                },
-            });
+            return withPublicHeaders(
+                html(renderLandingPage(surface, url), {
+                    headers: {
+                        'cache-control': 'public, max-age=120',
+                    },
+                })
+            );
         }
 
         if (url.pathname === '/privacy') {
-            return surface.privacy_policy_url ? redirectTo(surface.privacy_policy_url) : new Response('Not found.', { status: 404 });
+            return surface.privacy_policy_url ? redirectTo(surface.privacy_policy_url) : publicTextResponse('Not found.', { status: 404 });
         }
 
         if (url.pathname === '/terms') {
-            return surface.terms_of_use_url ? redirectTo(surface.terms_of_use_url) : new Response('Not found.', { status: 404 });
+            return surface.terms_of_use_url ? redirectTo(surface.terms_of_use_url) : publicTextResponse('Not found.', { status: 404 });
         }
 
         if (url.pathname === '/support') {
-            return surface.support_form_url ? redirectTo(surface.support_form_url) : new Response('Not found.', { status: 404 });
+            return surface.support_form_url ? redirectTo(surface.support_form_url) : publicTextResponse('Not found.', { status: 404 });
         }
 
         if (url.pathname === '/icon' || url.pathname === '/icon.png') {
             return streamGeneratedIcon(env, surface.icon_image_path);
         }
 
-        return new Response('Not found.', { status: 404 });
+        return publicTextResponse('Not found.', { status: 404 });
     },
 };
