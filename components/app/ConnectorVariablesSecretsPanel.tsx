@@ -55,6 +55,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     const secretKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const [generateNotice, setGenerateNotice] = React.useState<string | null>(null);
     const [actionHint, setActionHint] = React.useState<{ target: 'generate' | 'webpage'; message: string } | null>(null);
+    const [pendingAction, setPendingAction] = React.useState<'generate' | 'webpage' | null>(null);
     const actionHintTimerRef = React.useRef<number | null>(null);
 
     const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
@@ -70,6 +71,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     React.useEffect(() => {
         setGenerateNotice(null);
         setActionHint(null);
+        setPendingAction(null);
     }, [selectedApp?.id]);
 
     const showActionHint = React.useCallback((target: 'generate' | 'webpage', message: string) => {
@@ -305,7 +307,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         [text]
     );
 
-    const handleGenerateLinks = async () => {
+    const handleGenerateLinks = React.useCallback(async () => {
         if (!isEnabled) return;
         if (connectorForm.generateLinksBusy) return;
         if (connectorForm.generateDescriptionBusy) {
@@ -313,10 +315,12 @@ export function ConnectorVariablesSecretsPanel(props: {
             return;
         }
         if (connectorForm.loading) {
+            setPendingAction('generate');
             showActionHint('generate', text('connector_setup_loading'));
             return;
         }
         if (connectorForm.saving) {
+            setPendingAction('generate');
             showActionHint('generate', text('connector_setup_saving'));
             return;
         }
@@ -328,6 +332,7 @@ export function ConnectorVariablesSecretsPanel(props: {
             showActionHint('generate', generateButtonTitle);
             return;
         }
+        setPendingAction(null);
         setActionHint(null);
         setGenerateNotice(null);
 
@@ -414,7 +419,20 @@ export function ConnectorVariablesSecretsPanel(props: {
             return;
         }
         setGenerateNotice(text('connector_generate_links_success'));
-    };
+    }, [
+        connectorForm,
+        generateBlocked,
+        generateButtonTitle,
+        getDescriptionFailureNotice,
+        isEnabled,
+        persistGeneratedDescription,
+        resolvedAccountEmail,
+        resolvedAppStoreName,
+        resolvedCompanyName,
+        setPendingAction,
+        showActionHint,
+        text,
+    ]);
 
     const handleRegenerateDescriptionOnly = async () => {
         if (!isEnabled || connectorForm.generateDescriptionBusy || appstoreDescriptionRegenerateBlocked) return;
@@ -434,7 +452,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         setGenerateNotice(text('connector_appstore_desc_failed'));
     };
 
-    const handleGenerateWebpage = async () => {
+    const handleGenerateWebpage = React.useCallback(async () => {
         if (!isEnabled) return;
         if (connectorForm.publishWebpageBusy) return;
         if (webpagePublished && connectorForm.publicWebpageUrl) {
@@ -442,10 +460,12 @@ export function ConnectorVariablesSecretsPanel(props: {
             return;
         }
         if (connectorForm.loading) {
+            setPendingAction('webpage');
             showActionHint('webpage', text('connector_setup_loading'));
             return;
         }
         if (connectorForm.saving) {
+            setPendingAction('webpage');
             showActionHint('webpage', text('connector_setup_saving'));
             return;
         }
@@ -457,12 +477,52 @@ export function ConnectorVariablesSecretsPanel(props: {
             showActionHint('webpage', webpageButtonTitle);
             return;
         }
+        setPendingAction(null);
         setActionHint(null);
         setGenerateNotice(null);
         const result = await connectorForm.publishAppstoreReviewPublicPage();
         if (!result?.publicWebpageUrl) return;
         setGenerateNotice(text('connector_webpage_published'));
-    };
+    }, [
+        connectorForm,
+        isEnabled,
+        setPendingAction,
+        showActionHint,
+        text,
+        webpageButtonTitle,
+        webpageGenerateBlocked,
+        webpagePublished,
+    ]);
+
+    React.useEffect(() => {
+        if (!pendingAction) return;
+        if (!isEnabled) return;
+        if (connectorForm.loading || connectorForm.saving || connectorForm.staleConflict) return;
+        if (pendingAction === 'generate' && (connectorForm.generateLinksBusy || connectorForm.generateDescriptionBusy)) {
+            return;
+        }
+        if (pendingAction === 'webpage' && connectorForm.publishWebpageBusy) return;
+
+        const queuedAction = pendingAction;
+        setPendingAction(null);
+
+        if (queuedAction === 'generate') {
+            void handleGenerateLinks();
+            return;
+        }
+        void handleGenerateWebpage();
+    }, [
+        connectorForm.generateDescriptionBusy,
+        connectorForm.generateLinksBusy,
+        connectorForm.loading,
+        connectorForm.publishWebpageBusy,
+        connectorForm.saving,
+        connectorForm.staleConflict,
+        handleGenerateLinks,
+        handleGenerateWebpage,
+        isEnabled,
+        pendingAction,
+    ]);
 
     if (!isEnabled) {
         return (
