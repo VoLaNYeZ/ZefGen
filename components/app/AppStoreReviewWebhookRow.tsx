@@ -232,7 +232,7 @@ export function AppStoreReviewWebhookRow(props: {
     const [publicSubdomainDraft, setPublicSubdomainDraft] = React.useState('');
     const [privateKeyDraft, setPrivateKeyDraft] = React.useState('');
     const [selectedAppleAppId, setSelectedAppleAppId] = React.useState('');
-    const [hasAppleDraftChanges, setHasAppleDraftChanges] = React.useState(false);
+    const [hasAppleDraftChanges, setHasAppleDraftChangesState] = React.useState(false);
     const [isPrivateKeyDragActive, setIsPrivateKeyDragActive] = React.useState(false);
     const [serverStatusWarning, setServerStatusWarning] = React.useState<string | null>(null);
     const [appStoreNameHint, setAppStoreNameHint] = React.useState('');
@@ -242,6 +242,17 @@ export function AppStoreReviewWebhookRow(props: {
     const hydratedAppIdRef = React.useRef('');
     const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const hydrationSnapshotRef = React.useRef<AppStoreReviewPanelSnapshot | null>(hydrationSnapshot);
+    const hasAppleDraftChangesRef = React.useRef(false);
+
+    const markAppleDraftDirty = React.useCallback(() => {
+        hasAppleDraftChangesRef.current = true;
+        setHasAppleDraftChangesState(true);
+    }, []);
+
+    const clearAppleDraftDirty = React.useCallback(() => {
+        hasAppleDraftChangesRef.current = false;
+        setHasAppleDraftChangesState(false);
+    }, []);
 
     const appId = String(selectedApp?.id || '').trim();
     const userId = String(session?.user?.id || '').trim();
@@ -327,7 +338,7 @@ export function AppStoreReviewWebhookRow(props: {
                 appStoreNameHint?: string;
             }
         ) => {
-            if (!force && hasAppleDraftChanges) return;
+            if (!force && hasAppleDraftChangesRef.current) return;
             const webhook = nextStatus?.webhook;
             const effectiveAppStoreNameHint = String(options?.appStoreNameHint ?? appStoreNameHint ?? '').trim();
             setKeyModeDraft(webhook?.key_mode === 'individual' ? 'individual' : 'team');
@@ -340,9 +351,9 @@ export function AppStoreReviewWebhookRow(props: {
             );
             setSelectedAppleAppId(String(webhook?.asc_app_id || ''));
             if (force) setPrivateKeyDraft('');
-            setHasAppleDraftChanges(false);
+            clearAppleDraftDirty();
         },
-        [appStoreNameHint, hasAppleDraftChanges]
+        [appStoreNameHint, clearAppleDraftDirty]
     );
 
     React.useLayoutEffect(() => {
@@ -363,7 +374,7 @@ export function AppStoreReviewWebhookRow(props: {
             setPublicSubdomainDraft('');
             setPrivateKeyDraft('');
             setSelectedAppleAppId('');
-            setHasAppleDraftChanges(false);
+            clearAppleDraftDirty();
             setIsPrivateKeyDragActive(false);
             setServerStatusWarning(null);
             setAppStoreNameHint('');
@@ -406,7 +417,7 @@ export function AppStoreReviewWebhookRow(props: {
         setPublicSubdomainDraft('');
         setPrivateKeyDraft('');
         setSelectedAppleAppId('');
-        setHasAppleDraftChanges(false);
+        clearAppleDraftDirty();
         setIsPrivateKeyDragActive(false);
         setServerStatusWarning(null);
         setAppStoreNameHint('');
@@ -464,7 +475,8 @@ export function AppStoreReviewWebhookRow(props: {
                 setServerStatusWarning(null);
                 setStatus(nextStatus);
                 const shouldForceHydrate =
-                    options?.forceDraftHydrate === true || hydratedAppIdRef.current !== appId;
+                    !hasAppleDraftChangesRef.current &&
+                    (options?.forceDraftHydrate === true || hydratedAppIdRef.current !== appId);
                 hydrateDraftsFromStatus(nextStatus, shouldForceHydrate);
                 hydratedAppIdRef.current = appId;
             } catch (error: any) {
@@ -474,7 +486,8 @@ export function AppStoreReviewWebhookRow(props: {
                     setServerStatusWarning(String(error?.message || '').trim() || null);
                     setStatus(fallbackStatus);
                     const shouldForceHydrate =
-                        options?.forceDraftHydrate === true || hydratedAppIdRef.current !== appId;
+                        !hasAppleDraftChangesRef.current &&
+                        (options?.forceDraftHydrate === true || hydratedAppIdRef.current !== appId);
                     hydrateDraftsFromStatus(fallbackStatus, shouldForceHydrate);
                     hydratedAppIdRef.current = appId;
                 } catch (fallbackError: any) {
@@ -538,10 +551,10 @@ export function AppStoreReviewWebhookRow(props: {
                 throw new Error(text('appstore_review_webhook_private_key_invalid'));
             }
             setPrivateKeyDraft(nextValue);
-            setHasAppleDraftChanges(true);
+            markAppleDraftDirty();
             setNotice(text('appstore_review_webhook_private_key_loaded'));
         },
-        [text]
+        [markAppleDraftDirty, text]
     );
 
     const loadPrivateKeyFile = React.useCallback(
@@ -662,7 +675,7 @@ export function AppStoreReviewWebhookRow(props: {
                 if (secretResult.error) throw secretResult.error;
             }
 
-            setHasAppleDraftChanges(false);
+            clearAppleDraftDirty();
             setPrivateKeyDraft('');
 
             if (options?.refreshAfter !== false) {
@@ -688,6 +701,7 @@ export function AppStoreReviewWebhookRow(props: {
             selectedAppleAppId,
             text,
             userId,
+            clearAppleDraftDirty,
         ]
     );
 
@@ -1018,7 +1032,7 @@ export function AppStoreReviewWebhookRow(props: {
                                                 onChange={(event) => {
                                                     if (isReadOnly) return;
                                                     setKeyIdDraft(event.target.value);
-                                                    setHasAppleDraftChanges(true);
+                                                    markAppleDraftDirty();
                                                 }}
                                                 readOnly={isReadOnly}
                                                 placeholder="2X9R4HXF34"
@@ -1035,7 +1049,7 @@ export function AppStoreReviewWebhookRow(props: {
                                                 onChange={(event) => {
                                                     if (isReadOnly) return;
                                                     setIssuerIdDraft(event.target.value);
-                                                    setHasAppleDraftChanges(true);
+                                                    markAppleDraftDirty();
                                                 }}
                                                 readOnly={isReadOnly || keyModeDraft === 'individual'}
                                                 placeholder={
@@ -1112,7 +1126,7 @@ export function AppStoreReviewWebhookRow(props: {
                                             onChange={(event) => {
                                                 if (isReadOnly) return;
                                                 setPrivateKeyDraft(event.target.value);
-                                                setHasAppleDraftChanges(true);
+                                                markAppleDraftDirty();
                                             }}
                                             readOnly={isReadOnly}
                                             placeholder={text('appstore_review_webhook_private_key_placeholder')}
@@ -1136,7 +1150,7 @@ export function AppStoreReviewWebhookRow(props: {
                                                 onChange={(event) => {
                                                     if (isReadOnly) return;
                                                     setSelectedAppleAppId(event.target.value);
-                                                    setHasAppleDraftChanges(true);
+                                                    markAppleDraftDirty();
                                                 }}
                                                 disabled={isReadOnly || !appOptions.length}
                                                 className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
@@ -1222,7 +1236,7 @@ export function AppStoreReviewWebhookRow(props: {
                                                     const nextValue = event.target.value === 'individual' ? 'individual' : 'team';
                                                     setKeyModeDraft(nextValue);
                                                     if (nextValue === 'individual') setIssuerIdDraft('');
-                                                    setHasAppleDraftChanges(true);
+                                                    markAppleDraftDirty();
                                                 }}
                                                 disabled={isReadOnly}
                                                 className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -1241,7 +1255,7 @@ export function AppStoreReviewWebhookRow(props: {
                                                 onChange={(event) => {
                                                     if (isReadOnly) return;
                                                     setPublicSubdomainDraft(event.target.value);
-                                                    setHasAppleDraftChanges(true);
+                                                    markAppleDraftDirty();
                                                 }}
                                                 readOnly={isReadOnly}
                                                 placeholder={suggestedPublicSubdomain || text('appstore_review_webhook_public_subdomain_placeholder')}

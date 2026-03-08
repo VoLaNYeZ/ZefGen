@@ -43,16 +43,38 @@ export function BrandReleaseInfoPanel(props: {
     const [keywordsCopied, setKeywordsCopied] = React.useState(false);
     const keywordsCopiedTimerRef = React.useRef<number | null>(null);
     const ignoreKeywordsBlurRef = React.useRef(false);
+    const keywordsDirtyRef = React.useRef(false);
 
     const [notesDraft, setNotesDraft] = React.useState(selectedBrand.release_strategy_notes || '');
     const [notesSaving, setNotesSaving] = React.useState(false);
+    const [notesFocused, setNotesFocused] = React.useState(false);
+    const notesDirtyRef = React.useRef(false);
+
+    React.useEffect(() => {
+        setKeywordsEditing(false);
+        setKeywordsSaving(false);
+        setKeywordsCopied(false);
+        setKeywordsDraft(selectedBrand.keywords || '');
+        keywordsDirtyRef.current = false;
+        setNotesDraft(selectedBrand.release_strategy_notes || '');
+        setNotesSaving(false);
+        setNotesFocused(false);
+        notesDirtyRef.current = false;
+    }, [brandId]);
 
     React.useEffect(() => {
         setTargetCountries((selectedBrand.target_countries || []).filter(Boolean));
-        setKeywordsEditing(false);
+    }, [brandId, selectedBrand.target_countries]);
+
+    React.useEffect(() => {
+        if (keywordsEditing || keywordsDirtyRef.current) return;
         setKeywordsDraft(selectedBrand.keywords || '');
+    }, [brandId, keywordsEditing, selectedBrand.keywords]);
+
+    React.useEffect(() => {
+        if (notesFocused || notesSaving || notesDirtyRef.current) return;
         setNotesDraft(selectedBrand.release_strategy_notes || '');
-    }, [brandId, selectedBrand.target_countries, selectedBrand.keywords, selectedBrand.release_strategy_notes]);
+    }, [brandId, notesFocused, notesSaving, selectedBrand.release_strategy_notes]);
 
     React.useEffect(() => {
         return () => {
@@ -84,8 +106,11 @@ export function BrandReleaseInfoPanel(props: {
         setKeywordsSaving(true);
         try {
             await patchBrand(brandId, { keywords: next });
+            keywordsDirtyRef.current = false;
+            return true;
         } catch (error: any) {
             reportError(error?.message || text('upload_failed'));
+            return false;
         } finally {
             setKeywordsSaving(false);
         }
@@ -107,13 +132,17 @@ export function BrandReleaseInfoPanel(props: {
     const saveNotesIfChanged = async () => {
         if (isReadOnly) return;
         const next = notesDraft;
-        if ((selectedBrand.release_strategy_notes || '') === next) return;
+        if ((selectedBrand.release_strategy_notes || '') === next) {
+            notesDirtyRef.current = false;
+            return;
+        }
         setNotesSaving(true);
         try {
             await patchBrand(brandId, {
                 release_strategy_notes: next,
                 release_strategy_updated_at: new Date().toISOString(),
             });
+            notesDirtyRef.current = false;
         } catch (error: any) {
             reportError(error?.message || text('upload_failed'));
         } finally {
@@ -176,7 +205,10 @@ export function BrandReleaseInfoPanel(props: {
                             <div className="mt-2">
                                 <textarea
                                     value={keywordsDraft}
-                                    onChange={(e) => setKeywordsDraft(e.target.value.slice(0, 100))}
+                                    onChange={(e) => {
+                                        keywordsDirtyRef.current = true;
+                                        setKeywordsDraft(e.target.value.slice(0, 100));
+                                    }}
                                     onBlur={() => {
                                         if (ignoreKeywordsBlurRef.current) {
                                             ignoreKeywordsBlurRef.current = false;
@@ -239,8 +271,10 @@ export function BrandReleaseInfoPanel(props: {
                                     }}
                                     onClick={async () => {
                                         if (isReadOnly) return;
-                                        await saveKeywords(keywordsDraft);
-                                        setKeywordsEditing(false);
+                                        const saved = await saveKeywords(keywordsDraft);
+                                        if (saved) {
+                                            setKeywordsEditing(false);
+                                        }
                                     }}
                                     disabled={keywordsSaving || isReadOnly}
                                     className="inline-flex items-center justify-center rounded-full border border-indigo-400/35 bg-indigo-500/10 p-2 text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
@@ -255,6 +289,7 @@ export function BrandReleaseInfoPanel(props: {
                                         ignoreKeywordsBlurRef.current = true;
                                     }}
                                     onClick={() => {
+                                        keywordsDirtyRef.current = false;
                                         setKeywordsDraft(selectedBrand.keywords || '');
                                         setKeywordsEditing(false);
                                     }}
@@ -278,9 +313,14 @@ export function BrandReleaseInfoPanel(props: {
                         value={notesDraft}
                         onChange={(e) => {
                             if (isReadOnly) return;
+                            notesDirtyRef.current = true;
                             setNotesDraft(e.target.value);
                         }}
-                        onBlur={saveNotesIfChanged}
+                        onFocus={() => setNotesFocused(true)}
+                        onBlur={async () => {
+                            setNotesFocused(false);
+                            await saveNotesIfChanged();
+                        }}
                         rows={4}
                         readOnly={isReadOnly}
                         className="mt-2 w-full rounded-2xl border border-indigo-400/20 bg-slate-900/25 px-4 py-3 text-sm text-indigo-50 placeholder:text-indigo-200/40 outline-none focus:border-indigo-400/40"
