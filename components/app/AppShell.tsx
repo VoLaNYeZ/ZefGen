@@ -1076,10 +1076,21 @@ export function AppShell({ session }: AppShellProps) {
 
     useEffect(() => {
         if (!selectedBrand?.id || !selectedApp?.id) return;
+        if (connectorForm.loading) return;
+
+        const currentSnapshot = workspaceSnapshotsRef.current[selectedApp.id] ?? null;
         const connectorSnapshot = buildConnectorFormSnapshot(selectedApp.id);
-        const generatedSnapshot = buildMetadataSnapshot();
-        const promptsSnapshot = buildAppScreenshotPromptsSnapshot();
-        if (!generatedSnapshot || !promptsSnapshot) return;
+        const generatedSnapshot = buildMetadataSnapshot() ?? currentSnapshot?.generatedAssets ?? null;
+        const promptsSnapshot = buildAppScreenshotPromptsSnapshot() ?? currentSnapshot?.screenshotPrompts ?? null;
+        if (!generatedSnapshot || !promptsSnapshot) {
+            if (!currentSnapshot) return;
+            workspaceSnapshotsRef.current[selectedApp.id] = {
+                ...currentSnapshot,
+                brandId: selectedBrand.id,
+                connectorForm: connectorSnapshot,
+            };
+            return;
+        }
 
         workspaceSnapshotsRef.current[selectedApp.id] = {
             appId: selectedApp.id,
@@ -1087,12 +1098,13 @@ export function AppShell({ session }: AppShellProps) {
             connectorForm: connectorSnapshot,
             generatedAssets: generatedSnapshot,
             screenshotPrompts: promptsSnapshot,
-            appStoreReviewPanel: workspaceSnapshotsRef.current[selectedApp.id]?.appStoreReviewPanel ?? null,
+            appStoreReviewPanel: currentSnapshot?.appStoreReviewPanel ?? null,
         };
     }, [
         buildAppScreenshotPromptsSnapshot,
         buildConnectorFormSnapshot,
         buildMetadataSnapshot,
+        connectorForm.loading,
         selectedApp?.id,
         selectedBrand?.id,
     ]);

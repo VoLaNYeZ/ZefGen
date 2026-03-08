@@ -7,7 +7,6 @@ import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 
 const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder?: string }> = [
     { key: 'appstore_name', label: 'connector_appstore_name' },
-    { key: 'app_new_name', label: 'connector_app_new_name' },
     { key: 'home_screen_name', label: 'connector_home_screen_name' },
     { key: 'bundle_id', label: 'connector_bundle_id', placeholder: 'com.example.app' },
     { key: 'domain', label: 'connector_domain', placeholder: 'https://...' },
@@ -280,12 +279,9 @@ export function ConnectorVariablesSecretsPanel(props: {
     );
 
     const handleGenerateLinks = async () => {
-        if (
-            !isEnabled ||
-            connectorForm.generateLinksBusy ||
-            connectorForm.generateDescriptionBusy ||
-            generateBlocked
-        ) {
+        if (!isEnabled || connectorForm.generateLinksBusy || connectorForm.generateDescriptionBusy) return;
+        if (generateBlocked) {
+            setGenerateNotice(generateButtonTitle);
             return;
         }
         setGenerateNotice(null);
@@ -393,7 +389,10 @@ export function ConnectorVariablesSecretsPanel(props: {
             window.open(connectorForm.publicWebpageUrl, '_blank', 'noopener,noreferrer');
             return;
         }
-        if (webpageGenerateBlocked) return;
+        if (webpageGenerateBlocked) {
+            setGenerateNotice(webpageButtonTitle);
+            return;
+        }
         setGenerateNotice(null);
         const result = await connectorForm.publishAppstoreReviewPublicPage();
         if (!result?.publicWebpageUrl) return;
@@ -436,8 +435,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 connectorForm.loading ||
                                 connectorForm.saving ||
                                 connectorForm.generateLinksBusy ||
-                                connectorForm.generateDescriptionBusy ||
-                                generateBlocked
+                                connectorForm.generateDescriptionBusy
                             }
                             title={generateButtonTitle}
                             className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
@@ -454,8 +452,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 (!isEnabled ||
                                     connectorForm.loading ||
                                     connectorForm.saving ||
-                                    connectorForm.publishWebpageBusy ||
-                                    webpageGenerateBlocked)
+                                    connectorForm.publishWebpageBusy)
                             }
                             title={webpageButtonTitle}
                             className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
@@ -694,6 +691,27 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 />
                             </label>
                         ))}
+
+                        <label className="grid gap-1">
+                            <div className="text-[11px] text-indigo-200/60">{text('connector_generated_webpage')}</div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    value={String(connectorForm.publicWebpageUrl || '')}
+                                    readOnly
+                                    className="w-full rounded-full border border-white/10 bg-slate-950/15 px-4 py-2 text-xs text-indigo-100/70 outline-none"
+                                    placeholder={text('connector_generated_webpage_placeholder')}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => void copyValue('webpage.compact', String(connectorForm.publicWebpageUrl || ''))}
+                                    disabled={!connectorForm.publicWebpageUrl}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-950/20 text-indigo-100/70 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                    title={text('copy')}
+                                >
+                                    {copiedKey === 'webpage.compact' ? <Check size={14} /> : <Copy size={14} />}
+                                </button>
+                            </div>
+                        </label>
 
                         <div className="grid gap-1">
                             <div className="text-[11px] text-indigo-200/60">{text('connector_legal_links')}</div>
