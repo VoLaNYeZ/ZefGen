@@ -1118,13 +1118,31 @@ export function AppShell({ session }: AppShellProps) {
 
     const handleAppStoreReviewSnapshotChange = useCallback((snapshot: AppStoreReviewPanelSnapshot | null) => {
         if (!selectedBrand?.id || !selectedApp?.id || !snapshot || snapshot.appId !== selectedApp.id) return;
+
         const currentSnapshot = workspaceSnapshotsRef.current[selectedApp.id];
-        if (!currentSnapshot) return;
+        const connectorSnapshot = buildConnectorFormSnapshot(selectedApp.id);
+        const generatedSnapshot = buildMetadataSnapshot();
+        const promptsSnapshot = buildAppScreenshotPromptsSnapshot();
+
+        if (currentSnapshot) {
+            workspaceSnapshotsRef.current[selectedApp.id] = {
+                ...currentSnapshot,
+                appStoreReviewPanel: snapshot,
+            };
+            return;
+        }
+
+        if (!generatedSnapshot || !promptsSnapshot) return;
+
         workspaceSnapshotsRef.current[selectedApp.id] = {
-            ...currentSnapshot,
+            appId: selectedApp.id,
+            brandId: selectedBrand.id,
+            connectorForm: connectorSnapshot,
+            generatedAssets: generatedSnapshot,
+            screenshotPrompts: promptsSnapshot,
             appStoreReviewPanel: snapshot,
         };
-    }, [selectedApp?.id, selectedBrand?.id]);
+    }, [buildAppScreenshotPromptsSnapshot, buildConnectorFormSnapshot, buildMetadataSnapshot, selectedApp?.id, selectedBrand?.id]);
 
     // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
     const { jobs: connectorRunnerJobs, refresh: refreshConnectorRunnerJobs } = useConnectorJobs({

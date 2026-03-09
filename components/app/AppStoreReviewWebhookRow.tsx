@@ -266,6 +266,7 @@ export function AppStoreReviewWebhookRow(props: {
     const requestIdRef = React.useRef(0);
     const copiedTimerRef = React.useRef<number | null>(null);
     const pingRefreshTimersRef = React.useRef<number[]>([]);
+    const activeAppKeyRef = React.useRef('');
     const hydratedAppIdRef = React.useRef('');
     const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const hydrationSnapshotRef = React.useRef<AppStoreReviewPanelSnapshot | null>(hydrationSnapshot);
@@ -485,6 +486,7 @@ export function AppStoreReviewWebhookRow(props: {
     );
 
     React.useLayoutEffect(() => {
+        activeAppKeyRef.current = appId && userId ? `${userId}:${appId}` : '';
         hydratedAppIdRef.current = '';
         requestIdRef.current += 1;
         setExpanded(false);
@@ -595,6 +597,7 @@ export function AppStoreReviewWebhookRow(props: {
                 return;
             }
 
+            const appKey = `${userId}:${appId}`;
             const requestId = requestIdRef.current + 1;
             requestIdRef.current = requestId;
             if (!options?.silent) setLoading(true);
@@ -626,7 +629,7 @@ export function AppStoreReviewWebhookRow(props: {
                     }
                 }
             } finally {
-                if (requestIdRef.current === requestId && !options?.silent) setLoading(false);
+                if (activeAppKeyRef.current === appKey) setLoading(false);
             }
         },
         [appId, hydrateDraftsFromStatus, loadFallbackStatus, reportError, text, userId]
