@@ -49,6 +49,29 @@ export function AppStoreLinkRow(props: {
         };
     }, []);
 
+    const parsedStored = React.useMemo(
+        () => parseAppStoreInput(storedCanonicalUrl),
+        [storedCanonicalUrl]
+    );
+    const geoLinks = React.useMemo(() => {
+        if (!parsedStored) return [];
+        return buildGeoAppStoreUrls(parsedStored.appId, targetCountries || []);
+    }, [parsedStored, targetCountries]);
+
+    const parsedDraft = React.useMemo(() => parseAppStoreInput(draft), [draft]);
+    const canonicalDraft = React.useMemo(
+        () => (parsedDraft ? buildCanonicalAppStoreUrl(parsedDraft.appId, parsedDraft.countryCode) : null),
+        [parsedDraft]
+    );
+    const trimmedDraft = String(draft || '').trim();
+    const draftDirty = React.useMemo(() => {
+        if (!isEditing) return false;
+        if (!trimmedDraft && !storedCanonicalUrl) return false;
+        if (canonicalDraft) return canonicalDraft !== storedCanonicalUrl;
+        return trimmedDraft !== storedCanonicalUrl;
+    }, [canonicalDraft, isEditing, storedCanonicalUrl, trimmedDraft]);
+    const blockReason = draftDirty && trimmedDraft && !parsedDraft ? text('appstore_link_invalid') : null;
+
     React.useEffect(() => {
         const appId = selectedApp?.id ?? null;
         const appChanged = lastAppIdRef.current !== appId;
@@ -79,29 +102,6 @@ export function AppStoreLinkRow(props: {
             setIsEditing(true);
         }
     }, [draftDirty, isEditing, saving, selectedApp, storedCanonicalUrl]);
-
-    const parsedStored = React.useMemo(
-        () => parseAppStoreInput(storedCanonicalUrl),
-        [storedCanonicalUrl]
-    );
-    const geoLinks = React.useMemo(() => {
-        if (!parsedStored) return [];
-        return buildGeoAppStoreUrls(parsedStored.appId, targetCountries || []);
-    }, [parsedStored, targetCountries]);
-
-    const parsedDraft = React.useMemo(() => parseAppStoreInput(draft), [draft]);
-    const canonicalDraft = React.useMemo(
-        () => (parsedDraft ? buildCanonicalAppStoreUrl(parsedDraft.appId, parsedDraft.countryCode) : null),
-        [parsedDraft]
-    );
-    const trimmedDraft = String(draft || '').trim();
-    const draftDirty = React.useMemo(() => {
-        if (!isEditing) return false;
-        if (!trimmedDraft && !storedCanonicalUrl) return false;
-        if (canonicalDraft) return canonicalDraft !== storedCanonicalUrl;
-        return trimmedDraft !== storedCanonicalUrl;
-    }, [canonicalDraft, isEditing, storedCanonicalUrl, trimmedDraft]);
-    const blockReason = draftDirty && trimmedDraft && !parsedDraft ? text('appstore_link_invalid') : null;
 
     const handleSave = async () => {
         if (isReadOnly) return;

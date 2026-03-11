@@ -3,9 +3,15 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Copy, Loader2, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import type { AppItem, AppstoreAccount, Brand } from '../../types/zefgen';
+import {
+    buildDraftPatchFromClipboard,
+    parseClipboardRows,
+    type AccountPasteField,
+    type AppstoreAccountDraft,
+} from '../../utils/accounts-paste';
 import { InstantTooltip } from '../ui/InstantTooltip';
 
-type Draft = Partial<Omit<AppstoreAccount, 'id' | 'user_id' | 'created_at' | 'updated_at'>>;
+type Draft = AppstoreAccountDraft;
 type UsabilityStatus = 'usable' | 'unusable' | 'used_before';
 type ComputedStatus = UsabilityStatus | 'banned';
 
@@ -75,6 +81,13 @@ const statusPillClass = (status: ComputedStatus) => {
     if (status === 'used_before') return 'border-amber-400/30 bg-amber-500/10 text-amber-100/95';
     return 'border-cyan-300/25 bg-cyan-500/10 text-cyan-100/90';
 };
+
+const normalizePasteLookupToken = (value: unknown) =>
+    String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ');
 
 export function AccountsPage(props: {
     accounts: AppstoreAccount[];
@@ -201,6 +214,36 @@ export function AccountsPage(props: {
         return appsSorted.filter((app) => !Boolean(app.is_banned));
     }, [appsSorted]);
 
+    const formatAppLabel = React.useCallback(
+        (app: AppItem | undefined) => {
+            if (!app) return '—';
+            const brand = brandById.get(app.brand_id);
+            const brandPart = brand ? ` · ${brand.name}` : '';
+            return `${String(app.alias || '').toUpperCase()} · ${app.name}${brandPart}`;
+        },
+        [brandById]
+    );
+
+    const appIdByPasteToken = React.useMemo(() => {
+        const map = new Map<string, string>();
+        const put = (token: unknown, appId: string) => {
+            const key = normalizePasteLookupToken(token);
+            if (!key || map.has(key)) return;
+            map.set(key, appId);
+        };
+
+        for (const app of apps) {
+            put(app.alias, app.id);
+            put(formatAppLabel(app), app.id);
+            const aliasHead = String(app.alias ?? '')
+                .split(/[·|]/)[0]
+                .trim();
+            put(aliasHead, app.id);
+        }
+
+        return map;
+    }, [apps, formatAppLabel]);
+
     const assignedAccountIdByAppId = React.useMemo(() => {
         const map = new Map<string, string>();
         for (const account of accounts) {
@@ -226,16 +269,6 @@ export function AccountsPage(props: {
         return map;
     }, [accounts, draftById, newDraft]);
 
-    const formatAppLabel = React.useCallback(
-        (app: AppItem | undefined) => {
-            if (!app) return '—';
-            const brand = brandById.get(app.brand_id);
-            const brandPart = brand ? ` · ${brand.name}` : '';
-            return `${String(app.alias || '').toUpperCase()} · ${app.name}${brandPart}`;
-        },
-        [brandById]
-    );
-
     const markSaved = React.useCallback((accountId: string) => {
         setRowSavedById((prev) => ({ ...prev, [accountId]: true }));
         window.setTimeout(() => {
@@ -259,6 +292,61 @@ export function AccountsPage(props: {
             }
         },
         [reportError, text]
+    );
+
+    const resolvePastedStatus = React.useCallback(
+        (raw: string): Pick<AppstoreAccount, 'usability' | 'was_used_before'> | null => {
+            const token = normalizePasteLookupToken(raw);
+            if (!token) return null;
+
+            const usableTokens = new Set([
+                'usable',
+                'active',
+                'use',
+                normalizePasteLookupToken(text('accounts_usable')),
+                normalizePasteLookupToken(text('accounts_filter_active')),
+            ]);
+            const unusableTokens = new Set([
+                'unusable',
+                'disabled',
+                'inactive',
+                'blocked',
+                'banned',
+                normalizePasteLookupToken(text('accounts_disabled')),
+                normalizePasteLookupToken(text('accounts_banned')),
+            ]);
+            const usedBeforeTokens = new Set([
+                'used before',
+                'used_before',
+                'used',
+                normalizePasteLookupToken(text('accounts_used_before')),
+            ]);
+
+            if (usedBeforeTokens.has(token)) return flagsFromStatus('used_before');
+            if (usableTokens.has(token)) return flagsFromStatus('usable');
+            if (unusableTokens.has(token)) return flagsFromStatus('unusable');
+            return null;
+        },
+        [text]
+    );
+
+    const resolvePastedAppId = React.useCallback(
+        (raw: string): string | null | undefined => {
+            const token = normalizePasteLookupToken(raw);
+            if (!token || token === '—' || token === '-' || token === 'unassigned' || token === 'none') return null;
+
+            const direct = appIdByPasteToken.get(token);
+            if (direct) return direct;
+
+            const aliasHead = normalizePasteLookupToken(token.split('·')[0]);
+            if (aliasHead) {
+                const byAliasHead = appIdByPasteToken.get(aliasHead);
+                if (byAliasHead) return byAliasHead;
+            }
+
+            return undefined;
+        },
+        [appIdByPasteToken]
     );
 
     const setDraftField = React.useCallback((accountId: string, patch: Partial<Draft>) => {
@@ -782,6 +870,72 @@ export function AccountsPage(props: {
         [onSaveNew]
     );
 
+    const applyPastedCells = React.useCallback(
+        (args: { rowId: 'new' | string; startField: AccountPasteField; cells: string[] }) => {
+            const { patch, issues } = buildDraftPatchFromClipboard({
+                startField: args.startField,
+                cells: args.cells,
+                resolveStatus: resolvePastedStatus,
+                resolveAppId: resolvePastedAppId,
+            });
+
+            if (!Object.keys(patch).length && !issues.length) return;
+
+            if (args.rowId === 'new') {
+                setNewDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+                setNewError(
+                    issues.some((issue) => issue.code === 'unknown_app') ? text('accounts_paste_unknown_app') : null
+                );
+            } else {
+                setDraftField(args.rowId, patch);
+                setRowErrorById((prev) => {
+                    const next = { ...prev };
+                    if (issues.some((issue) => issue.code === 'unknown_app')) {
+                        next[args.rowId] = text('accounts_paste_unknown_app');
+                    } else {
+                        delete next[args.rowId];
+                    }
+                    return next;
+                });
+            }
+
+            if (issues.some((issue) => issue.code === 'unknown_app')) {
+                reportError?.(text('accounts_paste_unknown_app'));
+            }
+        },
+        [reportError, resolvePastedAppId, resolvePastedStatus, setDraftField, text]
+    );
+
+    const onRowPaste = React.useCallback(
+        (event: React.ClipboardEvent, rowId: 'new' | string) => {
+            if (!isEditMode) return;
+
+            const target = event.target as HTMLElement | null;
+            const field = target?.closest<HTMLElement>('[data-paste-field]')?.dataset.pasteField as
+                | AccountPasteField
+                | undefined;
+            if (!field) return;
+
+            const textValue = event.clipboardData?.getData('text/plain') || '';
+            if (!textValue.includes('\t')) return;
+
+            const rows = parseClipboardRows(textValue);
+            if (!rows.length) return;
+
+            if (rows.length > 1) {
+                event.preventDefault();
+                reportError?.(text('accounts_paste_single_row_only'));
+                return;
+            }
+
+            if (rows[0].length <= 1) return;
+
+            event.preventDefault();
+            applyPastedCells({ rowId, startField: field, cells: rows[0] });
+        },
+        [applyPastedCells, isEditMode, reportError, text]
+    );
+
     const openAppPicker = React.useCallback(
         (id: string) => {
             if (!isEditMode) return;
@@ -1027,6 +1181,7 @@ export function AccountsPage(props: {
                         {isEditMode && newDraft ? (
                             <div
                                 id="account-row-new"
+                                onPasteCapture={(e) => onRowPaste(e, 'new')}
                                 className="order-last grid divide-x divide-white/5 border-b border-white/5 bg-indigo-500/10"
                                 style={gridStyle}
                             >
@@ -1058,6 +1213,7 @@ export function AccountsPage(props: {
                                                     </div>
                                                 ) : (
                                                     <select
+                                                        data-paste-field="usability"
                                                         value={statusRaw}
                                                         onChange={(e) => {
                                                             const next = flagsFromStatus(e.target.value as UsabilityStatus);
@@ -1076,6 +1232,7 @@ export function AccountsPage(props: {
                                             <div className={`min-w-0 ${cellBox}`}>
                                                 <button
                                                     type="button"
+                                                    data-paste-field="app_id"
                                                     ref={(el) => {
                                                         appPickerAnchorByIdRef.current['new'] = el;
                                                     }}
@@ -1104,6 +1261,7 @@ export function AccountsPage(props: {
                                             </div>
                                             <div className={`group relative min-w-0 ${cellBox}`}>
                                                 <input
+                                                    data-paste-field="email"
                                                     value={newDraft.email}
                                                     onChange={(e) =>
                                                         setNewDraft((prev) => (prev ? { ...prev, email: e.target.value } : prev))
@@ -1125,6 +1283,7 @@ export function AccountsPage(props: {
                                 })()}
                                 <div className={`group relative min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="password"
                                         value={newDraft.password}
                                         onChange={(e) => setNewDraft((prev) => (prev ? { ...prev, password: e.target.value } : prev))}
                                         onKeyDown={onNewCellKeyDown}
@@ -1141,6 +1300,7 @@ export function AccountsPage(props: {
                                 </div>
                                 <div className={`group relative min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="email_password"
                                         value={newDraft.email_password}
                                         onChange={(e) =>
                                             setNewDraft((prev) => (prev ? { ...prev, email_password: e.target.value } : prev))
@@ -1159,6 +1319,7 @@ export function AccountsPage(props: {
                                 </div>
                                 <div className={`min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="number"
                                         value={newDraft.number}
                                         onChange={(e) => setNewDraft((prev) => (prev ? { ...prev, number: e.target.value } : prev))}
                                         onKeyDown={onNewCellKeyDown}
@@ -1167,6 +1328,7 @@ export function AccountsPage(props: {
                                 </div>
                                 <div className={`min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="geo"
                                         value={newDraft.geo}
                                         onChange={(e) => setNewDraft((prev) => (prev ? { ...prev, geo: e.target.value } : prev))}
                                         onKeyDown={onNewCellKeyDown}
@@ -1175,6 +1337,7 @@ export function AccountsPage(props: {
                                 </div>
                                 <div className={`min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="company_name"
                                         value={newDraft.company_name}
                                         onChange={(e) =>
                                             setNewDraft((prev) => (prev ? { ...prev, company_name: e.target.value } : prev))
@@ -1185,6 +1348,7 @@ export function AccountsPage(props: {
                                 </div>
                                 <div className={`group relative min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="proxy"
                                         value={newDraft.proxy}
                                         onChange={(e) => setNewDraft((prev) => (prev ? { ...prev, proxy: e.target.value } : prev))}
                                         onKeyDown={onNewCellKeyDown}
@@ -1201,6 +1365,7 @@ export function AccountsPage(props: {
                                 </div>
                                 <div className={`min-w-0 ${cellBox}`}>
                                     <input
+                                        data-paste-field="notes"
                                         value={newDraft.notes}
                                         onChange={(e) => setNewDraft((prev) => (prev ? { ...prev, notes: e.target.value } : prev))}
                                         onKeyDown={onNewCellKeyDown}
@@ -1259,6 +1424,7 @@ export function AccountsPage(props: {
                                 <div
                                     key={a.id}
                                     id={`account-row-${a.id}`}
+                                    onPasteCapture={(e) => onRowPaste(e, a.id)}
                                     className={`grid divide-x divide-white/5 border-b border-white/5 transition-colors ${
                                         flash ? 'bg-indigo-500/10' : 'bg-transparent'
                                     } hover:bg-slate-950/15`}
@@ -1286,6 +1452,7 @@ export function AccountsPage(props: {
                                             </div>
                                         ) : (
                                             <select
+                                                data-paste-field="usability"
                                                 value={status}
                                                 onChange={(e) =>
                                                     setDraftField(a.id, flagsFromStatus(e.target.value as UsabilityStatus))
@@ -1304,6 +1471,7 @@ export function AccountsPage(props: {
                                     <div className={`min-w-0 ${cellBox}`}>
                                         <button
                                             type="button"
+                                            data-paste-field="app_id"
                                             ref={(el) => {
                                                 appPickerAnchorByIdRef.current[a.id] = el;
                                             }}
@@ -1335,6 +1503,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`group relative min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="email"
                                             value={String(field('email') ?? '')}
                                             onChange={(e) => setDraftField(a.id, { email: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
@@ -1354,6 +1523,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`group relative min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="password"
                                             value={
                                                 isEditMode
                                                     ? String(field('password') ?? '')
@@ -1377,6 +1547,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`group relative min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="email_password"
                                             value={
                                                 isEditMode
                                                     ? String(field('email_password') ?? '')
@@ -1402,6 +1573,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="number"
                                             value={String(field('number') ?? '')}
                                             onChange={(e) => setDraftField(a.id, { number: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
@@ -1412,6 +1584,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="geo"
                                             value={String(field('geo') ?? '')}
                                             onChange={(e) => setDraftField(a.id, { geo: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
@@ -1422,6 +1595,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="company_name"
                                             value={String(field('company_name') ?? '')}
                                             onChange={(e) => setDraftField(a.id, { company_name: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
@@ -1432,6 +1606,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`group relative min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="proxy"
                                             value={String(field('proxy') ?? '')}
                                             onChange={(e) => setDraftField(a.id, { proxy: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}
@@ -1451,6 +1626,7 @@ export function AccountsPage(props: {
                                     </div>
                                     <div className={`min-w-0 ${cellBox}`}>
                                         <input
+                                            data-paste-field="notes"
                                             value={String(field('notes') ?? '')}
                                             onChange={(e) => setDraftField(a.id, { notes: e.target.value })}
                                             onKeyDown={(e) => onExistingCellKeyDown(e, a)}

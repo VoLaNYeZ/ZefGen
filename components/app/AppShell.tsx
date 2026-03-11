@@ -1005,6 +1005,27 @@ export function AppShell({ session }: AppShellProps) {
         [resolveActiveScreenshotSetId, session.user.id, text]
     );
 
+    const handleNoBrandIconPromptChange = useCallback((value: string) => {
+        setNoBrandIconPromptDraft(value);
+    }, []);
+
+    const handleNoBrandIconPromptSave = useCallback(
+        async (value: string) => {
+            if (!selectedApp || !isNoBrandMode) return true;
+            const nextValue = String(value || '');
+            const currentValue = String(selectedApp.icon_prompt || '');
+            if (nextValue === currentValue) return true;
+            const patched = await patchApp(selectedApp.id, { icon_prompt: nextValue });
+            if (!patched) {
+                reportActionError(text('upload_failed'));
+                return false;
+            }
+            setNoBrandIconPromptDraft(String(patched.icon_prompt || nextValue));
+            return true;
+        },
+        [selectedApp, isNoBrandMode, patchApp, reportActionError, text]
+    );
+
     const prepareWorkspaceForSwitch = useCallback(
         async (
             nextSelection: { brandId: string | null; appId: string | null },
@@ -2024,27 +2045,6 @@ export function AppShell({ session }: AppShellProps) {
     const handleAutoGrowInput = (event: React.FormEvent<HTMLTextAreaElement>) => {
         syncAutoGrowTextarea(event.currentTarget);
     };
-
-    const handleNoBrandIconPromptChange = useCallback((value: string) => {
-        setNoBrandIconPromptDraft(value);
-    }, []);
-
-    const handleNoBrandIconPromptSave = useCallback(
-        async (value: string) => {
-            if (!selectedApp || !isNoBrandMode) return true;
-            const nextValue = String(value || '');
-            const currentValue = String(selectedApp.icon_prompt || '');
-            if (nextValue === currentValue) return true;
-            const patched = await patchApp(selectedApp.id, { icon_prompt: nextValue });
-            if (!patched) {
-                reportActionError(text('upload_failed'));
-                return false;
-            }
-            setNoBrandIconPromptDraft(String(patched.icon_prompt || nextValue));
-            return true;
-        },
-        [selectedApp, isNoBrandMode, patchApp, reportActionError, text]
-    );
 
     const handleNoBrandIconPromptAutogen = useCallback(async () => {
         if (!session || !selectedApp || !isNoBrandMode) return;
