@@ -34,6 +34,7 @@ export const useAppScreenshotPrompts = ({
     const [promptsByRefId, setPromptsByRefId] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isDirty, setIsDirty] = useState(false);
     const dirtyRef = useRef<Set<string>>(new Set());
     const promptsRef = useRef<Record<string, string>>({});
     const debounceRef = useRef<number | null>(null);
@@ -97,6 +98,7 @@ export const useAppScreenshotPrompts = ({
                     if (error) throw error;
                 }
                 dirtyRef.current = new Set();
+                setIsDirty(false);
                 return true;
             } catch (err: any) {
                 const message = err?.message || 'Failed to save prompts.';
@@ -142,6 +144,7 @@ export const useAppScreenshotPrompts = ({
         setPromptsByRefId(nextPrompts);
         promptsRef.current = nextPrompts;
         dirtyRef.current = new Set();
+        setIsDirty(false);
         setLoading(false);
     }, [selectedApp?.id, selectedBrand?.id]);
 
@@ -170,12 +173,14 @@ export const useAppScreenshotPrompts = ({
         if (!userId || !brandId || !appId) {
             setPromptsByRefId({});
             dirtyRef.current = new Set();
+            setIsDirty(false);
             setLoading(false);
             setError(null);
             return;
         }
 
         dirtyRef.current = new Set();
+        setIsDirty(false);
         setLoading(!hasHydrationSnapshot);
         setError(null);
 
@@ -257,6 +262,7 @@ export const useAppScreenshotPrompts = ({
             [refId]: value,
         }));
         dirtyRef.current.add(refId);
+        setIsDirty(true);
         scheduleFlush();
     };
 
@@ -277,6 +283,7 @@ export const useAppScreenshotPrompts = ({
 
     return {
         promptsByRefId,
+        isDirty,
         setPrompt,
         flushPending,
         buildSnapshot,

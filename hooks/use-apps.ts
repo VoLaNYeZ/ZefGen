@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type { AppFormState, AppItem, Brand } from '../types/zefgen';
@@ -232,6 +232,23 @@ export const useApps = ({
 
     const appAliasPreview = slugify(appForm.alias || appForm.name || '');
     const isEditingBanned = Boolean(editingAppId && bannedAppIdSet.has(editingAppId));
+    const normalizedAppName = String(appForm.name || '').trim();
+    const isEditingExistingAppForm = Boolean(appFormOpen && editingAppId);
+    const hasMeaningfulNewAppDraft = Boolean(
+        appFormOpen &&
+            !editingAppId &&
+            (normalizedAppName.length > 0 || String(appForm.alias || '').trim() !== String(suggestedNewAppAlias || '').trim())
+    );
+    const editingApp = useMemo(
+        () => (editingAppId ? apps.find((app) => app.id === editingAppId) || null : null),
+        [apps, editingAppId]
+    );
+    const appFormDirty = useMemo(() => {
+        if (!appFormOpen) return false;
+        if (!editingAppId) return hasMeaningfulNewAppDraft;
+        if (!editingApp) return normalizedAppName.length > 0;
+        return normalizedAppName !== String(editingApp.name || '').trim() || appAliasPreview !== String(editingApp.alias || '').trim();
+    }, [appFormOpen, editingAppId, editingApp, normalizedAppName, appAliasPreview, hasMeaningfulNewAppDraft]);
 
     const openAppForm = (app?: AppItem) => {
         if (app) {
@@ -252,19 +269,19 @@ export const useApps = ({
         setEditingAppId(null);
     }, []);
 
-    const submitAppForm = async (event: React.FormEvent) => {
-        event.preventDefault();
-        if (!session || !selectedBrand) return;
+    const submitAppForm = async (event?: FormEvent) => {
+        event?.preventDefault();
+        if (!session || !selectedBrand) return false;
 
-        const name = appForm.name.trim();
+        const name = normalizedAppName;
         if (!name) {
             setAppFormError(text('app_name_required'));
-            return;
+            return false;
         }
 
         if (!editingAppId && activeApps.length >= MAX_ACTIVE_APPS) {
             setAppFormError(text('max_active_apps'));
-            return;
+            return false;
         }
 
         const baseAlias = slugify(appForm.alias || name);
@@ -287,7 +304,7 @@ export const useApps = ({
             if (error) {
                 setAppFormError(error.message);
                 setAppFormLoading(false);
-                return;
+                return false;
             }
             if (data) {
                 setApps((prev) =>
@@ -316,7 +333,7 @@ export const useApps = ({
             if (error) {
                 setAppFormError(error.message);
                 setAppFormLoading(false);
-                return;
+                return false;
             }
             if (data) {
                 setApps((prev) => [...prev, { ...data, is_banned: data.is_banned ?? false }]);
@@ -332,7 +349,51 @@ export const useApps = ({
 
         setAppFormLoading(false);
         closeAppForm();
+        return true;
     };
+
+    const getAppSwitchBlockReason = useCallback(() => {
+        if (!appFormOpen) return null;
+        if (appFormLoading) return text('finish_editing_app_first');
+        if (editingAppId) {
+            if (!normalizedAppName) return text('app_name_required');
+            return null;
+        }
+        if (hasMeaningfulNewAppDraft) return text('finish_creating_app_first');
+        return null;
+    }, [
+        appFormLoading,
+        appFormOpen,
+        editingAppId,
+        hasMeaningfulNewAppDraft,
+        normalizedAppName,
+        text,
+    ]);
+
+    const saveCurrentEditForSwitch = useCallback(async () => {
+        if (!appFormOpen) return true;
+        if (appFormLoading) return false;
+        if (!editingAppId) {
+            if (!hasMeaningfulNewAppDraft) {
+                closeAppForm();
+                return true;
+            }
+            return false;
+        }
+        if (!appFormDirty) {
+            closeAppForm();
+            return true;
+        }
+        return await submitAppForm();
+    }, [
+        appFormDirty,
+        appFormLoading,
+        appFormOpen,
+        closeAppForm,
+        editingAppId,
+        hasMeaningfulNewAppDraft,
+        submitAppForm,
+    ]);
 
     const handleDeleteApp = async () => {
         if (!session || !editingAppId || !selectedBrand) return;
@@ -471,6 +532,9 @@ export const useApps = ({
         appFormError,
         appFormLoading,
         editingAppId,
+        isEditingExistingAppForm,
+        isDirty: appFormDirty,
+        hasMeaningfulNewAppDraft,
         appAliasPreview,
         newAppAliasPlaceholder,
         isEditingBanned,
@@ -479,6 +543,8 @@ export const useApps = ({
         openAppForm,
         closeAppForm,
         submitAppForm,
+        saveCurrentEditForSwitch,
+        getAppSwitchBlockReason,
         handleDeleteApp,
         handleBanApp,
         handleUnbanApp,

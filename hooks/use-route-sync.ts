@@ -17,6 +17,10 @@ type RouteSyncParams = {
     routeBrand: Brand | null;
     routeApp: AppItem | null;
     requestWorkspaceSelection: (payload: { brandId: string | null; appId: string | null }) => void;
+    requestPageNavigation?: (
+        page: Exclude<AppPage, 'workspace'>,
+        options?: { historyMode?: 'push' | 'replace' | 'none'; fromPopState?: boolean }
+    ) => void | Promise<boolean>;
     canNavigate?: (next: ReturnType<typeof parseRoute>) => boolean;
 };
 
@@ -33,6 +37,7 @@ export const useRouteSync = (params: RouteSyncParams) => {
         routeBrand,
         routeApp,
         requestWorkspaceSelection,
+        requestPageNavigation,
         canNavigate,
     } = params;
 
@@ -43,7 +48,11 @@ export const useRouteSync = (params: RouteSyncParams) => {
 
         const parsed = parseRoute();
         if (parsed.page !== 'workspace') {
-            setActivePage(parsed.page);
+            if (requestPageNavigation) {
+                void requestPageNavigation(parsed.page, { historyMode: 'none' });
+            } else {
+                setActivePage(parsed.page);
+            }
             setHasParsedRoute(true);
             return;
         }
@@ -87,6 +96,7 @@ export const useRouteSync = (params: RouteSyncParams) => {
         apps,
         orderedApps,
         requestWorkspaceSelection,
+        requestPageNavigation,
         setHasParsedRoute,
         setActivePage,
     ]);
@@ -132,8 +142,15 @@ export const useRouteSync = (params: RouteSyncParams) => {
                 window.history.go(1);
                 return;
             }
+            if (parsed.page !== 'workspace') {
+                if (requestPageNavigation) {
+                    void requestPageNavigation(parsed.page, { historyMode: 'none', fromPopState: true });
+                } else {
+                    setActivePage(parsed.page);
+                }
+                return;
+            }
             setActivePage(parsed.page);
-            if (parsed.page !== 'workspace') return;
             const { brandSlug, appAlias } = parsed;
             const brandMatch = brands.find((brand) => brand.slug === brandSlug);
             const targetAlias = normalizeAlias(appAlias);
@@ -149,5 +166,5 @@ export const useRouteSync = (params: RouteSyncParams) => {
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [brands, apps, dataLoading, hasParsedRoute, requestWorkspaceSelection, setActivePage, canNavigate]);
+    }, [brands, apps, dataLoading, hasParsedRoute, requestWorkspaceSelection, requestPageNavigation, setActivePage, canNavigate]);
 };

@@ -106,6 +106,17 @@ type AppWorkspaceSnapshot = {
     appStoreReviewPanel: AppStoreReviewPanelSnapshot | null;
 };
 
+type WorkspaceSwitchGuard = {
+    isDirty: boolean;
+    blockReason: string | null;
+    flushPending: () => Promise<boolean>;
+};
+
+type WorkspacePreparationResult =
+    | { status: 'ready' }
+    | { status: 'blocked'; message: string }
+    | { status: 'failed' };
+
 const MAIN_BRANCH = 'main';
 const WORKSPACE_SWITCH_DIM_DELAY_MS = 180;
 const WORKSPACE_SWITCH_LOADER_DELAY_MS = 700;
@@ -180,6 +191,8 @@ export function AppShell({ session }: AppShellProps) {
     const [moveToBrandLoading, setMoveToBrandLoading] = useState(false);
     const seenExportCompletedByAppRef = useRef<Record<string, boolean>>({});
     const workspaceSnapshotsRef = useRef<Record<string, AppWorkspaceSnapshot>>({});
+    const brandReleaseInfoGuardRef = useRef<WorkspaceSwitchGuard | null>(null);
+    const appStoreLinkGuardRef = useRef<WorkspaceSwitchGuard | null>(null);
     const workspaceSwitchSeqRef = useRef(0);
     const lockFallbackAttemptRef = useRef('');
     const [workspaceSwitchState, setWorkspaceSwitchState] = useState<WorkspaceSwitchState | null>(null);
@@ -244,6 +257,8 @@ export function AppShell({ session }: AppShellProps) {
         brandSlugPreview,
         openBrandForm,
         submitBrandForm,
+        saveCurrentEditForSwitch: saveCurrentBrandEditForSwitch,
+        getBrandSwitchBlockReason,
         setBrandForm,
         setBrandFormOpen,
         closeBrandForm,
@@ -325,6 +340,8 @@ export function AppShell({ session }: AppShellProps) {
         openAppForm,
         closeAppForm,
         submitAppForm,
+        saveCurrentEditForSwitch: saveCurrentAppEditForSwitch,
+        getAppSwitchBlockReason,
         handleDeleteApp,
         handleBanApp,
         handleUnbanApp,
@@ -365,6 +382,12 @@ export function AppShell({ session }: AppShellProps) {
         [brands]
     );
     const selectedAppSnapshot = selectedAppId ? workspaceSnapshotsRef.current[selectedAppId] ?? null : null;
+    const handleBrandReleaseInfoGuardChange = useCallback((guard: WorkspaceSwitchGuard | null) => {
+        brandReleaseInfoGuardRef.current = guard;
+    }, []);
+    const handleAppStoreLinkGuardChange = useCallback((guard: WorkspaceSwitchGuard | null) => {
+        appStoreLinkGuardRef.current = guard;
+    }, []);
 
     useEffect(() => {
         if (!selectedApp || !isNoBrandMode) {
@@ -582,6 +605,7 @@ export function AppShell({ session }: AppShellProps) {
 
     const {
         promptsByRefId,
+        isDirty: appScreenshotPromptsDirty,
         setPrompt,
         flushPending: flushAppScreenshotPrompts,
         buildSnapshot: buildAppScreenshotPromptsSnapshot,
@@ -971,6 +995,7 @@ export function AppShell({ session }: AppShellProps) {
                         text,
                     }),
                     appStoreNameHint: extractAppStoreNameHintFromConnectorConfig(configResp.data || null),
+                    hasDraftChanges: false,
                 },
             };
 
@@ -980,11 +1005,175 @@ export function AppShell({ session }: AppShellProps) {
         [resolveActiveScreenshotSetId, session.user.id, text]
     );
 
+    const prepareWorkspaceForSwitch = useCallback(
+        async (
+            nextSelection: { brandId: string | null; appId: string | null },
+            options?: { normalizeVisibleWorkspaceState?: boolean }
+        ): Promise<WorkspacePreparationResult> => {
+            const normalizeVisibleWorkspaceState = Boolean(options?.normalizeVisibleWorkspaceState);
+            const brandWillChange = nextSelection.brandId !== selectedBrandId;
+            const appWillChange = nextSelection.appId !== selectedAppId || brandWillChange;
+            const shouldNormalizeBrandState = normalizeVisibleWorkspaceState || brandWillChange;
+            const shouldNormalizeAppState = normalizeVisibleWorkspaceState || appWillChange;
+
+            if (shouldNormalizeBrandState) {
+                const brandFormBlockReason = getBrandSwitchBlockReason();
+                if (brandFormOpen) {
+                    const ok = await saveCurrentBrandEditForSwitch();
+                    if (!ok) {
+                        if (brandFormBlockReason) {
+                            return { status: 'blocked', message: brandFormBlockReason };
+                        }
+                        return { status: 'failed' };
+                    }
+                }
+
+                const brandReleaseInfoGuard = brandReleaseInfoGuardRef.current;
+                if (brandReleaseInfoGuard?.isDirty) {
+                    const ok = await brandReleaseInfoGuard.flushPending();
+                    if (!ok) {
+                        if (brandReleaseInfoGuard.blockReason) {
+                            return { status: 'blocked', message: brandReleaseInfoGuard.blockReason };
+                        }
+                        return { status: 'failed' };
+                    }
+                }
+            }
+
+            if (shouldNormalizeAppState) {
+                const appFormBlockReason = getAppSwitchBlockReason();
+                if (appFormOpen) {
+                    const ok = await saveCurrentAppEditForSwitch();
+                    if (!ok) {
+                        if (appFormBlockReason) {
+                            return { status: 'blocked', message: appFormBlockReason };
+                        }
+                        return { status: 'failed' };
+                    }
+                }
+
+                const appStoreLinkGuard = appStoreLinkGuardRef.current;
+                if (appStoreLinkGuard?.isDirty) {
+                    const ok = await appStoreLinkGuard.flushPending();
+                    if (!ok) {
+                        if (appStoreLinkGuard.blockReason) {
+                            return { status: 'blocked', message: appStoreLinkGuard.blockReason };
+                        }
+                        return { status: 'failed' };
+                    }
+                }
+
+                if (selectedAppSnapshot?.appStoreReviewPanel?.hasDraftChanges) {
+                    return {
+                        status: 'blocked',
+                        message: text('appstore_review_webhook_save_before_switch'),
+                    };
+                }
+
+                if (
+                    selectedApp &&
+                    isNoBrandMode &&
+                    String(noBrandIconPromptDraft || '') !== String(selectedApp.icon_prompt || '')
+                ) {
+                    const ok = await handleNoBrandIconPromptSave(noBrandIconPromptDraft);
+                    if (!ok) return { status: 'failed' };
+                }
+
+                const connectorFlushes = await Promise.all([
+                    flushConnectorFormPending(),
+                    flushAppScreenshotPrompts(),
+                ]);
+                if (connectorFlushes.some((result) => !result)) {
+                    return { status: 'failed' };
+                }
+            }
+
+            return { status: 'ready' };
+        },
+        [
+            flushAppScreenshotPrompts,
+            flushConnectorFormPending,
+            getAppSwitchBlockReason,
+            getBrandSwitchBlockReason,
+            handleNoBrandIconPromptSave,
+            isNoBrandMode,
+            noBrandIconPromptDraft,
+            saveCurrentAppEditForSwitch,
+            saveCurrentBrandEditForSwitch,
+            selectedApp,
+            selectedAppId,
+            selectedAppSnapshot?.appStoreReviewPanel?.hasDraftChanges,
+            selectedBrandId,
+            appFormOpen,
+            brandFormOpen,
+            text,
+        ]
+    );
+
+    const prepareWorkspaceLockForSelection = useCallback(
+        async (targetBrandId: string | null): Promise<WorkspacePreparationResult> => {
+            if (!WORKSPACE_COLLAB_ENABLED) {
+                return { status: 'ready' };
+            }
+
+            const normalizedTargetBrandId = String(targetBrandId || '').trim() || null;
+            if (normalizedTargetBrandId === selectedBrandId) {
+                return { status: 'ready' };
+            }
+
+            if (!normalizedTargetBrandId) {
+                if (selectedBrandId) {
+                    await releaseCurrentBrand();
+                }
+                return { status: 'ready' };
+            }
+
+            if (WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
+                const brandBusyByOtherDevice = lockedBrandIdSet.has(normalizedTargetBrandId);
+                if (brandBusyByOtherDevice) {
+                    if (!softLockViewModeEnabled) {
+                        return { status: 'blocked', message: text('brand_under_work_readonly') };
+                    }
+                    await releaseCurrentBrand();
+                    return { status: 'ready' };
+                }
+
+                const claim = await tryClaimBrand(normalizedTargetBrandId);
+                if (!claim.ok) {
+                    if (softLockViewModeEnabled && claim.reason === 'locked_by_other_device') {
+                        await releaseCurrentBrand();
+                        return { status: 'ready' };
+                    }
+                    if (claim.reason === 'locked_by_other_device') {
+                        return { status: 'blocked', message: text('brand_under_work_readonly') };
+                    }
+                    if (claim.reason === 'unavailable') {
+                        return { status: 'failed' };
+                    }
+                    return { status: 'failed' };
+                }
+                return { status: 'ready' };
+            }
+
+            void tryClaimBrand(normalizedTargetBrandId);
+            return { status: 'ready' };
+        },
+        [
+            lockedBrandIdSet,
+            releaseCurrentBrand,
+            selectedBrandId,
+            softLockViewModeEnabled,
+            text,
+            tryClaimBrand,
+        ]
+    );
+
     const requestWorkspaceSelection = useCallback(
         async (
             payload: WorkspaceSelection & {
                 historyMode?: 'push' | 'replace' | 'none';
                 closeSidebar?: boolean;
+                skipCollaborationLockPreparation?: boolean;
             }
         ) => {
             const previousPage = activePage;
@@ -1009,6 +1198,23 @@ export function AppShell({ session }: AppShellProps) {
             }
 
             if (sameDisplayed && sameRequested) {
+                if (shouldEnterWorkspace && !payload.skipCollaborationLockPreparation) {
+                    const token = workspaceSwitchSeqRef.current + 1;
+                    workspaceSwitchSeqRef.current = token;
+                    const lockPreparation = await prepareWorkspaceLockForSelection(resolved.brandId);
+                    if (workspaceSwitchSeqRef.current !== token) return false;
+                    if (lockPreparation.status === 'blocked') {
+                        restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                        setWorkspaceSwitchState(null);
+                        reportActionError(lockPreparation.message);
+                        return false;
+                    }
+                    if (lockPreparation.status === 'failed') {
+                        restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                        setWorkspaceSwitchState(null);
+                        return false;
+                    }
+                }
                 if (shouldEnterWorkspace) {
                     setAccountsFocusAppId(null);
                     setActivePage('workspace');
@@ -1023,20 +1229,77 @@ export function AppShell({ session }: AppShellProps) {
                 label: resolved.app?.name || resolved.brand?.name || text('loading'),
             });
 
-            const flushes = await Promise.all([
-                flushConnectorFormPending(),
-                flushAppScreenshotPrompts(),
-            ]);
+            const preparation = await prepareWorkspaceForSwitch({
+                brandId: resolved.brandId,
+                appId: resolved.appId,
+            });
             if (workspaceSwitchSeqRef.current !== token) return false;
-            if (flushes.some((result) => !result)) {
+            if (preparation.status === 'blocked') {
+                restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                setWorkspaceSwitchState(null);
+                reportActionError(preparation.message);
+                return false;
+            }
+            if (preparation.status === 'failed') {
                 restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
                 setWorkspaceSwitchState(null);
                 return false;
             }
 
+            const cachedTargetSnapshot =
+                resolved.app && resolved.brandId ? workspaceSnapshotsRef.current[resolved.app.id] ?? null : null;
+            const canUseWarmSnapshotImmediately =
+                Boolean(cachedTargetSnapshot && cachedTargetSnapshot.brandId === resolved.brandId) &&
+                !connectorForm.staleConflict;
+
+            if (canUseWarmSnapshotImmediately) {
+                if (!payload.skipCollaborationLockPreparation) {
+                    const lockPreparation = await prepareWorkspaceLockForSelection(resolved.brandId);
+                    if (workspaceSwitchSeqRef.current !== token) return false;
+                    if (lockPreparation.status === 'blocked') {
+                        restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                        setWorkspaceSwitchState(null);
+                        reportActionError(lockPreparation.message);
+                        return false;
+                    }
+                    if (lockPreparation.status === 'failed') {
+                        restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                        setWorkspaceSwitchState(null);
+                        return false;
+                    }
+                }
+
+                startWorkspaceCommitTransition(() => {
+                    if (shouldEnterWorkspace) {
+                        setAccountsFocusAppId(null);
+                        setActivePage('workspace');
+                    }
+                    setSelectedBrandId(resolved.brandId);
+                    setSelectedAppId(resolved.appId);
+                    setWorkspaceSwitchState(null);
+                });
+                return true;
+            }
+
             try {
                 await hydrateWorkspaceSnapshot(resolved.brand, resolved.app);
                 if (workspaceSwitchSeqRef.current !== token) return false;
+
+                if (!payload.skipCollaborationLockPreparation) {
+                    const lockPreparation = await prepareWorkspaceLockForSelection(resolved.brandId);
+                    if (workspaceSwitchSeqRef.current !== token) return false;
+                    if (lockPreparation.status === 'blocked') {
+                        restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                        setWorkspaceSwitchState(null);
+                        reportActionError(lockPreparation.message);
+                        return false;
+                    }
+                    if (lockPreparation.status === 'failed') {
+                        restoreRequestedNavigationToDisplayed(previousPage, previousAccountsFocusAppId);
+                        setWorkspaceSwitchState(null);
+                        return false;
+                    }
+                }
 
                 startWorkspaceCommitTransition(() => {
                     if (shouldEnterWorkspace) {
@@ -1059,9 +1322,10 @@ export function AppShell({ session }: AppShellProps) {
         [
             activePage,
             accountsFocusAppId,
-            flushConnectorFormPending,
-            flushAppScreenshotPrompts,
+            connectorForm.staleConflict,
             hydrateWorkspaceSnapshot,
+            prepareWorkspaceLockForSelection,
+            prepareWorkspaceForSwitch,
             reportActionError,
             resolveWorkspaceSelection,
             restoreRequestedNavigationToDisplayed,
@@ -1080,6 +1344,89 @@ export function AppShell({ session }: AppShellProps) {
         setRequestedBrandId(selectedBrandId);
         setRequestedAppId(selectedAppId);
     }, [requestedAppId, requestedBrandId, selectedAppId, selectedBrandId, workspaceSwitchPending]);
+
+    const requestPageNavigation = useCallback(
+        async (
+            page: Exclude<AppPage, 'workspace'>,
+            options?: {
+                historyMode?: 'push' | 'replace' | 'none';
+                closeSidebar?: boolean;
+                focusAppId?: string | null;
+                fromPopState?: boolean;
+            }
+        ) => {
+            const previousRoute = buildPageRoute(activePage, selectedBrand, selectedApp);
+
+            if (activePage === 'accounts' && accountsHasUnsavedChanges && page !== 'accounts') {
+                if (options?.fromPopState && window.location.pathname !== previousRoute) {
+                    window.history.replaceState({}, '', previousRoute);
+                }
+                reportActionError(text('accounts_unsaved_block'));
+                return false;
+            }
+
+            if (activePage === 'workspace') {
+                const token = workspaceSwitchSeqRef.current + 1;
+                workspaceSwitchSeqRef.current = token;
+                setWorkspaceSwitchState({
+                    label: text(page === 'accounts' ? 'accounts' : 'ideas'),
+                });
+
+                const preparation = await prepareWorkspaceForSwitch(
+                    {
+                        brandId: selectedBrandId,
+                        appId: selectedAppId,
+                    },
+                    { normalizeVisibleWorkspaceState: true }
+                );
+                if (workspaceSwitchSeqRef.current !== token) return false;
+                if (preparation.status === 'blocked') {
+                    if (options?.fromPopState && window.location.pathname !== previousRoute) {
+                        window.history.replaceState({}, '', previousRoute);
+                    }
+                    setWorkspaceSwitchState(null);
+                    reportActionError(preparation.message);
+                    return false;
+                }
+                if (preparation.status === 'failed') {
+                    if (options?.fromPopState && window.location.pathname !== previousRoute) {
+                        window.history.replaceState({}, '', previousRoute);
+                    }
+                    setWorkspaceSwitchState(null);
+                    return false;
+                }
+            }
+
+            setAccountsFocusAppId(page === 'accounts' ? options?.focusAppId || null : null);
+            setActivePage(page);
+
+            const targetRoute = page === 'accounts' ? buildAccountsRoute() : buildIdeasRoute();
+            if (options?.historyMode === 'push' && window.location.pathname !== targetRoute) {
+                window.history.pushState({}, '', targetRoute);
+            } else if (options?.historyMode === 'replace' && window.location.pathname !== targetRoute) {
+                window.history.replaceState({}, '', targetRoute);
+            }
+
+            if (options?.closeSidebar && window.innerWidth < 768) {
+                setIsSidebarOpen(false);
+            }
+
+            setWorkspaceSwitchState(null);
+            return true;
+        },
+        [
+            accountsHasUnsavedChanges,
+            activePage,
+            buildPageRoute,
+            prepareWorkspaceForSwitch,
+            reportActionError,
+            selectedApp,
+            selectedAppId,
+            selectedBrand,
+            selectedBrandId,
+            text,
+        ]
+    );
 
     useEffect(() => {
         if (!selectedBrand?.id || !selectedApp?.id) return;
@@ -1408,6 +1755,12 @@ export function AppShell({ session }: AppShellProps) {
                 historyMode: 'none',
             });
         },
+        requestPageNavigation: (page, options) => {
+            void requestPageNavigation(page, {
+                historyMode: options?.historyMode ?? 'none',
+                fromPopState: options?.fromPopState,
+            });
+        },
         canNavigate: (next) => {
             if (activePage === 'accounts' && accountsHasUnsavedChanges && next.page !== 'accounts') {
                 reportActionError(text('accounts_unsaved_block'));
@@ -1520,24 +1873,21 @@ export function AppShell({ session }: AppShellProps) {
 
     const openAccounts = useCallback(
         (focusAppId?: string | null) => {
-            setAccountsFocusAppId(focusAppId || null);
-            setActivePage('accounts');
-            window.history.pushState({}, '', buildAccountsRoute());
-            if (window.innerWidth < 768) setIsSidebarOpen(false);
+            void requestPageNavigation('accounts', {
+                focusAppId: focusAppId || null,
+                historyMode: 'push',
+                closeSidebar: true,
+            });
         },
-        [setActivePage]
+        [requestPageNavigation]
     );
 
     const openIdeas = useCallback(() => {
-        if (activePage === 'accounts' && accountsHasUnsavedChanges) {
-            reportActionError(text('accounts_unsaved_block'));
-            return;
-        }
-        setAccountsFocusAppId(null);
-        setActivePage('ideas');
-        window.history.pushState({}, '', buildIdeasRoute());
-        if (window.innerWidth < 768) setIsSidebarOpen(false);
-    }, [activePage, accountsHasUnsavedChanges, reportActionError, setActivePage, text]);
+        void requestPageNavigation('ideas', {
+            historyMode: 'push',
+            closeSidebar: true,
+        });
+    }, [requestPageNavigation]);
 
     const openWorkspaceForApp = useCallback(
         (appId: string) => {
@@ -1550,31 +1900,6 @@ export function AppShell({ session }: AppShellProps) {
                 if (!app) return;
                 const brand = brands.find((b) => b.id === app.brand_id) || null;
                 if (!brand) return;
-
-                if (WORKSPACE_COLLAB_ENABLED && WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
-                    const brandBusyByOtherDevice = lockedBrandIdSet.has(brand.id);
-                    if (brandBusyByOtherDevice) {
-                        if (!softLockViewModeEnabled) {
-                            reportLockedBrandWarning();
-                            return;
-                        }
-                        void releaseCurrentBrand();
-                    } else {
-                        const claim = await tryClaimBrand(brand.id);
-                        if (!claim.ok) {
-                            if (softLockViewModeEnabled && claim.reason === 'locked_by_other_device') {
-                                void releaseCurrentBrand();
-                            } else {
-                                if (claim.reason === 'locked_by_other_device') {
-                                    reportLockedBrandWarning();
-                                }
-                                return;
-                            }
-                        }
-                    }
-                } else if (WORKSPACE_COLLAB_ENABLED) {
-                    void tryClaimBrand(brand.id);
-                }
 
                 await requestWorkspaceSelection({
                     brandId: brand.id,
@@ -1591,13 +1916,7 @@ export function AppShell({ session }: AppShellProps) {
             text,
             apps,
             brands,
-            lockedBrandIdSet,
-            tryClaimBrand,
-            softLockViewModeEnabled,
-            reportLockedBrandWarning,
-            releaseCurrentBrand,
             requestWorkspaceSelection,
-            setActivePage,
         ]
     );
 
@@ -1666,37 +1985,6 @@ export function AppShell({ session }: AppShellProps) {
                     return;
                 }
 
-                if (WORKSPACE_COLLAB_ENABLED) {
-                    if (brandId) {
-                        if (WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
-                            const brandBusyByOtherDevice = lockedBrandIdSet.has(brandId);
-                            if (brandBusyByOtherDevice) {
-                                if (!softLockViewModeEnabled) {
-                                    reportLockedBrandWarning();
-                                    return;
-                                }
-                                void releaseCurrentBrand();
-                            } else {
-                                const claim = await tryClaimBrand(brandId);
-                                if (!claim.ok) {
-                                    if (softLockViewModeEnabled && claim.reason === 'locked_by_other_device') {
-                                        void releaseCurrentBrand();
-                                    } else {
-                                        if (claim.reason === 'locked_by_other_device') {
-                                            reportLockedBrandWarning();
-                                        }
-                                        return;
-                                    }
-                                }
-                            }
-                        } else {
-                            void tryClaimBrand(brandId);
-                        }
-                    } else {
-                        void releaseCurrentBrand();
-                    }
-                }
-
                 void requestWorkspaceSelection({
                     brandId,
                     appId: null,
@@ -1710,14 +1998,7 @@ export function AppShell({ session }: AppShellProps) {
             accountsHasUnsavedChanges,
             reportActionError,
             text,
-            brands,
-            lockedBrandIdSet,
-            tryClaimBrand,
-            releaseCurrentBrand,
-            softLockViewModeEnabled,
-            reportLockedBrandWarning,
             requestWorkspaceSelection,
-            setActivePage,
         ]
     );
 
@@ -1750,15 +2031,19 @@ export function AppShell({ session }: AppShellProps) {
 
     const handleNoBrandIconPromptSave = useCallback(
         async (value: string) => {
-            if (!selectedApp || !isNoBrandMode) return;
+            if (!selectedApp || !isNoBrandMode) return true;
             const nextValue = String(value || '');
             const currentValue = String(selectedApp.icon_prompt || '');
-            if (nextValue === currentValue) return;
+            if (nextValue === currentValue) return true;
             const patched = await patchApp(selectedApp.id, { icon_prompt: nextValue });
-            if (!patched) return;
+            if (!patched) {
+                reportActionError(text('upload_failed'));
+                return false;
+            }
             setNoBrandIconPromptDraft(String(patched.icon_prompt || nextValue));
+            return true;
         },
-        [selectedApp, isNoBrandMode, patchApp]
+        [selectedApp, isNoBrandMode, patchApp, reportActionError, text]
     );
 
     const handleNoBrandIconPromptAutogen = useCallback(async () => {
@@ -1891,6 +2176,7 @@ export function AppShell({ session }: AppShellProps) {
                     brandId: targetBrand.id,
                     appId: selectedApp.id,
                     historyMode: 'push',
+                    skipCollaborationLockPreparation: true,
                 });
             } catch (error: any) {
                 reportActionError(String(error?.message || text('upload_failed')));
@@ -2545,6 +2831,7 @@ export function AppShell({ session }: AppShellProps) {
                                                     reportError={reportActionError}
                                                     text={text}
                                                     isReadOnly={isCurrentBrandReadOnly}
+                                                    onSwitchGuardChange={handleBrandReleaseInfoGuardChange}
                                                 />
                                                 <BrandReferencesPanel
                                                     key={selectedBrand.id}
@@ -2782,6 +3069,7 @@ export function AppShell({ session }: AppShellProps) {
                                                                         text={text}
                                                                         reportError={reportActionError}
                                                                         isReadOnly={isCurrentBrandReadOnly}
+                                                                        onSwitchGuardChange={handleAppStoreLinkGuardChange}
                                                                     />
                                                                     <div className="mt-4">
                                                                         <AppStoreReviewWebhookRow

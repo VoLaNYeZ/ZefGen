@@ -8,6 +8,12 @@ import {
     parseAppStoreInput,
 } from '../../utils/appstore';
 
+type SwitchGuard = {
+    isDirty: boolean;
+    blockReason: string | null;
+    flushPending: () => Promise<boolean>;
+};
+
 const codeToFlag = (code: string) => {
     const cc = String(code || '').trim().toUpperCase();
     if (!/^[A-Z]{2}$/.test(cc)) return '';
@@ -25,8 +31,9 @@ export function AppStoreLinkRow(props: {
     text: (key: TranslationKey) => string;
     reportError: (message: string) => void;
     isReadOnly?: boolean;
+    onSwitchGuardChange?: (guard: SwitchGuard | null) => void;
 }) {
-    const { selectedApp, targetCountries, onSaveCanonicalUrl, text, reportError, isReadOnly = false } = props;
+    const { selectedApp, targetCountries, onSaveCanonicalUrl, text, reportError, isReadOnly = false, onSwitchGuardChange } = props;
     const storedCanonicalUrl = String(selectedApp?.appstore_url || '').trim();
     const [isEditing, setIsEditing] = React.useState(false);
     const [saving, setSaving] = React.useState(false);
@@ -34,6 +41,7 @@ export function AppStoreLinkRow(props: {
     const [copied, setCopied] = React.useState(false);
     const [validationError, setValidationError] = React.useState<string | null>(null);
     const copiedTimerRef = React.useRef<number | null>(null);
+    const lastAppIdRef = React.useRef<string | null>(null);
 
     React.useEffect(() => {
         return () => {
@@ -42,6 +50,10 @@ export function AppStoreLinkRow(props: {
     }, []);
 
     React.useEffect(() => {
+        const appId = selectedApp?.id ?? null;
+        const appChanged = lastAppIdRef.current !== appId;
+        lastAppIdRef.current = appId;
+
         if (!selectedApp) {
             setDraft('');
             setIsEditing(false);
@@ -50,12 +62,23 @@ export function AppStoreLinkRow(props: {
             setValidationError(null);
             return;
         }
+
+        if (appChanged) {
+            setDraft(storedCanonicalUrl);
+            setIsEditing(!storedCanonicalUrl);
+            setSaving(false);
+            setCopied(false);
+            setValidationError(null);
+            return;
+        }
+
+        if (saving || draftDirty || isEditing) return;
         setDraft(storedCanonicalUrl);
-        setIsEditing(!storedCanonicalUrl);
-        setSaving(false);
-        setCopied(false);
         setValidationError(null);
-    }, [selectedApp?.id, storedCanonicalUrl, selectedApp]);
+        if (!storedCanonicalUrl) {
+            setIsEditing(true);
+        }
+    }, [draftDirty, isEditing, saving, selectedApp, storedCanonicalUrl]);
 
     const parsedStored = React.useMemo(
         () => parseAppStoreInput(storedCanonicalUrl),
@@ -66,16 +89,29 @@ export function AppStoreLinkRow(props: {
         return buildGeoAppStoreUrls(parsedStored.appId, targetCountries || []);
     }, [parsedStored, targetCountries]);
 
+    const parsedDraft = React.useMemo(() => parseAppStoreInput(draft), [draft]);
+    const canonicalDraft = React.useMemo(
+        () => (parsedDraft ? buildCanonicalAppStoreUrl(parsedDraft.appId, parsedDraft.countryCode) : null),
+        [parsedDraft]
+    );
+    const trimmedDraft = String(draft || '').trim();
+    const draftDirty = React.useMemo(() => {
+        if (!isEditing) return false;
+        if (!trimmedDraft && !storedCanonicalUrl) return false;
+        if (canonicalDraft) return canonicalDraft !== storedCanonicalUrl;
+        return trimmedDraft !== storedCanonicalUrl;
+    }, [canonicalDraft, isEditing, storedCanonicalUrl, trimmedDraft]);
+    const blockReason = draftDirty && trimmedDraft && !parsedDraft ? text('appstore_link_invalid') : null;
+
     const handleSave = async () => {
         if (isReadOnly) return;
         if (!selectedApp) return;
-        const parsed = parseAppStoreInput(draft);
-        if (!parsed) {
+        if (!parsedDraft) {
             setValidationError(text('appstore_link_invalid'));
             return;
         }
 
-        const canonicalUrl = buildCanonicalAppStoreUrl(parsed.appId, parsed.countryCode);
+        const canonicalUrl = canonicalDraft || storedCanonicalUrl;
         if (canonicalUrl === storedCanonicalUrl && storedCanonicalUrl) {
             setDraft(canonicalUrl);
             setValidationError(null);
@@ -95,6 +131,39 @@ export function AppStoreLinkRow(props: {
             setSaving(false);
         }
     };
+
+    const flushPending = React.useCallback(async () => {
+        if (isReadOnly || !selectedApp) return true;
+        if (!draftDirty) return true;
+        if (!parsedDraft || !canonicalDraft) {
+            setValidationError(text('appstore_link_invalid'));
+            return false;
+        }
+
+        setSaving(true);
+        setValidationError(null);
+        try {
+            await onSaveCanonicalUrl(canonicalDraft);
+            setDraft(canonicalDraft);
+            setIsEditing(false);
+            return true;
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+            return false;
+        } finally {
+            setSaving(false);
+        }
+    }, [canonicalDraft, draftDirty, onSaveCanonicalUrl, parsedDraft, reportError, selectedApp, text, isReadOnly]);
+
+    React.useEffect(() => {
+        if (!onSwitchGuardChange) return;
+        onSwitchGuardChange({
+            isDirty: draftDirty,
+            blockReason,
+            flushPending,
+        });
+        return () => onSwitchGuardChange(null);
+    }, [blockReason, draftDirty, flushPending, onSwitchGuardChange]);
 
     const handleCopyLink = async () => {
         if (!storedCanonicalUrl) return;

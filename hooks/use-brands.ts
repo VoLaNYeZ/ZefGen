@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type { Brand, BrandFormState } from '../types/zefgen';
@@ -28,6 +28,16 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
     const originalEditingBrandRef = useRef<{ id: string; name: string; slug: string } | null>(null);
 
     const brandSlugPreview = useMemo(() => slugify(brandForm.name || ''), [brandForm.name]);
+    const normalizedBrandName = String(brandForm.name || '').trim();
+    const brandFormDirty = useMemo(() => {
+        if (!brandFormOpen) return false;
+        if (!editingBrandId) return normalizedBrandName.length > 0;
+        const original = originalEditingBrandRef.current;
+        if (!original || original.id !== editingBrandId) return normalizedBrandName.length > 0;
+        return normalizedBrandName !== original.name || brandSlugPreview !== original.slug;
+    }, [brandFormOpen, editingBrandId, normalizedBrandName, brandSlugPreview]);
+    const isEditingExistingBrandForm = Boolean(brandFormOpen && editingBrandId);
+    const hasMeaningfulNewBrandDraft = Boolean(brandFormOpen && !editingBrandId && normalizedBrandName.length > 0);
 
     const sortBrands = useCallback((items: Brand[]) => {
         return [...items].sort((a, b) => {
@@ -106,14 +116,14 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         originalEditingBrandRef.current = null;
     }, []);
 
-    const submitBrandForm = async (event?: React.FormEvent) => {
+    const submitBrandForm = async (event?: FormEvent) => {
         event?.preventDefault();
-        if (!session) return;
+        if (!session) return false;
 
-        const name = brandForm.name.trim();
+        const name = normalizedBrandName;
         if (!name) {
             setBrandFormError(text('brand_name_required'));
-            return;
+            return false;
         }
 
         setBrandFormLoading(true);
@@ -130,13 +140,13 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             if (isNoBrand(editingBrand)) {
                 setBrandFormLoading(false);
                 setBrandFormError(text('no_brand_edit_forbidden'));
-                return;
+                return false;
             }
             const original = originalEditingBrandRef.current;
             if (original && original.id === editingBrandId && name === original.name && slug === original.slug) {
                 setBrandFormLoading(false);
                 closeBrandForm();
-                return;
+                return true;
             }
             const { data, error } = await updateBrand({
                 id: editingBrandId,
@@ -146,7 +156,7 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             if (error) {
                 setBrandFormError(error.message);
                 setBrandFormLoading(false);
-                return;
+                return false;
             }
             if (data) {
                 setBrands((prev) => prev.map((brand) => (brand.id === editingBrandId ? data : brand)));
@@ -165,7 +175,7 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             if (error) {
                 setBrandFormError(error.message);
                 setBrandFormLoading(false);
-                return;
+                return false;
             }
             if (data) {
                 setBrands((prev) => sortBrands([...prev, data]));
@@ -175,7 +185,51 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
 
         setBrandFormLoading(false);
         closeBrandForm();
+        return true;
     };
+
+    const getBrandSwitchBlockReason = useCallback(() => {
+        if (!brandFormOpen) return null;
+        if (brandFormLoading) return text('finish_editing_brand_first');
+        if (editingBrandId) {
+            if (!normalizedBrandName) return text('brand_name_required');
+            return null;
+        }
+        if (hasMeaningfulNewBrandDraft) return text('finish_creating_brand_first');
+        return null;
+    }, [
+        brandFormLoading,
+        brandFormOpen,
+        editingBrandId,
+        hasMeaningfulNewBrandDraft,
+        normalizedBrandName,
+        text,
+    ]);
+
+    const saveCurrentEditForSwitch = useCallback(async () => {
+        if (!brandFormOpen) return true;
+        if (brandFormLoading) return false;
+        if (!editingBrandId) {
+            if (!hasMeaningfulNewBrandDraft) {
+                closeBrandForm();
+                return true;
+            }
+            return false;
+        }
+        if (!brandFormDirty) {
+            closeBrandForm();
+            return true;
+        }
+        return await submitBrandForm();
+    }, [
+        brandFormDirty,
+        brandFormLoading,
+        brandFormOpen,
+        closeBrandForm,
+        editingBrandId,
+        hasMeaningfulNewBrandDraft,
+        submitBrandForm,
+    ]);
 
     const patchBrand = useCallback(
         async (brandId: string, patch: Partial<Brand>) => {
@@ -237,9 +291,14 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         brandFormError,
         brandFormLoading,
         editingBrandId,
+        isEditingExistingBrandForm,
+        isDirty: brandFormDirty,
+        hasMeaningfulNewBrandDraft,
         brandSlugPreview,
         openBrandForm,
         submitBrandForm,
+        saveCurrentEditForSwitch,
+        getBrandSwitchBlockReason,
         setBrandForm,
         setBrandFormOpen,
         closeBrandForm,

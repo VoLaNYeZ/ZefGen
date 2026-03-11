@@ -158,6 +158,7 @@ export type AppStoreReviewPanelSnapshot = {
     appId: string;
     status: AppstoreReviewWebhookStatus | null;
     appStoreNameHint: string;
+    hasDraftChanges: boolean;
 };
 
 export const extractAppStoreNameHintFromConnectorConfig = (connectorConfig: any) =>
@@ -564,8 +565,9 @@ export function AppStoreReviewWebhookRow(props: {
             appId,
             status,
             appStoreNameHint: String(appStoreNameHint || '').trim(),
+            hasDraftChanges: hasAppleDraftChanges,
         });
-    }, [appId, appStoreNameHint, onSnapshotChange, status]);
+    }, [appId, appStoreNameHint, hasAppleDraftChanges, onSnapshotChange, status]);
 
     const loadFallbackStatus = React.useCallback(async () => {
         const [webhookRes, eventsRes, connectorConfigRes, secretMetasRes] = await Promise.all([

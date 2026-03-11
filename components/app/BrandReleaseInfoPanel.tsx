@@ -5,6 +5,22 @@ import type { TranslationKey } from '../../i18n';
 import { CountryMultiSelect } from './CountryMultiSelect';
 import { getOrderedCountriesEn } from '../../constants/countries';
 
+type SwitchGuard = {
+    isDirty: boolean;
+    blockReason: string | null;
+    flushPending: () => Promise<boolean>;
+};
+
+const normalizeCountryCodes = (codes: string[] | null | undefined) =>
+    [...new Set((codes || []).map((code) => String(code || '').trim()).filter(Boolean))].sort();
+
+const sameCountryCodes = (left: string[] | null | undefined, right: string[] | null | undefined) => {
+    const a = normalizeCountryCodes(left);
+    const b = normalizeCountryCodes(right);
+    if (a.length !== b.length) return false;
+    return a.every((value, index) => value === b[index]);
+};
+
 const codeToFlag = (code: string) => {
     const cc = (code || '').toUpperCase();
     if (!/^[A-Z]{2}$/.test(cc)) return '';
@@ -21,8 +37,9 @@ export function BrandReleaseInfoPanel(props: {
     reportError: (message: string) => void;
     text: (key: TranslationKey) => string;
     isReadOnly?: boolean;
+    onSwitchGuardChange?: (guard: SwitchGuard | null) => void;
 }) {
-    const { selectedBrand, patchBrand, reportError, text, isReadOnly = false } = props;
+    const { selectedBrand, patchBrand, reportError, text, isReadOnly = false, onSwitchGuardChange } = props;
     const brandId = selectedBrand.id;
 
     const orderedCountries = React.useMemo(() => getOrderedCountriesEn(), []);
@@ -49,6 +66,12 @@ export function BrandReleaseInfoPanel(props: {
     const [notesSaving, setNotesSaving] = React.useState(false);
     const [notesFocused, setNotesFocused] = React.useState(false);
     const notesDirtyRef = React.useRef(false);
+    const currentKeywords = String(selectedBrand.keywords || '');
+    const currentNotes = String(selectedBrand.release_strategy_notes || '');
+    const countriesDirty = !sameCountryCodes(targetCountries, selectedBrand.target_countries || []);
+    const keywordsDirty =
+        keywordsDirtyRef.current || (keywordsEditing && String(keywordsDraft || '').slice(0, 100) !== currentKeywords);
+    const notesDirty = notesDirtyRef.current || String(notesDraft || '') !== currentNotes;
 
     React.useEffect(() => {
         setKeywordsEditing(false);
@@ -83,24 +106,42 @@ export function BrandReleaseInfoPanel(props: {
         };
     }, []);
 
+    const saveTargetCountries = React.useCallback(async (next: string[]) => {
+        if (isReadOnly) return true;
+        const normalizedNext = normalizeCountryCodes(next);
+        if (sameCountryCodes(normalizedNext, selectedBrand.target_countries || [])) {
+            if (countriesSaveTimerRef.current) {
+                window.clearTimeout(countriesSaveTimerRef.current);
+                countriesSaveTimerRef.current = null;
+            }
+            setCountriesSaving(false);
+            return true;
+        }
+        setCountriesSaving(true);
+        try {
+            await patchBrand(brandId, { target_countries: normalizedNext });
+            return true;
+        } catch (error: any) {
+            reportError(error?.message || text('upload_failed'));
+            return false;
+        } finally {
+            setCountriesSaving(false);
+        }
+    }, [brandId, isReadOnly, patchBrand, reportError, selectedBrand.target_countries, text]);
+
     const scheduleSaveTargetCountries = (next: string[]) => {
         if (isReadOnly) return;
         setTargetCountries(next);
         if (countriesSaveTimerRef.current) window.clearTimeout(countriesSaveTimerRef.current);
         setCountriesSaving(true);
         countriesSaveTimerRef.current = window.setTimeout(async () => {
-            try {
-                await patchBrand(brandId, { target_countries: next });
-            } catch (error: any) {
-                reportError(error?.message || text('upload_failed'));
-            } finally {
-                setCountriesSaving(false);
-            }
+            countriesSaveTimerRef.current = null;
+            await saveTargetCountries(next);
         }, 550);
     };
 
     const saveKeywords = async (value: string) => {
-        if (isReadOnly) return;
+        if (isReadOnly) return true;
         const next = value.slice(0, 100);
         setKeywordsDraft(next);
         setKeywordsSaving(true);
@@ -130,11 +171,11 @@ export function BrandReleaseInfoPanel(props: {
     };
 
     const saveNotesIfChanged = async () => {
-        if (isReadOnly) return;
+        if (isReadOnly) return true;
         const next = notesDraft;
-        if ((selectedBrand.release_strategy_notes || '') === next) {
+        if (currentNotes === next) {
             notesDirtyRef.current = false;
-            return;
+            return true;
         }
         setNotesSaving(true);
         try {
@@ -143,12 +184,45 @@ export function BrandReleaseInfoPanel(props: {
                 release_strategy_updated_at: new Date().toISOString(),
             });
             notesDirtyRef.current = false;
+            return true;
         } catch (error: any) {
             reportError(error?.message || text('upload_failed'));
+            return false;
         } finally {
             setNotesSaving(false);
         }
     };
+
+    const flushPending = React.useCallback(async () => {
+        if (countriesSaveTimerRef.current) {
+            window.clearTimeout(countriesSaveTimerRef.current);
+            countriesSaveTimerRef.current = null;
+        }
+        if (countriesDirty) {
+            const ok = await saveTargetCountries(targetCountries);
+            if (!ok) return false;
+        }
+        if (keywordsDirty) {
+            const ok = await saveKeywords(keywordsDraft);
+            if (!ok) return false;
+            setKeywordsEditing(false);
+        }
+        if (notesDirty) {
+            const ok = await saveNotesIfChanged();
+            if (!ok) return false;
+        }
+        return true;
+    }, [countriesDirty, keywordsDirty, keywordsDraft, notesDirty, saveNotesIfChanged, saveTargetCountries, targetCountries]);
+
+    React.useEffect(() => {
+        if (!onSwitchGuardChange) return;
+        onSwitchGuardChange({
+            isDirty: countriesDirty || keywordsDirty || notesDirty,
+            blockReason: null,
+            flushPending,
+        });
+        return () => onSwitchGuardChange(null);
+    }, [countriesDirty, flushPending, keywordsDirty, notesDirty, onSwitchGuardChange]);
 
     return (
         <section className="rounded-[28px] bg-slate-800/45 ring-1 ring-white/5 shadow-[0_26px_70px_-60px_rgba(15,23,42,0.9)] p-5">
