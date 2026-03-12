@@ -21,6 +21,42 @@ const findRepoRoot = (startDir: string) => {
   return startDir;
 };
 
+const withOrigin = (value: string) => {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const toWebSocketOrigin = (origin: string) => {
+  if (origin.startsWith('https://')) return `wss://${origin.slice('https://'.length)}`;
+  if (origin.startsWith('http://')) return `ws://${origin.slice('http://'.length)}`;
+  return null;
+};
+
+const buildConnectSrc = (mode: string, env: Record<string, string>) => {
+  const sources = new Set([
+    "'self'",
+    'https://*.supabase.co',
+    'wss://*.supabase.co',
+    'https://replicate.delivery',
+    'https://*.replicate.delivery',
+    'https://*.appshelp.cc',
+  ]);
+
+  if (mode === 'development') {
+    const supabaseOrigin = withOrigin(env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '');
+    if (supabaseOrigin) {
+      sources.add(supabaseOrigin);
+      const wsOrigin = toWebSocketOrigin(supabaseOrigin);
+      if (wsOrigin) sources.add(wsOrigin);
+    }
+  }
+
+  return Array.from(sources).join(' ');
+};
+
 export default defineConfig(({ mode }) => {
   // Ensure Vite always reads `.env*` from this repo (not from whatever cwd `vite` was launched from).
   const envDir = findRepoRoot(__dirname);
@@ -35,6 +71,8 @@ export default defineConfig(({ mode }) => {
       process.env[key] = value;
     }
   }
+
+  const cspConnectSrc = buildConnectSrc(mode, env as Record<string, string>);
 
   // Local-only API handler so `npm run dev` (Vite) can serve `/api/*` without running `vercel dev`.
   // In production, Vercel serves `/api/*` from the `api/` directory.
@@ -101,6 +139,13 @@ export default defineConfig(({ mode }) => {
     },
   });
 
+  const cspHtmlPlugin = (): Plugin => ({
+    name: 'zefgen:csp-html',
+    transformIndexHtml(html) {
+      return html.replace('__ZEFGEN_CONNECT_SRC__', cspConnectSrc);
+    },
+  });
+
   return {
     root: envDir,
     envDir,
@@ -109,7 +154,7 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
     },
-    plugins: [react(), localApiPlugin()],
+    plugins: [react(), localApiPlugin(), cspHtmlPlugin()],
     resolve: {
       alias: {
         '@': envDir,

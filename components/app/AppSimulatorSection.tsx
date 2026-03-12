@@ -108,17 +108,18 @@ export const AppSimulatorSection = ({
                                             const shot = shotById.get(id);
                                             if (!shot) return null;
                                             return (
-                                                <SortableSimulatorShotTile
-                                                    key={shot.id}
-                                                    id={shot.id}
-                                                    index={index}
-                                                    shot={shot}
-                                                    url={appScreenshotUrls[shot.id]}
-                                                    onDelete={handleDeleteAppScreenshot}
-                                                    isReadOnly={isReadOnly}
-                                                    openLightbox={openLightbox}
-                                                    text={text}
-                                                />
+                                                <React.Fragment key={shot.id}>
+                                                    <SortableSimulatorShotTile
+                                                        id={shot.id}
+                                                        index={index}
+                                                        shot={shot}
+                                                        url={appScreenshotUrls[shot.id]}
+                                                        onDelete={handleDeleteAppScreenshot}
+                                                        isReadOnly={isReadOnly}
+                                                        openLightbox={openLightbox}
+                                                        text={text}
+                                                    />
+                                                </React.Fragment>
                                             );
                                         })}
                                     </div>

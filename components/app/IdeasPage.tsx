@@ -57,7 +57,7 @@ export function IdeasPage(props: {
 
     React.useEffect(() => {
         return () => {
-            Object.values(saveTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+            (Object.values(saveTimersRef.current) as number[]).forEach((timer) => window.clearTimeout(timer));
         };
     }, []);
 
@@ -314,7 +314,7 @@ export function IdeasPage(props: {
     );
 
     return (
-        <div className="space-y-6">
+        <div data-testid="ideas-page-root" className="space-y-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                     <h2 className="text-3xl font-semibold text-white">{text('ideas_title')}</h2>

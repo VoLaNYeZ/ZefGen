@@ -8,7 +8,9 @@ type Props = {
     pickedIconAsset: GeneratedAsset | null;
     pickedIconPreviewUrl?: string | null;
     screenshotSets: AppScreenshotSet[];
+    simulatorScreenshotCount?: number;
     onDownloadIcon: () => void;
+    onDownloadSimulatorScreenshotsZip?: () => void;
     onDownloadSetZip: (setId: string) => void;
     onShowWorkspace?: () => void;
     text: (key: TranslationKey) => string;
@@ -19,7 +21,9 @@ export const DeliverablesPanel = ({
     pickedIconAsset,
     pickedIconPreviewUrl,
     screenshotSets,
+    simulatorScreenshotCount,
     onDownloadIcon,
+    onDownloadSimulatorScreenshotsZip,
     onDownloadSetZip,
     onShowWorkspace,
     text,
@@ -69,6 +73,22 @@ export const DeliverablesPanel = ({
                     ) : null}
                     <span className="text-center">{text('download')} icon</span>
                 </button>
+
+                {typeof simulatorScreenshotCount === 'number' ? (
+                    <button
+                        type="button"
+                        data-testid="deliverables-download-simulator-zip"
+                        disabled={!isCompleted || simulatorScreenshotCount < 1}
+                        onClick={() => onDownloadSimulatorScreenshotsZip?.()}
+                        className={`ui-btn-fit ui-btn-fit-ellipsis w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                            isCompleted && simulatorScreenshotCount > 0
+                                ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
+                                : 'border-white/10 text-indigo-200/40'
+                        }`}
+                    >
+                        {text('download_simulator_screenshots_zip')}
+                    </button>
+                ) : null}
 
                 {(screenshotSets || []).map((set) => (
                     <button

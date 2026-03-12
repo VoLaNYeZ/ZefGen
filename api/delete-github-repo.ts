@@ -129,7 +129,7 @@ export default async function handler(req: any, res: any) {
             if (msg.toLowerCase().includes('github_repo_url') || msg.toLowerCase().includes('github_repo_full_name')) {
                 json(res, 500, {
                     message:
-                        'DB schema missing GitHub repo columns. Run supabase/migrations/2026-02-08_app_github_repo.sql in Supabase SQL editor, then retry.',
+                        'DB schema missing GitHub repo columns. Run supabase/migrations/20260208000001_app_github_repo.sql in Supabase SQL editor, then retry.',
                 });
                 return;
             }
@@ -189,4 +189,3 @@ export default async function handler(req: any, res: any) {
         json(res, 500, { message: String(error?.message || 'Unexpected error') });
     }
 }
-

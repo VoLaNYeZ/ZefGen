@@ -211,6 +211,7 @@ export function AppStoreLinkRow(props: {
                                 }}
                             >
                                 <input
+                                    aria-label={text('appstore_link_title')}
                                     value={draft}
                                     onChange={(event) => {
                                         if (isReadOnly) return;

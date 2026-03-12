@@ -209,7 +209,7 @@ export const Sidebar = ({
         });
         resizeObserver.observe(container);
 
-        Object.values(brandRowRefs.current).forEach((row) => {
+        (Object.values(brandRowRefs.current) as Array<HTMLButtonElement | null>).forEach((row) => {
             if (row) resizeObserver.observe(row);
         });
 
@@ -283,6 +283,8 @@ export const Sidebar = ({
 
     return (
         <aside
+            data-testid="brand-sidebar"
+            aria-label={text('brands')}
             className={`
                 fixed top-0 left-0 h-[100dvh] z-50 w-72 bg-slate-900 text-slate-200 transform transition-transform duration-300 ease-in-out flex flex-col border-r border-indigo-900/40
                 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen md:z-40
@@ -402,8 +404,9 @@ export const Sidebar = ({
                         className="animate-shelf rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3"
                     >
                         <div>
-                            <label className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_name')}</label>
+                            <label htmlFor="brand-form-name" className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('brand_name')}</label>
                             <input
+                                id="brand-form-name"
                                 value={brandForm.name}
                                 onChange={(event) => setBrandForm({ name: event.target.value })}
                                 className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -479,30 +482,31 @@ export const Sidebar = ({
                                         const summary =
                                             brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
                                         return (
-                                            <SortableBrandRow
-                                                key={brand.id}
-                                                brand={brand}
-                                                iconUrl={iconUrl}
-                                                summary={summary}
-                                                isActive={brand.id === selectedBrandId}
-                                                isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
-                                                isBusy={isBusy}
-                                                isDragging={Boolean(activeId)}
-                                                showDragIndicator={isBrandReorderMode}
-                                                onBlockedAction={onBlockedAction}
-                                                onLockedAction={handleLockedBrandAction}
-                                                onSelect={() => {
-                                                    if (Date.now() - brandListLastDragAtRef.current < 250) return;
-                                                    setSelectedBrandId(brand.id);
-                                                    if (window.innerWidth < 768) setIsSidebarOpen(false);
-                                                }}
-                                                onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
-                                                clampCount={clampCount}
-                                                dotClass={dotClass}
-                                                countTextClass={countTextClass}
-                                                setRowRef={(el) => setBrandRowRef(brand.id, el)}
-                                                text={text}
-                                            />
+                                            <React.Fragment key={brand.id}>
+                                                <SortableBrandRow
+                                                    brand={brand}
+                                                    iconUrl={iconUrl}
+                                                    summary={summary}
+                                                    isActive={brand.id === selectedBrandId}
+                                                    isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
+                                                    isBusy={isBusy}
+                                                    isDragging={Boolean(activeId)}
+                                                    showDragIndicator={isBrandReorderMode}
+                                                    onBlockedAction={onBlockedAction}
+                                                    onLockedAction={handleLockedBrandAction}
+                                                    onSelect={() => {
+                                                        if (Date.now() - brandListLastDragAtRef.current < 250) return;
+                                                        setSelectedBrandId(brand.id);
+                                                        if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                                    }}
+                                                    onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                                    clampCount={clampCount}
+                                                    dotClass={dotClass}
+                                                    countTextClass={countTextClass}
+                                                    setRowRef={(el) => setBrandRowRef(brand.id, el)}
+                                                    text={text}
+                                                />
+                                            </React.Fragment>
                                         );
                                     })}
                                 </>
@@ -515,28 +519,29 @@ export const Sidebar = ({
                             const summary =
                                 brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
                             return (
-                                <PlainBrandRow
-                                    key={brand.id}
-                                    brand={brand}
-                                    iconUrl={iconUrl}
-                                    summary={summary}
-                                    isActive={isActive}
-                                    isNoBrand={isNoBrand(brand)}
-                                    isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
-                                    isBusy={isBusy}
-                                    onBlockedAction={onBlockedAction}
-                                    onLockedAction={handleLockedBrandAction}
-                                    onSelect={() => {
-                                        setSelectedBrandId(brand.id);
-                                        if (window.innerWidth < 768) setIsSidebarOpen(false);
-                                    }}
-                                    onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
-                                    clampCount={clampCount}
-                                    dotClass={dotClass}
-                                    countTextClass={countTextClass}
-                                    setRowRef={(el) => setBrandRowRef(brand.id, el)}
-                                    text={text}
-                                />
+                                <React.Fragment key={brand.id}>
+                                    <PlainBrandRow
+                                        brand={brand}
+                                        iconUrl={iconUrl}
+                                        summary={summary}
+                                        isActive={isActive}
+                                        isNoBrand={isNoBrand(brand)}
+                                        isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
+                                        isBusy={isBusy}
+                                        onBlockedAction={onBlockedAction}
+                                        onLockedAction={handleLockedBrandAction}
+                                        onSelect={() => {
+                                            setSelectedBrandId(brand.id);
+                                            if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                        }}
+                                        onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                        clampCount={clampCount}
+                                        dotClass={dotClass}
+                                        countTextClass={countTextClass}
+                                        setRowRef={(el) => setBrandRowRef(brand.id, el)}
+                                        text={text}
+                                    />
+                                </React.Fragment>
                             );
                         })
                     )}
@@ -555,28 +560,29 @@ export const Sidebar = ({
 
             {noBrand ? (
                 <div className="border-t border-cyan-400/20 bg-gradient-to-b from-cyan-950/35 to-slate-900 px-3 py-3">
-                    <PlainBrandRow
-                        key={noBrand.id}
-                        brand={noBrand}
-                        iconUrl={brandIconUrls[noBrand.id]}
-                        summary={brandAppSummaryByBrandId[noBrand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 }}
-                        isActive={noBrand.id === selectedBrandId}
-                        isNoBrand
-                        isLockedByOtherDevice={lockedBrandIdSet.has(noBrand.id)}
-                        isBusy={isBusy}
-                        onBlockedAction={onBlockedAction}
-                        onLockedAction={handleLockedBrandAction}
-                        onSelect={() => {
-                            setSelectedBrandId(noBrand.id);
-                            if (window.innerWidth < 768) setIsSidebarOpen(false);
-                        }}
-                        onOpenLightbox={() => {}}
-                        clampCount={clampCount}
-                        dotClass={dotClass}
-                        countTextClass={countTextClass}
-                        setRowRef={(el) => setBrandRowRef(noBrand.id, el)}
-                        text={text}
-                    />
+                    <React.Fragment key={noBrand.id}>
+                        <PlainBrandRow
+                            brand={noBrand}
+                            iconUrl={brandIconUrls[noBrand.id]}
+                            summary={brandAppSummaryByBrandId[noBrand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 }}
+                            isActive={noBrand.id === selectedBrandId}
+                            isNoBrand
+                            isLockedByOtherDevice={lockedBrandIdSet.has(noBrand.id)}
+                            isBusy={isBusy}
+                            onBlockedAction={onBlockedAction}
+                            onLockedAction={handleLockedBrandAction}
+                            onSelect={() => {
+                                setSelectedBrandId(noBrand.id);
+                                if (window.innerWidth < 768) setIsSidebarOpen(false);
+                            }}
+                            onOpenLightbox={() => {}}
+                            clampCount={clampCount}
+                            dotClass={dotClass}
+                            countTextClass={countTextClass}
+                            setRowRef={(el) => setBrandRowRef(noBrand.id, el)}
+                            text={text}
+                        />
+                    </React.Fragment>
                 </div>
             ) : null}
 
@@ -744,6 +750,8 @@ function PlainBrandRow({
     return (
         <button
             ref={setRowRef}
+            data-brand-id={brand.id}
+            data-testid={isActive ? 'active-brand-row' : isNoBrand ? 'no-brand-row' : undefined}
             onClick={() => {
                 if (isLockedByOtherDevice) {
                     onLockedAction();
@@ -899,6 +907,8 @@ function SortableBrandRow({
                 setRowRef(el);
             }}
             style={style}
+            data-brand-id={brand.id}
+            data-testid={isActive ? 'active-brand-row' : undefined}
             {...attributes}
             {...listeners}
             onClick={() => {

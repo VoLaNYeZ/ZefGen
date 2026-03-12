@@ -559,13 +559,14 @@ export function ConnectorRunnerPanel(props: {
                     {unansweredQuestions.length > 0 && (
                         <div className="mt-3 grid gap-2">
                             {unansweredQuestions.map((question) => (
-                                <QuestionCard
-                                    key={question.id}
-                                    question={question}
-                                    onAnswer={answer}
-                                    disabled={busy || isReadOnly}
-                                    text={text}
-                                />
+                                <React.Fragment key={question.id}>
+                                    <QuestionCard
+                                        question={question}
+                                        onAnswer={answer}
+                                        disabled={busy || isReadOnly}
+                                        text={text}
+                                    />
+                                </React.Fragment>
                             ))}
                         </div>
                     )}
@@ -952,12 +953,13 @@ function ConnectorArtifactSection(props: {
                     ) : null}
                     {Array.isArray(groupedArtifacts?.qaEvidenceGroups) && groupedArtifacts.qaEvidenceGroups.length > 0 ? (
                         groupedArtifacts.qaEvidenceGroups.map((group: any) => (
-                            <ArtifactImageGroup
-                                key={group.key}
-                                group={group}
-                                urlsById={artifactUrlsById}
-                                title={`${text('connector_qa_evidence')} · ${group.variant} · ${group.theme} · ${group.viewport}`}
-                            />
+                            <React.Fragment key={group.key}>
+                                <ArtifactImageGroup
+                                    group={group}
+                                    urlsById={artifactUrlsById}
+                                    title={`${text('connector_qa_evidence')} · ${group.variant} · ${group.theme} · ${group.viewport}`}
+                                />
+                            </React.Fragment>
                         ))
                     ) : !loading ? (
                         <div className="text-[11px] text-indigo-200/50">{text('connector_no_artifacts')}</div>
@@ -1005,12 +1007,13 @@ function ConnectorArtifactSection(props: {
                     ) : null}
                     {Array.isArray(groupedArtifacts?.screenshotGroups) && groupedArtifacts.screenshotGroups.length > 0 ? (
                         groupedArtifacts.screenshotGroups.map((group: any) => (
-                            <ArtifactImageGroup
-                                key={group.key}
-                                group={group}
-                                urlsById={artifactUrlsById}
-                                title={`${text('connector_screenshots')} · ${group.variant} · ${group.theme} · ${group.viewport}`}
-                            />
+                            <React.Fragment key={group.key}>
+                                <ArtifactImageGroup
+                                    group={group}
+                                    urlsById={artifactUrlsById}
+                                    title={`${text('connector_screenshots')} · ${group.variant} · ${group.theme} · ${group.viewport}`}
+                                />
+                            </React.Fragment>
                         ))
                     ) : !loading ? (
                         <div className="text-[11px] text-indigo-200/50">{text('connector_no_artifacts')}</div>

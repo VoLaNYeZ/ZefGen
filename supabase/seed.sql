@@ -1,0 +1,1 @@
+-- Local smoke data is seeded by scripts/bootstrap-smoke-backend.mjs.

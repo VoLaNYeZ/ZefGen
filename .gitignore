@@ -29,6 +29,7 @@ package-lock.json.bak*
 *.sw?
 
 supabase/.temp/
+supabase/.branches/
 
 # Tooling caches / outputs
 coverage/
@@ -38,6 +39,8 @@ coverage/
 *.tsbuildinfo
 playwright-report/
 test-results/
+playwright/.auth/
+playwright/.tmp/
 .vercel
 
 # Security: local credential artifacts (never commit)

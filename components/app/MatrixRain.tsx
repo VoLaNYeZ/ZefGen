@@ -60,7 +60,7 @@ export function MatrixRain(props: { className?: string }) {
             const trailLen = Math.floor(14 + Math.random() * 17); // 14..30
             const yRows = -Math.random() * rows * 0.6;
             const speedRowsPerSec = 6 + Math.random() * 12; // 6..18
-            const chars = new Array(trailLen).fill(0).map(randCharIdx);
+            const chars = Array.from({ length: trailLen }, () => randCharIdx());
             const lastStepRow = Math.floor(yRows);
             const alphas = buildAlphas(trailLen);
             return { yRows, speedRowsPerSec, trailLen, chars, lastStepRow, alphas };

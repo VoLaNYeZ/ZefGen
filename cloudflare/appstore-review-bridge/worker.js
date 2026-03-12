@@ -287,6 +287,26 @@ const fetchPrivateKeySecret = async (env, appId, userId) => {
     return String(payload[0]?.value || '');
 };
 
+const insertWebhookEvent = async (env, payload) =>
+    supabaseTableRequest(env, {
+        table: 'appstore_review_events',
+        method: 'POST',
+        extraHeaders: {
+            Prefer: 'return=minimal',
+        },
+        body: {
+            app_id: payload.appId,
+            user_id: payload.userId,
+            event_type: payload.eventType,
+            payload_type: payload.payloadType,
+            state_from: payload.stateFrom ?? null,
+            state_to: payload.stateTo ?? null,
+            event_at: payload.eventAt,
+            delivery_status: payload.deliveryStatus,
+            raw_payload: payload.rawPayload ?? null,
+        },
+    });
+
 const updateWebhookRow = async (env, payload) => {
     const response = await supabaseTableRequest(env, {
         table: 'appstore_review_webhooks',
@@ -309,6 +329,13 @@ const updateWebhookRow = async (env, payload) => {
                 'asc_app_name',
                 'asc_bundle_id',
                 'apple_webhook_id',
+                'latest_event_type',
+                'latest_review_state',
+                'latest_previous_state',
+                'latest_event_at',
+                'last_delivery_at',
+                'last_delivery_status',
+                'last_error',
                 'last_sync_status',
                 'last_sync_error',
                 'last_sync_at',
@@ -323,6 +350,72 @@ const updateWebhookRow = async (env, payload) => {
         },
     });
     return Array.isArray(response) ? response[0] || null : response;
+};
+
+const parseComparableTimestamp = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 0;
+    const ts = Date.parse(raw);
+    return Number.isFinite(ts) ? ts : 0;
+};
+
+const APPLE_VERSION_STATE_PRIORITY = {
+    IN_REVIEW: 1000,
+    WAITING_FOR_REVIEW: 950,
+    ACCEPTED: 900,
+    PENDING_APPLE_RELEASE: 875,
+    PENDING_DEVELOPER_RELEASE: 850,
+    PROCESSING_FOR_APP_STORE: 825,
+    READY_FOR_SALE: 800,
+    REJECTED: 775,
+    METADATA_REJECTED: 760,
+    INVALID_BINARY: 750,
+    DEVELOPER_REJECTED: 740,
+    PENDING_CONTRACT: 725,
+    DEVELOPER_REMOVED_FROM_SALE: 500,
+    REMOVED_FROM_SALE: 490,
+    PREPARE_FOR_SUBMISSION: 100,
+};
+
+const normalizeAppleVersionSnapshots = (items) =>
+    (Array.isArray(items) ? items : [])
+        .map((item) => {
+            const attributes = item && typeof item === 'object' ? item.attributes || {} : {};
+            const appStoreState = String(attributes?.appStoreState || attributes?.appStoreVersionState || '')
+                .trim()
+                .toUpperCase();
+            return {
+                id: String(item?.id || '').trim(),
+                versionString: String(attributes?.versionString || '').trim(),
+                state: appStoreState,
+                platform: String(attributes?.platform || '').trim().toUpperCase(),
+                createdDate: String(
+                    attributes?.createdDate || attributes?.releaseDate || attributes?.earliestReleaseDate || ''
+                ).trim(),
+                raw: item,
+            };
+        })
+        .filter((item) => item.id && item.state);
+
+export const pickBestAppleVersionSnapshot = (items) => {
+    const normalized = normalizeAppleVersionSnapshots(items);
+    if (!normalized.length) return null;
+    return normalized
+        .slice()
+        .sort((left, right) => {
+            const rightPriority = APPLE_VERSION_STATE_PRIORITY[right.state] ?? 0;
+            const leftPriority = APPLE_VERSION_STATE_PRIORITY[left.state] ?? 0;
+            if (rightPriority !== leftPriority) return rightPriority - leftPriority;
+
+            const rightTimestamp = parseComparableTimestamp(right.createdDate);
+            const leftTimestamp = parseComparableTimestamp(left.createdDate);
+            if (rightTimestamp !== leftTimestamp) return rightTimestamp - leftTimestamp;
+
+            return String(right.versionString || '').localeCompare(String(left.versionString || ''), undefined, {
+                numeric: true,
+                sensitivity: 'base',
+            });
+        })[0];
 };
 
 const fetchAuthenticatedUser = async (env, request) => {
@@ -583,6 +676,25 @@ const listAppStoreConnectApps = async (payload) => {
     }
 
     return apps;
+};
+
+const listAppleAppStoreVersions = async (payload) => {
+    const versions = [];
+    let nextUrl = new URL(`/v1/apps/${encodeURIComponent(String(payload?.appId || '').trim())}/appStoreVersions`, APPLE_API_ORIGIN);
+    nextUrl.searchParams.set('limit', '200');
+
+    for (let index = 0; nextUrl && index < 10; index += 1) {
+        const response = await appleRequest({
+            token: payload.token,
+            url: nextUrl.toString(),
+            method: 'GET',
+        });
+        if (Array.isArray(response?.data)) versions.push(...response.data);
+        const nextHref = String(response?.links?.next || '').trim();
+        nextUrl = nextHref ? new URL(nextHref, APPLE_API_ORIGIN) : null;
+    }
+
+    return versions;
 };
 
 const normalizeAppleAppCandidates = (items, bundleIdHint) => {
@@ -857,7 +969,7 @@ const handleBridgeSync = async (request, env, subdomain) => {
             throw createHttpError(502, 'Apple did not return a webhook ID.');
         }
 
-        const updatedWebhook = await updateWebhookRow(env, {
+        let updatedWebhook = await updateWebhookRow(env, {
             userId: user.id,
             appId: workingWebhook.app_id,
             patch: {
@@ -867,6 +979,55 @@ const handleBridgeSync = async (request, env, subdomain) => {
                 last_sync_error: null,
             },
         });
+
+        try {
+            const versions = await listAppleAppStoreVersions({
+                token: jwt,
+                appId: workingWebhook.asc_app_id,
+            });
+            const snapshot = pickBestAppleVersionSnapshot(versions);
+            if (snapshot?.state) {
+                const snapshotAt = new Date().toISOString();
+                updatedWebhook = await updateWebhookRow(env, {
+                    userId: user.id,
+                    appId: workingWebhook.app_id,
+                    patch: {
+                        latest_event_type: 'APPLE_STATUS_SNAPSHOT',
+                        latest_previous_state: null,
+                        latest_review_state: snapshot.state,
+                        latest_event_at: snapshotAt,
+                    },
+                });
+                await insertWebhookEvent(env, {
+                    appId: workingWebhook.app_id,
+                    userId: user.id,
+                    eventType: 'APPLE_STATUS_SNAPSHOT',
+                    payloadType: 'appStoreVersionSnapshot',
+                    stateFrom: null,
+                    stateTo: snapshot.state,
+                    eventAt: snapshotAt,
+                    deliveryStatus: 'snapshot',
+                    rawPayload: {
+                        selected_version: {
+                            id: snapshot.id,
+                            versionString: snapshot.versionString,
+                            platform: snapshot.platform,
+                            createdDate: snapshot.createdDate,
+                            state: snapshot.state,
+                        },
+                        versions: normalizeAppleVersionSnapshots(versions).map((item) => ({
+                            id: item.id,
+                            versionString: item.versionString,
+                            platform: item.platform,
+                            createdDate: item.createdDate,
+                            state: item.state,
+                        })),
+                    },
+                });
+            }
+        } catch {
+            // Do not fail a successful webhook sync just because the current-state snapshot could not be fetched.
+        }
 
         return json({
             ok: true,

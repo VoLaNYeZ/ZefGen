@@ -208,17 +208,18 @@ export const BrandReferencesPanel = ({
                                                     const ref = refById.get(id);
                                                     if (!ref) return null;
                                                     return (
-                                                        <SortableBrandRefTile
-                                                            key={ref.id}
-                                                            id={ref.id}
-                                                            index={index}
-                                                            refItem={ref}
-                                                            url={brandRefUrls[ref.id]}
-                                                            onDelete={handleDeleteBrandReference}
-                                                            isReadOnly={isReadOnly}
-                                                            openLightbox={openLightbox}
-                                                            text={text}
-                                                        />
+                                                        <React.Fragment key={ref.id}>
+                                                            <SortableBrandRefTile
+                                                                id={ref.id}
+                                                                index={index}
+                                                                refItem={ref}
+                                                                url={brandRefUrls[ref.id]}
+                                                                onDelete={handleDeleteBrandReference}
+                                                                isReadOnly={isReadOnly}
+                                                                openLightbox={openLightbox}
+                                                                text={text}
+                                                            />
+                                                        </React.Fragment>
                                                     );
                                                 })}
                                             </div>

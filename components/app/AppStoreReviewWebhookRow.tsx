@@ -36,6 +36,7 @@ import {
     generateAppstoreReviewWebhookToken,
     isManagedAppstoreReviewWebhookUrl,
 } from '../../utils/appstore-review-webhook';
+import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
 
 const formatTimestamp = (value: string | null | undefined) => {
     const raw = String(value || '').trim();
@@ -235,6 +236,7 @@ export function AppStoreReviewWebhookRow(props: {
     isReadOnly?: boolean;
     hydrationSnapshot?: AppStoreReviewPanelSnapshot | null;
     onSnapshotChange?: (snapshot: AppStoreReviewPanelSnapshot | null) => void;
+    onSwitchGuardChange?: (guard: WorkspaceSwitchGuard | null) => void;
 }) {
     const {
         selectedApp,
@@ -244,6 +246,7 @@ export function AppStoreReviewWebhookRow(props: {
         isReadOnly = false,
         hydrationSnapshot = null,
         onSnapshotChange,
+        onSwitchGuardChange,
     } = props;
     const [loading, setLoading] = React.useState(false);
     const [busyAction, setBusyAction] = React.useState<BusyAction>(null);
@@ -345,6 +348,37 @@ export function AppStoreReviewWebhookRow(props: {
             ? `${latestPrevStateLabel} -> ${latestStateLabel}`
             : latestStateLabel
         : text('appstore_review_webhook_no_state');
+    const draftGuardReason = React.useMemo(() => {
+        if (!hasAppleDraftChanges) return null;
+        if (keyModeDraft === 'team') {
+            if (!normalizedIssuerIdDraft) return text('appstore_review_webhook_save_before_switch');
+            if (!APPLE_ISSUER_ID_PATTERN.test(normalizedIssuerIdDraft)) {
+                return text('appstore_review_webhook_issuer_id_invalid');
+            }
+        }
+
+        const storedManagedSubdomain =
+            String(config?.public_subdomain || '').trim() ||
+            extractManagedAppstoreReviewPublicSubdomain(config?.public_webhook_url) ||
+            '';
+        if (!legacyExplicitWebhookUrl && !String(publicSubdomainDraft || '').trim() && !storedManagedSubdomain) {
+            if (!String(appStoreNameHint || '').trim()) {
+                return text('appstore_review_webhook_appstore_name_required');
+            }
+        }
+
+        return null;
+    }, [
+        appStoreNameHint,
+        config?.public_subdomain,
+        config?.public_webhook_url,
+        hasAppleDraftChanges,
+        keyModeDraft,
+        legacyExplicitWebhookUrl,
+        normalizedIssuerIdDraft,
+        publicSubdomainDraft,
+        text,
+    ]);
     const headerStatusLabel = !config
         ? ''
         : latestStateLabel
@@ -583,8 +617,8 @@ export function AppStoreReviewWebhookRow(props: {
         if (secretMetasRes.error) throw secretMetasRes.error;
 
         return buildFallbackAppstoreReviewWebhookStatus({
-            webhook: (webhookRes.data as AppstoreReviewWebhook) || null,
-            events: ((eventsRes.data || []) as AppstoreReviewWebhookStatus['events']) || [],
+            webhook: (webhookRes.data as unknown as AppstoreReviewWebhook) || null,
+            events: ((eventsRes.data || []) as unknown as AppstoreReviewWebhookStatus['events']) || [],
             connectorConfig: connectorConfigRes.data || null,
             secretMetas: Array.isArray(secretMetasRes.data) ? secretMetasRes.data : [],
             text,
@@ -741,7 +775,7 @@ export function AppStoreReviewWebhookRow(props: {
             if (!workingConfig) {
                 const created = await ensureAppstoreReviewWebhook({ userId, appId });
                 if (created.error) throw created.error;
-                workingConfig = (created.data as AppstoreReviewWebhook) || null;
+                workingConfig = (created.data as unknown as AppstoreReviewWebhook) || null;
             }
             if (!workingConfig) throw new Error(text('upload_failed'));
 
@@ -827,7 +861,7 @@ export function AppStoreReviewWebhookRow(props: {
             if (options?.showNotice) {
                 setNotice(text('appstore_review_webhook_apple_saved'));
             }
-            return (updated.data as AppstoreReviewWebhook) || null;
+            return (updated.data as unknown as AppstoreReviewWebhook) || null;
         },
         [
             appId,
@@ -847,6 +881,38 @@ export function AppStoreReviewWebhookRow(props: {
             clearAppleDraftDirty,
         ]
     );
+
+    const flushPending = React.useCallback(async () => {
+        if (isReadOnly || !appId || !userId) return true;
+        if (!hasAppleDraftChangesRef.current) return true;
+
+        setExpanded(true);
+        setQuickSetupEditing(true);
+        if (draftGuardReason) return false;
+
+        setBusyAction('save');
+        setNotice(null);
+        try {
+            await persistAppleDrafts();
+            setExpanded(false);
+            return true;
+        } catch (error: any) {
+            reportError(String(error?.message || text('upload_failed')));
+            return false;
+        } finally {
+            setBusyAction(null);
+        }
+    }, [appId, draftGuardReason, isReadOnly, persistAppleDrafts, reportError, text, userId]);
+
+    React.useEffect(() => {
+        if (!onSwitchGuardChange) return;
+        onSwitchGuardChange({
+            isDirty: hasAppleDraftChanges,
+            blockReason: draftGuardReason,
+            flushPending,
+        });
+        return () => onSwitchGuardChange(null);
+    }, [draftGuardReason, flushPending, hasAppleDraftChanges, onSwitchGuardChange]);
 
     const resolveBridgeSubdomain = React.useCallback(
         (webhook: AppstoreReviewWebhook | null) => {

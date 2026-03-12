@@ -16,19 +16,21 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 ## Top-Level Files
 - `App.tsx` - App entry that gates auth and mounts `AppShell`.
 - `index.tsx` - React bootstrap and root render.
-- `index.html` - Vite HTML entry.
+- `index.html` - Vite HTML entry with CSP meta placeholder; final `connect-src` is injected by Vite so local smoke/dev can talk to local Supabase safely.
 - `index.css` - Global styles and app theme CSS (including app-folder styles).
 - `i18n.ts` - Translation strings and `t()` helper.
 - `package.json` - Scripts and dependencies.
 - `tsconfig.json` - TypeScript compiler config.
-- `vite.config.ts` - Vite build and dev config.
+- `vite.config.ts` - Vite build and dev config, including local `/api/*` middleware and dev/smoke CSP injection for local Supabase.
 - `tailwind.config.js` - Tailwind theme and plugins.
 - `postcss.config.js` - PostCSS config.
 - `.env.local` - Local environment variables (not committed).
 - `vercel.json` - Deployment config.
 - `components.json` - Shadcn UI config.
+- `playwright.config.ts` - Playwright smoke harness config (Chromium, auth setup project, failure artifacts, dev server orchestration).
 
 ## Key Directories
+- `.github/workflows/` - CI guardrails; includes the main build checks and the Playwright smoke job.
 - `api/` - Vercel Serverless Functions (served under `/api/*` in production).
 - `components/` - Reusable UI and feature components.
 - `components/app/` - Main app UI split into focused sections (see breakdown below).
@@ -43,18 +45,48 @@ App aliases are globally unique per user (case-insensitive) via `public.apps (us
 - `lib/` - Shared runtime helpers, service clients, and server-only logic (including Supabase clients and webhook helpers).
 - `public/` - Static assets.
 - `docs/` - Product and design documentation.
-- `supabase/` - Supabase configuration and local dev assets.
+- `supabase/` - Supabase configuration and local dev assets, including local smoke-test config/schema fallback inputs.
+- `tests/` - Node tests plus browser smoke coverage.
 - `contexts/` - Reserved for future React contexts (currently empty).
 
+## Guardrails & Smoke Tests
+- CI workflow: `.github/workflows/guardrails.yml`
+  - `guardrails` job runs credential checks, legal-links smoke checks, and production build.
+  - `smoke` job runs the full browser smoke guardrail via `npm run smoke`.
+- Canonical local command: `npm run smoke`
+  - runs `npm run smoke:backend`
+  - then runs `npm run smoke:test`
+- Smoke harness files:
+  - `scripts/bootstrap-smoke-backend.mjs` - Local Supabase bootstrap/reset/seed script for smoke runs. If Supabase CLI skips repo migrations because of the current filename format, it falls back to applying `supabase/schema.sql` and waits for PostgREST schema refresh before seeding.
+  - `tests/smoke/` - Playwright smoke specs for auth, workspace render, navigation, accounts paste flow, brand/app CRUD, and ideas/App Store link flow.
+  - `tests/smoke/support/fixtures.ts` - Browser guard layer that fails tests on unexpected `pageerror`, `console.error`, and failed navigations.
+  - `tests/smoke/support/helpers.ts` - Shared smoke navigation/auth/paste helpers.
+  - `docs/testing/smoke-tests.md` - Local smoke-test runbook.
+- Smoke environment shape:
+  - local Docker + local Supabase is the canonical regression environment for refactors
+  - one deterministic fake smoke user is recreated for each run
+  - smoke data is reseeded before Playwright runs
+  - Chromium is the only browser target for now
+
 ## components/app Breakdown
-- `components/app/AppShell.tsx` - Main authenticated UI state + orchestration (including collaboration hook wiring, hybrid soft-lock read-only mode, explicit lock-claim CTA, write guards, and No Brand Step 11 move-to-brand flow).
+- `components/app/AppShell.tsx` - Main authenticated shell orchestrator. It owns the top-level workspace/data hooks, coordinates selection/navigation/collaboration state, and shapes the view-model props passed into the shell layout/content layers.
+- `components/app/AppShellLayout.tsx` - Top-level shell scaffold that composes `Sidebar`, `WorkspaceShellChrome`, `AppShellPageContent`, and `AppShellOverlays`, including the mobile sidebar toggle/backdrop.
+- `components/app/AppShellPageContent.tsx` - Page branch router for `workspace`, `accounts`, and `ideas`.
+- `components/app/WorkspacePage.tsx` - Workspace-page renderer that composes brand panels, `WorkspaceFolderSurface`, and the workspace switch overlay.
+- `components/app/WorkspaceFolderSurface.tsx` - App-folder surface that renders the collapsed deliverables card, app picker, setup panels / no-apps state, and generation sections inside `AppFolder`.
+- `components/app/AppShellOverlays.tsx` - Bottom shell overlay layer for the deliverables rail, collaboration/alias notices, lightbox, and generation queue widget.
+- `components/app/WorkspaceShellChrome.tsx` - Sticky workspace header, top-level shell alerts, read-only banner, and first-brand empty state.
 - `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices (locked brands remain openable in view mode). Renders No Brand as a dedicated fixed system card (outside reorderable list) with its own slate/cyan palette.
 - `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes) with read-only write guards.
 - `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand (read-only aware for upload/delete/reorder).
 - `components/app/CountryMultiSelect.tsx` - Multi-select dropdown used for Target countries.
 - `components/app/AppFolder.tsx` - App-folder wrapper and gooey layout container.
+- `components/app/WorkspaceCollapsedDeliverables.tsx` - Collapsed deliverables card shown when the image workspace is hidden.
 - `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
 - `components/app/AppFormCard.tsx` - Create/edit app form UI.
+- `components/app/WorkspaceAppSelection.tsx` - Workspace-folder app picker chrome: app actions, app pill row, and app form card wiring.
+- `components/app/WorkspaceNoAppsEmptyState.tsx` - Empty-state CTA shown when a brand has no apps yet.
+- `components/app/WorkspaceSetupPanels.tsx` - Workspace-folder setup side: App Store link/webhook, client spec, variables/secrets, GitHub, runner, integration, and auto-release panels.
 - `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 8 in the AppFolder), read-only aware.
 - `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots), read-only aware. In No Brand mode icon prompt is app-level (`apps.icon_prompt`) and does not require brand icon reference; screenshot slots omit brand references and may optionally reuse style from previously generated screenshots.
 - `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
@@ -88,7 +120,7 @@ The App-level workflow inside the gooey folder is ordered as:
 8. Simulator screenshots (`components/app/AppSimulatorSection.tsx`)
 9. Screenshot prompts (`components/app/AppGenerationSection.tsx` via `ScreenshotPromptsModule`)
 10. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
-11. No Brand only: Move app to regular brand (`components/app/AppShell.tsx`)
+11. No Brand only: Move app to regular brand (`hooks/use-workspace-generation-view-model-impl.tsx`)
 
 No Brand nuance:
 - In No Brand mode, Steps 1 and 2 are swapped: Client spec is Step 1 and Icon generation is Step 2.
@@ -131,10 +163,32 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
 - `hooks/use-route-sync.ts` - URL sync with selected brand/app (alias matching normalized case-insensitively).
 - `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, lock conflict state, and optional `heartbeatBrandId` lock-hold override.
+- `hooks/use-app-shell-notices.ts` - Timed action/collaboration/alias notice state + helper reporters for the shell chrome.
+- `hooks/use-app-shell-actions.ts` - Shell-level retry/logout/write-guard/account-pick action helpers.
+- `hooks/use-app-shell-ui-state.ts` - Shell-local UI state and persistent refs for sidebar visibility, page/language, header/main scroll containers, and app-drag affordances.
+- `hooks/use-app-shell-selection-models.ts` - Brand/app selection derivations for requested vs. active app, No Brand mode, regular brand filtering, and cached workspace snapshot lookup.
+- `hooks/use-app-shell-derived-state.ts` - Shell-level pure derived values for route/data loading, deliverables state, and GitHub job flags.
+- `hooks/use-app-screenshot-downloads.ts` - Client-side ZIP download actions for simulator screenshots, including queue widget progress and final blob download.
 - `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
 - `hooks/use-slot-mappings.ts` - Slot mapping persistence.
 - `hooks/use-app-folder-layout.ts` - Gooey layout measurements + refs; background height is derived from normal-flow content bounds so the folder can shrink correctly after collapsed sections.
 - `hooks/use-app-pill-pan.ts` - Pointer-based horizontal panning logic.
+- `hooks/use-workspace-switch-overlay.ts` - Workspace switch overlay stage timing and loader visibility.
+- `hooks/use-workspace-navigation-actions.ts` - Public workspace/accounts/ideas navigation callbacks used by sidebar and pills.
+- `hooks/use-workspace-navigation-controller.ts` - Internal route/selection switch orchestration, hydration sequencing, and navigation restoration.
+- `hooks/use-workspace-switch-preparation.ts` - Pre-switch save/flush/lock preparation for workspace changes.
+- `hooks/use-workspace-lock-side-effects.ts` - Collaboration lock heartbeat sync, read-only warning behavior, fallback brand switching, and the explicit "Start editing" CTA flow.
+- `hooks/use-workspace-busy-guards.ts` - Aggregated busy-state unload protection plus queue widget job merging/dismiss/clear/cancel actions.
+- `hooks/use-workspace-readonly-state.ts` - Collaboration lock/read-only derivations for the selected workspace plus sidebar lock visibility.
+- `hooks/use-no-brand-workspace-actions.ts` - No Brand icon-prompt state/actions and move-to-brand workflow.
+- `hooks/use-workspace-assets-layout.ts` - Per-app workspace collapse state and deliverables rail positioning/persistence.
+- `hooks/use-workspace-presentation-state.ts` - App-switch pulse, lightbox state, and folder presentation derivations.
+- `hooks/use-workspace-step-readiness.ts` - Derived workspace step completion/readiness flags and No Brand step numbering.
+- `hooks/use-workspace-generation-view-model.ts` - Stable public hook entry for the workspace generation view-model.
+- `hooks/use-workspace-generation-view-model-impl.tsx` - Guarded generation view-model implementation for the workspace folder: icon module props plus simulator/prompt/generated/No Brand move sections.
+- `hooks/use-workspace-snapshot-hydration.ts` - Snapshot fetch/hydration for connector config, webhook panel, screenshot prompts, and generated assets.
+- `hooks/use-workspace-snapshot-cache.ts` - Snapshot cache synchronization for the currently selected app.
+- `hooks/use-brand-app-summaries.ts` - Sidebar indicator fetch/state and per-brand app summary counts (active, ready, A/B, banned).
 - `hooks/use-detect-browser.ts` - Browser detection helper.
 - `hooks/use-screen-size.ts` - Screen size tracking.
 - `hooks/use-connector-jobs.ts` - Connector job polling + runner job lifecycle actions.
@@ -197,6 +251,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - Generated assets upload a small `-preview.jpg` variant for fast UI thumbnails/lightbox.
 - Older assets may not have previews; the UI falls back to full-size objects automatically.
 - “Download all screenshots” produces a ZIP of final-rendered images named in App Store order (`iOS 6.5 1.jpg`, ...).
+- “Download simulator screenshots (ZIP)” produces a ZIP of the current app’s uploaded simulator images named in upload order (`Simulator 01.jpg`, ...).
 - While client-side generation/ZIP is running, the app warns on refresh/close to avoid wasting work. Brand/app switching is allowed; jobs continue in background. Runner jobs do not trigger unload warnings.
 - Screenshot sets:
   - Each app has a default set named `Original`, plus optional additional named sets (A/B tests).
@@ -224,7 +279,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
 - Invariant: repo creation requires a picked icon first, and seeds `assets/app_icon.jpg`.
 
 ## Connector (Hosted Runner)
-- Migration: `supabase/migrations/2026-02-09_connector_runner_jobs.sql`
+- Migration: `supabase/migrations/20260209000001_connector_runner_jobs.sql`
   - Tables: `connector_app_configs`, `connector_app_secrets`, `connector_jobs`, `connector_job_messages`
   - RPC: `connector_claim_next_job(p_runner_id text)` (service-role only)
 - The Runner verify log (`verify_tail`) is hidden by default (too noisy for normal users).
@@ -234,12 +289,12 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Debug disable: `localStorage.removeItem('zefgen.debug.runnerVerbose'); location.reload();`
 
 ## Workspace Collaboration (Brand Locks + Presence)
-- Base migration: `supabase/migrations/2026-02-18_workspace_sessions_brand_lock.sql`
+- Base migration: `supabase/migrations/20260218000003_workspace_sessions_brand_lock.sql`
   - Table: `public.workspace_sessions`
   - RPCs: `workspace_claim_brand_lock`, `workspace_heartbeat_session`, `workspace_release_brand_lock`, `workspace_snapshot`
-- Follow-up migration: `supabase/migrations/2026-02-18_workspace_sessions_lock_preserve_conflict.sql`
+- Follow-up migration: `supabase/migrations/20260218000004_workspace_sessions_lock_preserve_conflict.sql`
   - Preserves existing lock on blocked switch and adds `session_id_collision` handling.
-- Presence-window migration: `supabase/migrations/2026-02-18_workspace_presence_window.sql`
+- Presence-window migration: `supabase/migrations/20260218000002_workspace_presence_window.sql`
   - Keeps lock enforcement strict while widening snapshot presence recency semantics.
 - Current runtime path:
   - API snapshot reads table rows directly and normalizes payload shape.
@@ -254,20 +309,20 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Write paths across workspace panels are guarded in read-only mode; read-safe actions (navigation/open/copy/preview) remain available.
 
 ## App Store URL (Workspace Surface)
-- Migration: `supabase/migrations/2026-02-18_apps_appstore_url.sql`
+- Migration: `supabase/migrations/20260218000001_apps_appstore_url.sql`
   - Adds `public.apps.appstore_url`.
 - UI: `components/app/AppStoreLinkRow.tsx` (shown in workspace when an app is selected).
 - Utilities: `utils/appstore.ts` for canonicalization and geo-friendly URL helpers.
 
 ## App Store Review Webhooks
-- Migration: `supabase/migrations/2026-03-07_appstore_review_webhooks.sql`
+- Migration: `supabase/migrations/20260307000001_appstore_review_webhooks.sql`
   - Adds `public.appstore_review_webhooks` (one listener config per app).
   - Adds `public.appstore_review_events` (append-only delivery timeline per app).
-- Migration: `supabase/migrations/2026-03-07_appstore_review_webhooks_apple_connect.sql`
+- Migration: `supabase/migrations/20260307000002_appstore_review_webhooks_apple_connect.sql`
   - Adds Apple binding/sync metadata (`key_mode`, `key_id`, `issuer_id`, `asc_app_id`, `apple_webhook_id`, etc).
-- Migration: `supabase/migrations/2026-03-08_appstore_review_webhook_public_subdomain.sql`
+- Migration: `supabase/migrations/20260308000001_appstore_review_webhook_public_subdomain.sql`
   - Adds persistent clean `public_subdomain` allocation for `*.appshelp.cc`.
-- Migration: `supabase/migrations/2026-03-08_appstore_review_webhook_publish_and_bridge.sql`
+- Migration: `supabase/migrations/20260308000002_appstore_review_webhook_publish_and_bridge.sql`
   - Adds `public_page_published_at` and bridge/public-page support fields.
 - UI: `components/app/AppStoreReviewWebhookRow.tsx` (rendered below the App Store URL row in the workspace).
 - Data layer: `data/appstore-review-webhooks.ts`.
@@ -290,7 +345,7 @@ Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and relea
   - Global enforcement index: `apps_user_alias_lower_key` on `(user_id, lower(alias))`.
   - Different users may reuse the same alias; uniqueness scope is per user workspace.
 - Migration behavior:
-  - `supabase/migrations/2026-03-02_global_alias_uniqueness.sql` fails fast if existing duplicates are found by `(user_id, lower(alias))`.
+  - `supabase/migrations/20260302000001_global_alias_uniqueness.sql` fails fast if existing duplicates are found by `(user_id, lower(alias))`.
 - App create/edit behavior:
   - Alias input is normalized with `slugify`.
   - If requested alias is busy globally for the same user, client auto-picks first free alias.

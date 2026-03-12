@@ -78,7 +78,7 @@ export function CountryMultiSelect(props: {
         const next = new Set(valueSet);
         if (next.has(code)) next.delete(code);
         else next.add(code);
-        onChange(Array.from(next));
+        onChange(Array.from(next) as string[]);
     };
 
     const clearAll = () => {

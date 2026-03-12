@@ -270,7 +270,7 @@ export const useGeneratedAssets = ({
                 const msg = String((error as any)?.message || error);
                 if (msg.toLowerCase().includes('app_export_status')) {
                     reportError(
-                        `DB schema is missing export status tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                        `DB schema is missing export status tables. Run supabase/migrations/20260206000002_sets_picks_completion.sql in Supabase, then retry.`
                     );
                 } else {
                     reportError(msg);
@@ -393,7 +393,7 @@ export const useGeneratedAssets = ({
                 const msg = String((setsError as any)?.message || setsError);
                 if (msg.toLowerCase().includes('app_screenshot_sets')) {
                     reportError(
-                        `DB schema is missing screenshot set tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                        `DB schema is missing screenshot set tables. Run supabase/migrations/20260206000002_sets_picks_completion.sql in Supabase, then retry.`
                     );
                 } else {
                     reportError(msg);
@@ -431,7 +431,7 @@ export const useGeneratedAssets = ({
                 const msg = String((picksError as any)?.message || picksError);
                 if (msg.toLowerCase().includes('app_asset_picks')) {
                     reportError(
-                        `DB schema is missing picks tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                        `DB schema is missing picks tables. Run supabase/migrations/20260206000002_sets_picks_completion.sql in Supabase, then retry.`
                     );
                 } else {
                     reportError(msg);
@@ -444,7 +444,7 @@ export const useGeneratedAssets = ({
                 const msg = String((statusError as any)?.message || statusError);
                 if (msg.toLowerCase().includes('app_export_status')) {
                     reportError(
-                        `DB schema is missing export status tables. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then retry.`
+                        `DB schema is missing export status tables. Run supabase/migrations/20260206000002_sets_picks_completion.sql in Supabase, then retry.`
                     );
                 } else {
                     reportError(msg);
@@ -2745,7 +2745,7 @@ export const useGeneratedAssets = ({
         if (!session || !selectedBrand || !selectedApp) return;
         if (!activeScreenshotSetId) {
             throw new Error(
-                `Screenshot sets are not initialized. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then reload.`
+                `Screenshot sets are not initialized. Run supabase/migrations/20260206000002_sets_picks_completion.sql in Supabase, then reload.`
             );
         }
         if (!selectedAppScreenshots.length) {
@@ -2949,7 +2949,7 @@ export const useGeneratedAssets = ({
         if (!session || !selectedBrand || !selectedApp) return;
         if (!activeScreenshotSetId) {
             throw new Error(
-                `Screenshot sets are not initialized. Run supabase/migrations/2026-02-06_sets_picks_completion.sql in Supabase, then reload.`
+                `Screenshot sets are not initialized. Run supabase/migrations/20260206000002_sets_picks_completion.sql in Supabase, then reload.`
             );
         }
 
@@ -3107,7 +3107,7 @@ export const useGeneratedAssets = ({
             const msg = String((error as any)?.message || error);
             if (msg.toLowerCase().includes('check constraint') && msg.toLowerCase().includes('kind')) {
                 throw new Error(
-                    `DB schema is missing kind='screenshot_enhanced'. Run supabase/migrations/2026-02-06_app_generated_assets_kind_screenshot_enhanced.sql in Supabase, then retry.`
+                    `DB schema is missing kind='screenshot_enhanced'. Run supabase/migrations/20260206000001_app_generated_assets_kind_screenshot_enhanced.sql in Supabase, then retry.`
                 );
             }
             throw error;
@@ -3532,7 +3532,7 @@ export const useGeneratedAssets = ({
                 const msg = String((appUpdateError as any)?.message || appUpdateError);
                 if (msg.toLowerCase().includes('github_repo')) {
                     reportError(
-                        `DB schema missing GitHub repo columns. Run supabase/migrations/2026-02-08_app_github_repo.sql in Supabase SQL editor to persist repo links across devices.`
+                        `DB schema missing GitHub repo columns. Run supabase/migrations/20260208000001_app_github_repo.sql in Supabase SQL editor to persist repo links across devices.`
                     );
                 }
             }

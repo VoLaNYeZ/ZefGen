@@ -533,7 +533,7 @@ export const LoginPage: React.FC = () => {
                     </div>
 
                     {error && (
-                        <div className="mb-6 p-4 bg-red-900/20 border border-red-800 rounded-xl flex items-start gap-3">
+                        <div role="alert" className="mb-6 p-4 bg-red-900/20 border border-red-800 rounded-xl flex items-start gap-3">
                             <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={18} />
                             <p className="text-sm text-red-400 font-medium">{error}</p>
                         </div>
@@ -541,9 +541,10 @@ export const LoginPage: React.FC = () => {
 
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div className="space-y-1.5">
-                            <label className="text-sm font-bold text-slate-300 ml-1">Email</label>
+                            <label htmlFor="login-email" className="text-sm font-bold text-slate-300 ml-1">Email</label>
                             <div className="relative">
                                 <input
+                                    id="login-email"
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
@@ -557,9 +558,10 @@ export const LoginPage: React.FC = () => {
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-sm font-bold text-slate-300 ml-1">Password</label>
+                            <label htmlFor="login-password" className="text-sm font-bold text-slate-300 ml-1">Password</label>
                             <div className="relative">
                                 <input
+                                    id="login-password"
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}

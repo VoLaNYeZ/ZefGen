@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     buildEffectivePublicWebhookUrl,
     buildPublicSecurityHeaders,
+    pickBestAppleVersionSnapshot,
     publicTextResponse,
     redirectTo,
     validateExplicitPublicWebhookUrl,
@@ -74,4 +75,65 @@ test('worker effective webhook URL keeps explicit custom URLs and rejects direct
             issue: '',
         }
     );
+});
+
+test('pickBestAppleVersionSnapshot prefers active review states over older live or draft versions', () => {
+    const snapshot = pickBestAppleVersionSnapshot([
+        {
+            id: 'live-version',
+            attributes: {
+                versionString: '1.0',
+                appStoreState: 'READY_FOR_SALE',
+                platform: 'IOS',
+                createdDate: '2026-02-01T10:00:00Z',
+            },
+        },
+        {
+            id: 'review-version',
+            attributes: {
+                versionString: '1.1',
+                appStoreState: 'IN_REVIEW',
+                platform: 'IOS',
+                createdDate: '2026-03-01T10:00:00Z',
+            },
+        },
+        {
+            id: 'draft-version',
+            attributes: {
+                versionString: '1.2',
+                appStoreState: 'PREPARE_FOR_SUBMISSION',
+                platform: 'IOS',
+                createdDate: '2026-03-02T10:00:00Z',
+            },
+        },
+    ]);
+
+    assert.equal(snapshot?.id, 'review-version');
+    assert.equal(snapshot?.state, 'IN_REVIEW');
+});
+
+test('pickBestAppleVersionSnapshot falls back to the live version when the only newer one is a draft', () => {
+    const snapshot = pickBestAppleVersionSnapshot([
+        {
+            id: 'live-version',
+            attributes: {
+                versionString: '1.0',
+                appStoreState: 'READY_FOR_SALE',
+                platform: 'IOS',
+                createdDate: '2026-02-01T10:00:00Z',
+            },
+        },
+        {
+            id: 'draft-version',
+            attributes: {
+                versionString: '1.1',
+                appStoreState: 'PREPARE_FOR_SUBMISSION',
+                platform: 'IOS',
+                createdDate: '2026-03-02T10:00:00Z',
+            },
+        },
+    ]);
+
+    assert.equal(snapshot?.id, 'live-version');
+    assert.equal(snapshot?.state, 'READY_FOR_SALE');
 });

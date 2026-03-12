@@ -1,0 +1,105 @@
+import { useCallback, useEffect, type MutableRefObject } from 'react';
+import type { AppStoreReviewPanelSnapshot } from '../components/app/AppStoreReviewWebhookRow';
+import type { AppItem, Brand } from '../types/zefgen';
+import type { AppScreenshotPromptsSnapshot } from './use-app-screenshot-prompts';
+import type { ConnectorConfigFormSnapshot } from './use-connector-config-form';
+import type { GeneratedAssetsAppSnapshot } from './use-generated-assets';
+import type { AppWorkspaceSnapshot } from '../types/workspace-snapshot';
+
+type Params = {
+    workspaceSnapshotsRef: MutableRefObject<Record<string, AppWorkspaceSnapshot>>;
+    selectedBrand: Brand | null;
+    selectedApp: AppItem | null;
+    connectorLoading: boolean;
+    buildConnectorFormSnapshot: (appId: string) => ConnectorConfigFormSnapshot;
+    buildMetadataSnapshot: () => GeneratedAssetsAppSnapshot | null;
+    buildAppScreenshotPromptsSnapshot: () => AppScreenshotPromptsSnapshot | null;
+};
+
+export function useWorkspaceSnapshotCache({
+    workspaceSnapshotsRef,
+    selectedBrand,
+    selectedApp,
+    connectorLoading,
+    buildConnectorFormSnapshot,
+    buildMetadataSnapshot,
+    buildAppScreenshotPromptsSnapshot,
+}: Params) {
+    useEffect(() => {
+        if (!selectedBrand?.id || !selectedApp?.id) return;
+        if (connectorLoading) return;
+
+        const currentSnapshot = workspaceSnapshotsRef.current[selectedApp.id] ?? null;
+        const connectorSnapshot = buildConnectorFormSnapshot(selectedApp.id);
+        const generatedSnapshot = buildMetadataSnapshot() ?? currentSnapshot?.generatedAssets ?? null;
+        const promptsSnapshot = buildAppScreenshotPromptsSnapshot() ?? currentSnapshot?.screenshotPrompts ?? null;
+        if (!generatedSnapshot || !promptsSnapshot) {
+            if (!currentSnapshot) return;
+            workspaceSnapshotsRef.current[selectedApp.id] = {
+                ...currentSnapshot,
+                brandId: selectedBrand.id,
+                connectorForm: connectorSnapshot,
+            };
+            return;
+        }
+
+        workspaceSnapshotsRef.current[selectedApp.id] = {
+            appId: selectedApp.id,
+            brandId: selectedBrand.id,
+            connectorForm: connectorSnapshot,
+            generatedAssets: generatedSnapshot,
+            screenshotPrompts: promptsSnapshot,
+            appStoreReviewPanel: currentSnapshot?.appStoreReviewPanel ?? null,
+        };
+    }, [
+        buildAppScreenshotPromptsSnapshot,
+        buildConnectorFormSnapshot,
+        buildMetadataSnapshot,
+        connectorLoading,
+        selectedApp?.id,
+        selectedBrand?.id,
+        workspaceSnapshotsRef,
+    ]);
+
+    const handleAppStoreReviewSnapshotChange = useCallback(
+        (snapshot: AppStoreReviewPanelSnapshot | null) => {
+            if (!selectedBrand?.id || !selectedApp?.id || !snapshot || snapshot.appId !== selectedApp.id) return;
+
+            const currentSnapshot = workspaceSnapshotsRef.current[selectedApp.id];
+            const connectorSnapshot = buildConnectorFormSnapshot(selectedApp.id);
+            const generatedSnapshot = buildMetadataSnapshot();
+            const promptsSnapshot = buildAppScreenshotPromptsSnapshot();
+
+            if (currentSnapshot) {
+                workspaceSnapshotsRef.current[selectedApp.id] = {
+                    ...currentSnapshot,
+                    appStoreReviewPanel: snapshot,
+                };
+                return;
+            }
+
+            if (!generatedSnapshot || !promptsSnapshot) return;
+
+            workspaceSnapshotsRef.current[selectedApp.id] = {
+                appId: selectedApp.id,
+                brandId: selectedBrand.id,
+                connectorForm: connectorSnapshot,
+                generatedAssets: generatedSnapshot,
+                screenshotPrompts: promptsSnapshot,
+                appStoreReviewPanel: snapshot,
+            };
+        },
+        [
+            buildAppScreenshotPromptsSnapshot,
+            buildConnectorFormSnapshot,
+            buildMetadataSnapshot,
+            selectedApp?.id,
+            selectedBrand?.id,
+            workspaceSnapshotsRef,
+        ]
+    );
+
+    return {
+        handleAppStoreReviewSnapshotChange,
+    };
+}

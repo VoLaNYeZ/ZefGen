@@ -39,6 +39,8 @@ const skipByPrefix = (relPath) => {
         'coverage/',
         'playwright-report/',
         'test-results/',
+        'playwright/.auth/',
+        'playwright/.tmp/',
     ];
     return prefixes.some((prefix) => relPath.startsWith(prefix));
 };

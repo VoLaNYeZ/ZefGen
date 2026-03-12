@@ -619,6 +619,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                         <div className="flex flex-wrap items-center justify-end gap-2">
                             <div className="relative">
                                 <select
+                                    aria-label={text('accounts_account')}
                                     value={pickerValue}
                                     onChange={(e) => void handlePickChange(e.target.value)}
                                     disabled={!isEnabled || !selectedApp || !onPickAccount || pickBusy}
@@ -681,6 +682,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             <button
                                 type="button"
                                 onClick={() => onOpenAccountsForApp?.()}
+                                aria-label={text('accounts_open_accounts')}
                                 className="ui-btn-fit ui-btn-fit-dense inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:text-white disabled:opacity-60"
                                 title={text('accounts_open_accounts')}
                                 disabled={!isEnabled}

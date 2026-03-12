@@ -68,7 +68,7 @@ const checks = [
     },
     {
         name: 'step 3 completion supports account company_name fallback',
-        file: 'components/app/AppShell.tsx',
+        file: 'hooks/use-workspace-step-readiness.ts',
         includes: 'selectedAppstoreAccount?.company_name',
     },
 ];

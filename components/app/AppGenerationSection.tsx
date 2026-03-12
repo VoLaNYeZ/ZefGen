@@ -285,7 +285,7 @@ export const AppGenerationSection = ({
 
     const onIconUploadInputChange = React.useCallback(
         async (event: React.ChangeEvent<HTMLInputElement>) => {
-            const files = event.target.files ? Array.from(event.target.files) : [];
+            const files: File[] = event.target.files ? Array.from(event.target.files) : [];
             event.target.value = '';
             if (!files.length) return;
             await handleUploadCustomIconFiles(files);
@@ -298,7 +298,7 @@ export const AppGenerationSection = ({
             event.preventDefault();
             setIsIconDropActive(false);
             if (!canUploadCustomIcons) return;
-            const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
+            const files: File[] = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
             if (!files.length) return;
             await handleUploadCustomIconFiles(files);
         },

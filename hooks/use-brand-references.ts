@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, DragEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type { Brand, BrandReference } from '../types/zefgen';
@@ -177,7 +178,7 @@ export const useBrandReferences = ({
             a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
         );
 
-    const handleBrandIconUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleBrandIconUpload = async (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         event.target.value = '';
         if (!file || !session || !selectedBrand) return;
@@ -294,13 +295,13 @@ export const useBrandReferences = ({
         }
     };
 
-    const handleBrandScreenshotUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleBrandScreenshotUpload = async (event: ChangeEvent<HTMLInputElement>) => {
         const files: File[] = event.target.files ? Array.from(event.target.files) : [];
         event.target.value = '';
         await uploadBrandScreenshotReferences(files);
     };
 
-    const handleBrandReferenceDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    const handleBrandReferenceDrop = async (event: DragEvent<HTMLDivElement>) => {
         event.preventDefault();
         setIsBrandRefDropActive(false);
         if (brandScreenshotsUploading) return;
@@ -308,7 +309,7 @@ export const useBrandReferences = ({
         await uploadBrandScreenshotReferences(files);
     };
 
-    const handleBrandReferenceDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    const handleBrandReferenceDragOver = (event: DragEvent<HTMLDivElement>) => {
         event.preventDefault();
         if (!isBrandRefDropActive) {
             setIsBrandRefDropActive(true);

@@ -256,14 +256,14 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             const toIndex = regularBrands.findIndex((b) => b.id === targetId);
             if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
 
-            const movedRegularBrands = arrayMove(regularBrands, fromIndex, toIndex).map((b, idx) => ({
+            const movedRegularBrands = (arrayMove(regularBrands, fromIndex, toIndex) as Brand[]).map((b, idx) => ({
                 ...b,
                 order_index: idx,
             }));
             const noBrand = brands.find((brand) => isNoBrand(brand)) || null;
             const nextBrands = noBrand
                 ? [...movedRegularBrands, { ...noBrand, order_index: movedRegularBrands.length }]
-                : movedRegularBrands;
+                : [...movedRegularBrands];
 
             setBrands(nextBrands);
 

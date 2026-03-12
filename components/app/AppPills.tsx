@@ -104,6 +104,8 @@ export const AppPills = ({
                                 key={app.id}
                                 role="tab"
                                 aria-selected={isActive}
+                                data-app-id={app.id}
+                                data-testid={isActive ? 'active-app-pill' : undefined}
                                 onClick={() => {
                                     if (isBusy) {
                                         onBlockedAction();

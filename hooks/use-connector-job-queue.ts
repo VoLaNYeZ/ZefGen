@@ -206,7 +206,7 @@ export const useConnectorJobQueue = (payload: {
     }, [session?.user?.id, pollMs, refresh]);
 
     const jobs: GenerationJob[] = useMemo(() => {
-        const rows = Object.values(cacheById);
+        const rows = Object.values(cacheById) as ConnectorJob[];
         const mapped = rows
             .filter((row) => row?.id && !shouldHideRow(row))
             .map((row) => {
@@ -284,7 +284,7 @@ export const useConnectorJobQueue = (payload: {
         hideFinishedBeforeMsRef.current = Date.now();
         setCacheById((prev) => {
             const next: Record<string, ConnectorJob> = {};
-            for (const [id, row] of Object.entries(prev)) {
+            for (const [id, row] of Object.entries(prev) as Array<[string, ConnectorJob]>) {
                 if (!row) continue;
                 if (isTerminal(row.status)) {
                     dismissedByIdRef.current[id] = true;

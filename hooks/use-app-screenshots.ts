@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, DragEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type { AppItem, AppScreenshot, Brand } from '../types/zefgen';
@@ -177,13 +178,13 @@ export const useAppScreenshots = ({
         }
     };
 
-    const handleAppScreenshotsUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleAppScreenshotsUpload = async (event: ChangeEvent<HTMLInputElement>) => {
         const files: File[] = event.target.files ? Array.from(event.target.files) : [];
         event.target.value = '';
         await uploadAppScreenshots(files);
     };
 
-    const handleScreenshotDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    const handleScreenshotDrop = async (event: DragEvent<HTMLDivElement>) => {
         event.preventDefault();
         setIsScreenshotDropActive(false);
         if (appScreenshotsUploading) return;
@@ -191,7 +192,7 @@ export const useAppScreenshots = ({
         await uploadAppScreenshots(files);
     };
 
-    const handleScreenshotDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    const handleScreenshotDragOver = (event: DragEvent<HTMLDivElement>) => {
         event.preventDefault();
         if (!isScreenshotDropActive) {
             setIsScreenshotDropActive(true);

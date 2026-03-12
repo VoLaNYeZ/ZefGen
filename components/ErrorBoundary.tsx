@@ -8,6 +8,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
  */
 
 function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
+    const errorMessage = error instanceof Error ? error.message : String(error || '');
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white p-8">
             <div className="text-center max-w-md">
@@ -16,9 +17,9 @@ function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
                 <p className="text-slate-400 mb-6">
                     The app encountered an unexpected error. Please reload to continue.
                 </p>
-                {error && (
+                {errorMessage && (
                     <p className="text-xs text-slate-500 mb-4 font-mono bg-slate-800 p-2 rounded">
-                        {error.message}
+                        {errorMessage}
                     </p>
                 )}
                 <button

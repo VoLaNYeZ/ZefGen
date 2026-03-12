@@ -64,8 +64,9 @@ export const AppFormCard = ({
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                    <label className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_name')}</label>
+                    <label htmlFor="app-form-name" className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_name')}</label>
                     <input
+                        id="app-form-name"
                         value={appForm.name}
                         onChange={(event) => setAppForm((prev) => ({ ...prev, name: event.target.value }))}
                         className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:italic placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -73,8 +74,9 @@ export const AppFormCard = ({
                     />
                 </div>
                 <div>
-                    <label className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('alias')}</label>
+                    <label htmlFor="app-form-alias" className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('alias')}</label>
                     <input
+                        id="app-form-alias"
                         value={appForm.alias}
                         onChange={(event) => setAppForm((prev) => ({ ...prev, alias: event.target.value }))}
                         className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:italic placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"

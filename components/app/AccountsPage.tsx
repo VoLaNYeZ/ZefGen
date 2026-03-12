@@ -1023,7 +1023,7 @@ export function AccountsPage(props: {
 
     return (
         <>
-            <div className="space-y-6">
+            <div data-testid="accounts-page-root" className="space-y-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                     <h2 className="text-3xl font-semibold text-white">{text('accounts')}</h2>
@@ -1687,7 +1687,10 @@ export function AccountsPage(props: {
                     </div>
 
                     {isEditMode && dirtyCount > 0 ? (
-                        <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-slate-950/65 px-4 py-3 backdrop-blur">
+                        <div
+                            data-testid="accounts-unsaved-banner"
+                            className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-slate-950/65 px-4 py-3 backdrop-blur"
+                        >
                             <div className="text-[11px] font-medium text-indigo-200/70">
                                 {String(text('accounts_unsaved_rows') || '').replace('{count}', String(dirtyCount))}
                             </div>

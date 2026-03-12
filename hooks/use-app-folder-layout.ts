@@ -55,6 +55,9 @@ export const useAppFolderLayout = ({
         if (!enabled) return;
 
         const minTabWidth = 120;
+        let scrollEl: HTMLDivElement | null = null;
+        let rafId = 0;
+        let attached = false;
 
         const update = () => {
             const wrap = appFolderWrapRef.current;
@@ -150,23 +153,42 @@ export const useAppFolderLayout = ({
                 clipPath,
             });
         };
-
-        update();
         const observer = new ResizeObserver(update);
-        if (appFolderWrapRef.current) observer.observe(appFolderWrapRef.current);
-        if (appPickerRef.current) observer.observe(appPickerRef.current);
-        if (appSimulatorRef.current) observer.observe(appSimulatorRef.current);
-        if (appGenerationRef.current) observer.observe(appGenerationRef.current);
-        if (appFolderContentRef.current) observer.observe(appFolderContentRef.current);
-        if (appFolderEndRef.current) observer.observe(appFolderEndRef.current);
-        if (appPillRowRef.current) observer.observe(appPillRowRef.current);
-        const scrollEl = appPillScrollRef.current;
-        if (scrollEl) {
-            scrollEl.addEventListener('scroll', update, { passive: true });
-        }
-        window.addEventListener('resize', update);
+
+        const attachObservers = () => {
+            if (attached) return true;
+            const wrap = appFolderWrapRef.current;
+            const picker = appPickerRef.current;
+            if (!wrap || !picker || !wrap.isConnected || !picker.isConnected) return false;
+
+            observer.observe(wrap);
+            observer.observe(picker);
+            if (appSimulatorRef.current) observer.observe(appSimulatorRef.current);
+            if (appGenerationRef.current) observer.observe(appGenerationRef.current);
+            if (appFolderContentRef.current) observer.observe(appFolderContentRef.current);
+            if (appFolderEndRef.current) observer.observe(appFolderEndRef.current);
+            if (appPillRowRef.current) observer.observe(appPillRowRef.current);
+            scrollEl = appPillScrollRef.current;
+            if (scrollEl) {
+                scrollEl.addEventListener('scroll', update, { passive: true });
+            }
+            window.addEventListener('resize', update);
+            attached = true;
+            return true;
+        };
+
+        const ensureMeasured = () => {
+            if (attachObservers()) {
+                update();
+                return;
+            }
+            rafId = window.requestAnimationFrame(ensureMeasured);
+        };
+
+        ensureMeasured();
 
         return () => {
+            window.cancelAnimationFrame(rafId);
             observer.disconnect();
             if (scrollEl) scrollEl.removeEventListener('scroll', update);
             window.removeEventListener('resize', update);
