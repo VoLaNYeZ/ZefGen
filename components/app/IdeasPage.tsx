@@ -291,6 +291,10 @@ export function IdeasPage(props: {
         () => visibleScopeBrands.find((brand) => brand.id === generatorBrandId) || null,
         [generatorBrandId, visibleScopeBrands]
     );
+    const safeSelectedCategoryIds = React.useMemo(
+        () => (Array.isArray(selectedCategoryIds) ? selectedCategoryIds.filter(Boolean) : []),
+        [selectedCategoryIds]
+    );
 
     const suggestedCategoryIds = React.useMemo(
         () => buildSuggestedCategoryIds({ brand: currentGeneratorBrand, categories, ideas }),
@@ -304,14 +308,15 @@ export function IdeasPage(props: {
             return;
         }
         if (lastGeneratorBrandIdRef.current !== generatorBrandId) {
-            const persistedForBrand = (persistedCategoryIdsByBrandRef.current[generatorBrandId] || []).filter((categoryId) =>
+            const persistedForBrandRaw = persistedCategoryIdsByBrandRef.current?.[generatorBrandId];
+            const persistedForBrand = (Array.isArray(persistedForBrandRaw) ? persistedForBrandRaw : []).filter((categoryId) =>
                 validCategoryIds.has(categoryId)
             );
             setSelectedCategoryIds(persistedForBrand.length ? persistedForBrand : suggestedCategoryIds);
             lastGeneratorBrandIdRef.current = generatorBrandId;
             return;
         }
-        setSelectedCategoryIds((prev) => prev.filter((categoryId) => validCategoryIds.has(categoryId)));
+        setSelectedCategoryIds((prev) => (Array.isArray(prev) ? prev : []).filter((categoryId) => validCategoryIds.has(categoryId)));
     }, [generatorBrandId, suggestedCategoryIds, validCategoryIds]);
 
     React.useEffect(() => {
@@ -326,7 +331,7 @@ export function IdeasPage(props: {
             return;
         }
 
-        const normalizedSelectedCategoryIds = selectedCategoryIds.filter((categoryId) => validCategoryIds.has(categoryId));
+        const normalizedSelectedCategoryIds = safeSelectedCategoryIds.filter((categoryId) => validCategoryIds.has(categoryId));
         persistedGeneratorBrandIdRef.current = generatorBrandId;
         persistedCategoryIdsByBrandRef.current = {
             ...persistedCategoryIdsByBrandRef.current,
@@ -337,7 +342,7 @@ export function IdeasPage(props: {
             scope_brand_id: generatorBrandId,
             selected_category_ids_by_brand: persistedCategoryIdsByBrandRef.current,
         });
-    }, [generatorBrandId, ideaGeneratorPrefsStorageKey, selectedCategoryIds, validCategoryIds]);
+    }, [generatorBrandId, ideaGeneratorPrefsStorageKey, safeSelectedCategoryIds, validCategoryIds]);
 
     const appliedAppsByIdeaId = React.useMemo(() => {
         const map = new Map<
@@ -757,7 +762,9 @@ export function IdeasPage(props: {
             return;
         }
         const count = Math.max(1, Math.min(20, Number.parseInt(requestedCount, 10) || 10));
-        const confirmedCategoryIds = selectedCategoryIds.filter((categoryId) => categories.some((category) => category.id === categoryId));
+        const confirmedCategoryIds = safeSelectedCategoryIds.filter((categoryId) =>
+            categories.some((category) => category.id === categoryId)
+        );
         if (!confirmedCategoryIds.length) {
             const message = text('ideas_generator_select_categories');
             reportError?.(message);
@@ -810,7 +817,7 @@ export function IdeasPage(props: {
         ideas,
         reportError,
         requestedCount,
-        selectedCategoryIds,
+        safeSelectedCategoryIds,
         text,
     ]);
 
@@ -943,13 +950,15 @@ export function IdeasPage(props: {
                             </div>
                             <div className="mt-4 flex flex-wrap gap-2">
                                 {categories.map((category) => {
-                                    const selected = selectedCategoryIds.includes(category.id);
+                                    const selected = safeSelectedCategoryIds.includes(category.id);
                                     const suggested = suggestedCategoryIds.includes(category.id);
                                     return (
                                         <button
                                             key={category.id}
                                             type="button"
-                                            onClick={() => setSelectedCategoryIds((prev) => toggleListValue(prev, category.id))}
+                                            onClick={() =>
+                                                setSelectedCategoryIds((prev) => toggleListValue(Array.isArray(prev) ? prev : [], category.id))
+                                            }
                                             className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
                                                 selected
                                                     ? 'border-indigo-300/40 bg-indigo-500/20 text-indigo-50'
@@ -972,7 +981,7 @@ export function IdeasPage(props: {
                             <button
                                 type="button"
                                 onClick={() => void onQueueGeneration()}
-                                disabled={!generatorBrandId || createGenerationBusy || selectedCategoryIds.length === 0}
+                                disabled={!generatorBrandId || createGenerationBusy || safeSelectedCategoryIds.length === 0}
                                 className="inline-flex h-11 items-center gap-2 rounded-2xl border border-indigo-300/35 bg-indigo-500/15 px-4 text-sm font-semibold text-indigo-50 hover:bg-indigo-500/25 disabled:opacity-60"
                             >
                                 {createGenerationBusy ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
@@ -1055,14 +1064,16 @@ export function IdeasPage(props: {
                                 {questionOptions.length ? (
                                     <div className="mt-3 grid gap-2">
                                         {questionOptions.map((option) => {
-                                            const selected = option.categoryId ? selectedCategoryIds.includes(option.categoryId) : false;
+                                            const selected = option.categoryId ? safeSelectedCategoryIds.includes(option.categoryId) : false;
                                             return (
                                                 <button
                                                     key={option.id}
                                                     type="button"
                                                     onClick={() => {
                                                         if (option.categoryId) {
-                                                            setSelectedCategoryIds((prev) => toggleListValue(prev, option.categoryId!));
+                                                            setSelectedCategoryIds((prev) =>
+                                                                toggleListValue(Array.isArray(prev) ? prev : [], option.categoryId!)
+                                                            );
                                                             return;
                                                         }
                                                         void onAnswerLatestQuestion(option.label);
@@ -1104,8 +1115,8 @@ export function IdeasPage(props: {
                                                 JSON.stringify(
                                                     {
                                                         action: 'confirm_categories',
-                                                        confirmed_category_ids: selectedCategoryIds,
-                                                        confirmed_category_slugs: selectedCategoryIds
+                                                        confirmed_category_ids: safeSelectedCategoryIds,
+                                                        confirmed_category_slugs: safeSelectedCategoryIds
                                                             .map((categoryId) => categoryById.get(categoryId)?.slug || null)
                                                             .filter(Boolean),
                                                     },
@@ -1114,7 +1125,7 @@ export function IdeasPage(props: {
                                                 )
                                             )
                                         }
-                                        disabled={answerBusy || selectedCategoryIds.length === 0}
+                                        disabled={answerBusy || safeSelectedCategoryIds.length === 0}
                                         className="inline-flex h-9 items-center rounded-full border border-amber-200/25 bg-slate-950/20 px-3 text-xs font-semibold text-amber-50/90 hover:border-amber-100/40 disabled:opacity-60"
                                     >
                                         {text('ideas_generator_use_selected_categories')}
