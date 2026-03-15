@@ -38,9 +38,10 @@ const noBrandPriority = (brand: Pick<Brand, 'is_no_brand' | 'slug' | 'name'>) =>
 };
 
 export const pickCanonicalNoBrand = <T extends Pick<Brand, 'id' | 'is_no_brand' | 'slug' | 'name' | 'order_index' | 'created_at'>>(
-    brands: T[]
+    brands: T[] | null | undefined
 ) => {
-    const candidates = brands.filter((brand) => isNoBrand(brand));
+    const brandList = Array.isArray(brands) ? brands : [];
+    const candidates = brandList.filter((brand) => isNoBrand(brand));
     if (!candidates.length) return null;
 
     return [...candidates].sort((left, right) => {
@@ -58,12 +59,13 @@ export const pickCanonicalNoBrand = <T extends Pick<Brand, 'id' | 'is_no_brand' 
 };
 
 export const buildCanonicalBrandIdMap = <T extends Pick<Brand, 'id' | 'is_no_brand' | 'slug' | 'name' | 'order_index' | 'created_at'>>(
-    brands: T[]
+    brands: T[] | null | undefined
 ) => {
-    const canonicalNoBrand = pickCanonicalNoBrand(brands);
+    const brandList = Array.isArray(brands) ? brands : [];
+    const canonicalNoBrand = pickCanonicalNoBrand(brandList);
     const map = new Map<string, string>();
 
-    for (const brand of brands) {
+    for (const brand of brandList) {
         map.set(brand.id, canonicalNoBrand && isNoBrand(brand) ? canonicalNoBrand.id : brand.id);
     }
 
@@ -71,9 +73,10 @@ export const buildCanonicalBrandIdMap = <T extends Pick<Brand, 'id' | 'is_no_bra
 };
 
 export const getVisibleBrandOptions = <T extends Pick<Brand, 'id' | 'is_no_brand' | 'slug' | 'name' | 'order_index' | 'created_at'>>(
-    brands: T[]
+    brands: T[] | null | undefined
 ) => {
-    const canonicalNoBrand = pickCanonicalNoBrand(brands);
-    const regularBrands = brands.filter((brand) => !isNoBrand(brand));
+    const brandList = Array.isArray(brands) ? brands : [];
+    const canonicalNoBrand = pickCanonicalNoBrand(brandList);
+    const regularBrands = brandList.filter((brand) => !isNoBrand(brand));
     return canonicalNoBrand ? [...regularBrands, canonicalNoBrand] : regularBrands;
 };

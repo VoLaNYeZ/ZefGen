@@ -38,24 +38,28 @@ export function ConnectorClientSpecPanel(props: {
     text: (key: TranslationKey) => string;
 }) {
     const { connectorForm, isEnabled, ideas, ideaCategories, ideaAssignments, selectedAppId, selectedBrandId, brands, onOpenIdeas, text } = props;
+    const ideaList = React.useMemo(() => (Array.isArray(ideas) ? ideas : []), [ideas]);
+    const ideaCategoryList = React.useMemo(() => (Array.isArray(ideaCategories) ? ideaCategories : []), [ideaCategories]);
+    const ideaAssignmentList = React.useMemo(() => (Array.isArray(ideaAssignments) ? ideaAssignments : []), [ideaAssignments]);
+    const brandList = React.useMemo(() => (Array.isArray(brands) ? brands : []), [brands]);
 
     const [selectedCategoryId, setSelectedCategoryId] = React.useState('');
     const [selectedIdeaId, setSelectedIdeaId] = React.useState('');
     const [ideaApplyBusy, setIdeaApplyBusy] = React.useState(false);
 
-    const ideasById = React.useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
-    const canonicalBrandIdById = React.useMemo(() => buildCanonicalBrandIdMap(brands), [brands]);
+    const ideasById = React.useMemo(() => new Map(ideaList.map((idea) => [idea.id, idea])), [ideaList]);
+    const canonicalBrandIdById = React.useMemo(() => buildCanonicalBrandIdMap(brandList), [brandList]);
     const effectiveSelectedBrandId = React.useMemo(
         () => (selectedBrandId ? canonicalBrandIdById.get(selectedBrandId) ?? selectedBrandId : null),
         [canonicalBrandIdById, selectedBrandId]
     );
     const ideaCategoryById = React.useMemo(
-        () => new Map(ideaCategories.map((category) => [category.id, category])),
-        [ideaCategories]
+        () => new Map(ideaCategoryList.map((category) => [category.id, category])),
+        [ideaCategoryList]
     );
     const assignedAppIdsByIdeaId = React.useMemo(() => {
         const map = new Map<string, Set<string>>();
-        for (const row of ideaAssignments || []) {
+        for (const row of ideaAssignmentList) {
             const ideaId = normalize(row.idea_id);
             const appId = normalize(row.app_id);
             if (!ideaId || !appId) continue;
@@ -64,12 +68,12 @@ export function ConnectorClientSpecPanel(props: {
             map.set(ideaId, bucket);
         }
         return map;
-    }, [ideaAssignments]);
+    }, [ideaAssignmentList]);
     const ideaIndexById = React.useMemo(() => {
         const map = new Map<string, number>();
-        ideas.forEach((idea, i) => map.set(idea.id, i + 1));
+        ideaList.forEach((idea, i) => map.set(idea.id, i + 1));
         return map;
-    }, [ideas]);
+    }, [ideaList]);
     const isTakenByAnotherApp = React.useCallback(
         (idea: AppIdea) => {
             const assigned = assignedAppIdsByIdeaId.get(idea.id);
@@ -84,7 +88,7 @@ export function ConnectorClientSpecPanel(props: {
     );
     const availableIdeas = React.useMemo(() => {
         const pinnedIdeaId = normalize(connectorForm.ideaId || selectedIdeaId || '');
-        return ideas.filter((idea) => {
+        return ideaList.filter((idea) => {
             if (idea.id === pinnedIdeaId) return true;
             const ideaBrandId = canonicalBrandIdById.get(idea.brand_id) ?? idea.brand_id;
             if (effectiveSelectedBrandId && normalize(ideaBrandId) !== normalize(effectiveSelectedBrandId)) return false;
@@ -92,11 +96,11 @@ export function ConnectorClientSpecPanel(props: {
             if (status === 'removed' || status === 'superseded') return false;
             return !isTakenByAnotherApp(idea);
         });
-    }, [canonicalBrandIdById, connectorForm.ideaId, effectiveSelectedBrandId, ideas, isTakenByAnotherApp, selectedIdeaId]);
+    }, [canonicalBrandIdById, connectorForm.ideaId, effectiveSelectedBrandId, ideaList, isTakenByAnotherApp, selectedIdeaId]);
     const availableCategories = React.useMemo(() => {
         const ids = new Set(availableIdeas.map((idea) => idea.category_id));
-        return ideaCategories.filter((category) => ids.has(category.id));
-    }, [availableIdeas, ideaCategories]);
+        return ideaCategoryList.filter((category) => ids.has(category.id));
+    }, [availableIdeas, ideaCategoryList]);
 
     React.useEffect(() => {
         setSelectedCategoryId('');
@@ -191,7 +195,7 @@ export function ConnectorClientSpecPanel(props: {
                     </div>
                 </div>
 
-                {ideas.length === 0 ? (
+                {ideaList.length === 0 ? (
                     <div className="mt-4 rounded-2xl border border-indigo-400/20 bg-slate-950/20 p-4">
                         <p className="text-sm text-indigo-200/70">{text('idea_picker_no_ideas')}</p>
                         {onOpenIdeas ? (

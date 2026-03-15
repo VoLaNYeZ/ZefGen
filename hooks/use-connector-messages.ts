@@ -72,14 +72,16 @@ export const useConnectorJobMessages = (payload: {
         };
     }, [session?.user?.id, jobId, pollMs, runRefresh]);
 
+    const messageList = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
+
     const questions = useMemo(
-        () => messages.filter((m) => m.kind === 'question'),
-        [messages]
+        () => messageList.filter((m) => m.kind === 'question'),
+        [messageList]
     );
 
     const answers = useMemo(
-        () => messages.filter((m) => m.kind === 'answer'),
-        [messages]
+        () => messageList.filter((m) => m.kind === 'answer'),
+        [messageList]
     );
 
     const unansweredQuestions = useMemo(() => {
