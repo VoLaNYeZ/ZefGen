@@ -73,7 +73,7 @@ const arraysEqual = (left: string[], right: string[]) => {
 
 const getIdeaGeneratorPrefsStorageKey = (userId: string | null | undefined) => {
     const normalizedUserId = normalizeInline(userId);
-    return normalizedUserId ? `zefgen.ideaGenerator.v1.${normalizedUserId}` : null;
+    return normalizedUserId ? `zefgen.ideaGenerator.v2.${normalizedUserId}` : null;
 };
 
 const readIdeaGeneratorPrefs = (storageKey: string | null): IdeaGeneratorPrefs => {
@@ -138,7 +138,9 @@ const buildSuggestedCategoryIds = (payload: {
     ideas: AppIdea[];
 }) => {
     const { brand, categories, ideas } = payload;
-    if (!categories.length) return [] as string[];
+    const categoryList = Array.isArray(categories) ? categories : [];
+    const ideaList = Array.isArray(ideas) ? ideas : [];
+    if (!categoryList.length) return [] as string[];
 
     const brandTokens = new Set(
         tokenize(
@@ -148,9 +150,9 @@ const buildSuggestedCategoryIds = (payload: {
         )
     );
 
-    const scopedIdeas = brand ? ideas.filter((idea) => idea.brand_id === brand.id) : [];
+    const scopedIdeas = brand ? ideaList.filter((idea) => idea.brand_id === brand.id) : [];
 
-    const scored = categories.map((category, index) => {
+    const scored = categoryList.map((category, index) => {
         const categoryTokens = tokenize(`${category.slug} ${category.name}`);
         let score = 0;
         for (const token of categoryTokens) {
@@ -159,7 +161,7 @@ const buildSuggestedCategoryIds = (payload: {
 
         const scopedMatches = scopedIdeas.filter((idea) => idea.category_id === category.id);
         const generatedScopedMatches = scopedMatches.filter((idea) => idea.idea_source === 'generated');
-        const globalGeneratedMatches = ideas.filter(
+        const globalGeneratedMatches = ideaList.filter(
             (idea) => idea.category_id === category.id && idea.idea_source === 'generated'
         );
 
@@ -179,7 +181,7 @@ const buildSuggestedCategoryIds = (payload: {
         .slice(0, 4)
         .map((item) => item.id);
 
-    return ranked.length ? ranked : categories.slice(0, 4).map((category) => category.id);
+    return ranked.length ? ranked : categoryList.slice(0, 4).map((category) => category.id);
 };
 
 export function IdeasPage(props: {
@@ -223,6 +225,11 @@ export function IdeasPage(props: {
         reportError,
         text,
     } = props;
+    const ideaList = Array.isArray(ideas) ? ideas : [];
+    const categoryList = Array.isArray(categories) ? categories : [];
+    const ideaAssignmentList = Array.isArray(ideaAssignments) ? ideaAssignments : [];
+    const appList = Array.isArray(apps) ? apps : [];
+    const brandList = Array.isArray(brands) ? brands : [];
 
     const [search, setSearch] = React.useState('');
     const deferredSearch = React.useDeferredValue(search);
@@ -257,8 +264,8 @@ export function IdeasPage(props: {
         };
     }, []);
 
-    const visibleScopeBrands = React.useMemo(() => getVisibleBrandOptions(brands), [brands]);
-    const canonicalBrandIdById = React.useMemo(() => buildCanonicalBrandIdMap(brands), [brands]);
+    const visibleScopeBrands = React.useMemo(() => getVisibleBrandOptions(brandList), [brandList]);
+    const canonicalBrandIdById = React.useMemo(() => buildCanonicalBrandIdMap(brandList), [brandList]);
     const canonicalSelectedBrandId = selectedBrand?.id ? canonicalBrandIdById.get(selectedBrand.id) ?? selectedBrand.id : null;
 
     React.useEffect(() => {
@@ -282,11 +289,11 @@ export function IdeasPage(props: {
         });
     }, [canonicalSelectedBrandId, visibleScopeBrands]);
 
-    const brandById = React.useMemo(() => new Map(brands.map((brand) => [brand.id, brand])), [brands]);
+    const brandById = React.useMemo(() => new Map(brandList.map((brand) => [brand.id, brand])), [brandList]);
     const scopeBrandById = React.useMemo(() => new Map(visibleScopeBrands.map((brand) => [brand.id, brand])), [visibleScopeBrands]);
-    const categoryById = React.useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
-    const validCategoryIds = React.useMemo(() => new Set(categories.map((category) => category.id)), [categories]);
-    const appById = React.useMemo(() => new Map(apps.map((app) => [app.id, app])), [apps]);
+    const categoryById = React.useMemo(() => new Map(categoryList.map((category) => [category.id, category])), [categoryList]);
+    const validCategoryIds = React.useMemo(() => new Set(categoryList.map((category) => category.id)), [categoryList]);
+    const appById = React.useMemo(() => new Map(appList.map((app) => [app.id, app])), [appList]);
     const currentGeneratorBrand = React.useMemo(
         () => visibleScopeBrands.find((brand) => brand.id === generatorBrandId) || null,
         [generatorBrandId, visibleScopeBrands]
@@ -297,8 +304,8 @@ export function IdeasPage(props: {
     );
 
     const suggestedCategoryIds = React.useMemo(
-        () => buildSuggestedCategoryIds({ brand: currentGeneratorBrand, categories, ideas }),
-        [categories, currentGeneratorBrand, ideas]
+        () => buildSuggestedCategoryIds({ brand: currentGeneratorBrand, categories: categoryList, ideas: ideaList }),
+        [categoryList, currentGeneratorBrand, ideaList]
     );
 
     React.useEffect(() => {
@@ -354,7 +361,7 @@ export function IdeasPage(props: {
             }>
         >();
 
-        for (const row of ideaAssignments) {
+        for (const row of ideaAssignmentList) {
             const ideaId = normalizeInline(row.idea_id);
             const appId = normalizeInline(row.app_id);
             if (!ideaId || !appId) continue;
@@ -379,10 +386,10 @@ export function IdeasPage(props: {
         }
 
         return map;
-    }, [appById, ideaAssignments]);
+    }, [appById, ideaAssignmentList]);
 
     const ideaIndexById = React.useMemo(() => {
-        const ordered = [...ideas].sort((left, right) => {
+        const ordered = [...ideaList].sort((left, right) => {
             const leftTs = Date.parse(String(left.created_at || left.updated_at || 0)) || 0;
             const rightTs = Date.parse(String(right.created_at || right.updated_at || 0)) || 0;
             return rightTs - leftTs;
@@ -390,7 +397,7 @@ export function IdeasPage(props: {
         const map = new Map<string, number>();
         ordered.forEach((idea, index) => map.set(idea.id, index + 1));
         return map;
-    }, [ideas]);
+    }, [ideaList]);
 
     const setDraftField = React.useCallback((ideaId: string, patch: Partial<Draft>) => {
         setDraftById((prev) => ({ ...prev, [ideaId]: { ...(prev[ideaId] || {}), ...patch } }));
@@ -473,7 +480,7 @@ export function IdeasPage(props: {
         pollMs: 2500,
     });
 
-    const latestQuestion = unansweredQuestions[0] || null;
+    const latestQuestion = (Array.isArray(unansweredQuestions) ? unansweredQuestions : [])[0] || null;
     const questionOptions = React.useMemo<QuestionOptionView[]>(() => {
         const options = latestQuestion?.options;
         if (!Array.isArray(options)) return [];
@@ -483,7 +490,7 @@ export function IdeasPage(props: {
                 if (typeof option === 'string') {
                     const label = normalizeInline(option);
                     if (!label) return null;
-                    const matchedCategory = categories.find(
+                    const matchedCategory = categoryList.find(
                         (category) =>
                             normalizeInline(category.name).toLowerCase() === label.toLowerCase() ||
                             normalizeInline(category.slug).toLowerCase() === label.toLowerCase()
@@ -503,9 +510,9 @@ export function IdeasPage(props: {
                 const label = normalizeInline((option as any)?.label || (option as any)?.name || slug || categoryId);
                 if (!label) return null;
                 const matchedCategory =
-                    categories.find((category) => category.id === categoryId) ||
-                    (slug ? categories.find((category) => normalizeInline(category.slug).toLowerCase() === slug.toLowerCase()) : null) ||
-                    categories.find((category) => normalizeInline(category.name).toLowerCase() === label.toLowerCase());
+                    categoryList.find((category) => category.id === categoryId) ||
+                    (slug ? categoryList.find((category) => normalizeInline(category.slug).toLowerCase() === slug.toLowerCase()) : null) ||
+                    categoryList.find((category) => normalizeInline(category.name).toLowerCase() === label.toLowerCase());
 
                 const rawConfidence = Number((option as any)?.confidence);
 
@@ -519,7 +526,7 @@ export function IdeasPage(props: {
                 } satisfies QuestionOptionView;
             })
             .filter(Boolean) as QuestionOptionView[];
-    }, [categories, latestQuestion?.options]);
+    }, [categoryList, latestQuestion?.options]);
 
     React.useEffect(() => {
         if (!latestQuestion?.id || latestQuestion.id === lastQuestionIdRef.current) return;
@@ -534,7 +541,7 @@ export function IdeasPage(props: {
 
     const visibleIdeas = React.useMemo(() => {
         const query = normalizeInline(deferredSearch).toLowerCase();
-        return ideas.filter((idea) => {
+        return ideaList.filter((idea) => {
             if (!query) return true;
             const draft = draftById[idea.id] || {};
             const displayBrandId = canonicalBrandIdById.get(idea.brand_id) ?? idea.brand_id;
@@ -556,7 +563,7 @@ export function IdeasPage(props: {
                 .toLowerCase();
             return haystack.includes(query);
         });
-    }, [appliedAppsByIdeaId, brandById, canonicalBrandIdById, categoryById, deferredSearch, draftById, ideas, scopeBrandById, text]);
+    }, [appliedAppsByIdeaId, brandById, canonicalBrandIdById, categoryById, deferredSearch, draftById, ideaList, scopeBrandById, text]);
 
     const visibleIdeasByBrandId = React.useMemo(() => {
         const map = new Map<string, AppIdea[]>();
@@ -632,13 +639,13 @@ export function IdeasPage(props: {
             setNewError(null);
             setNewDraft({
                 brand_id: resolvedBrandId,
-                category_id: categories[0]?.id || '',
+                category_id: categoryList[0]?.id || '',
                 title: '',
                 description: '',
             });
             setNewRowScrollNonce((value) => value + 1);
         },
-        [canonicalSelectedBrandId, categories, generatorBrandId, text, visibleScopeBrands]
+        [canonicalSelectedBrandId, categoryList, generatorBrandId, text, visibleScopeBrands]
     );
 
     const onSaveNew = React.useCallback(async () => {
@@ -763,7 +770,7 @@ export function IdeasPage(props: {
         }
         const count = Math.max(1, Math.min(20, Number.parseInt(requestedCount, 10) || 10));
         const confirmedCategoryIds = safeSelectedCategoryIds.filter((categoryId) =>
-            categories.some((category) => category.id === categoryId)
+            categoryList.some((category) => category.id === categoryId)
         );
         if (!confirmedCategoryIds.length) {
             const message = text('ideas_generator_select_categories');
@@ -801,7 +808,7 @@ export function IdeasPage(props: {
                 context_hints: {
                     scope_name: getBrandLabel(currentGeneratorBrand, text),
                     scope_is_no_brand: isNoBrand(currentGeneratorBrand),
-                    prior_generated_count: ideas.filter(
+                    prior_generated_count: ideaList.filter(
                         (idea) => idea.brand_id === currentGeneratorBrand.id && idea.idea_source === 'generated'
                     ).length,
                 },
@@ -810,11 +817,11 @@ export function IdeasPage(props: {
             // Error is already surfaced by the hook.
         }
     }, [
-        categories,
+        categoryList,
         categoryById,
         createIdeaGenerationJob,
         currentGeneratorBrand,
-        ideas,
+        ideaList,
         reportError,
         requestedCount,
         safeSelectedCategoryIds,
@@ -949,7 +956,7 @@ export function IdeasPage(props: {
                                 </button>
                             </div>
                             <div className="mt-4 flex flex-wrap gap-2">
-                                {categories.map((category) => {
+                                {categoryList.map((category) => {
                                     const selected = safeSelectedCategoryIds.includes(category.id);
                                     const suggested = suggestedCategoryIds.includes(category.id);
                                     return (
@@ -1224,7 +1231,7 @@ export function IdeasPage(props: {
                                                 disabled={newBusy}
                                             >
                                                 <option value="">{text('idea_picker_select_category')}</option>
-                                                {categories.map((category) => (
+                                                {categoryList.map((category) => (
                                                     <option key={category.id} value={category.id}>
                                                         {category.name}
                                                     </option>
@@ -1324,7 +1331,7 @@ export function IdeasPage(props: {
                                                     className={cellSelect}
                                                 >
                                                     <option value="">{text('idea_picker_select_category')}</option>
-                                                    {categories.map((category) => (
+                                                    {categoryList.map((category) => (
                                                         <option key={category.id} value={category.id}>
                                                             {category.name}
                                                         </option>
