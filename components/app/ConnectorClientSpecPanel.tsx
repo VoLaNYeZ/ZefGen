@@ -1,7 +1,8 @@
 import React from 'react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
-import type { AppIdea, AppIdeaCategory, IdeaAppAssignment } from '../../types/zefgen';
+import type { AppIdea, AppIdeaCategory, Brand, IdeaAppAssignment } from '../../types/zefgen';
+import { buildCanonicalBrandIdMap } from '../../utils/no-brand';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 
@@ -31,16 +32,23 @@ export function ConnectorClientSpecPanel(props: {
     ideaCategories: AppIdeaCategory[];
     ideaAssignments: IdeaAppAssignment[];
     selectedAppId: string | null;
+    selectedBrandId: string | null;
+    brands: Brand[];
     onOpenIdeas?: () => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { connectorForm, isEnabled, ideas, ideaCategories, ideaAssignments, selectedAppId, onOpenIdeas, text } = props;
+    const { connectorForm, isEnabled, ideas, ideaCategories, ideaAssignments, selectedAppId, selectedBrandId, brands, onOpenIdeas, text } = props;
 
     const [selectedCategoryId, setSelectedCategoryId] = React.useState('');
     const [selectedIdeaId, setSelectedIdeaId] = React.useState('');
     const [ideaApplyBusy, setIdeaApplyBusy] = React.useState(false);
 
     const ideasById = React.useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
+    const canonicalBrandIdById = React.useMemo(() => buildCanonicalBrandIdMap(brands), [brands]);
+    const effectiveSelectedBrandId = React.useMemo(
+        () => (selectedBrandId ? canonicalBrandIdById.get(selectedBrandId) ?? selectedBrandId : null),
+        [canonicalBrandIdById, selectedBrandId]
+    );
     const ideaCategoryById = React.useMemo(
         () => new Map(ideaCategories.map((category) => [category.id, category])),
         [ideaCategories]
@@ -78,9 +86,13 @@ export function ConnectorClientSpecPanel(props: {
         const pinnedIdeaId = normalize(connectorForm.ideaId || selectedIdeaId || '');
         return ideas.filter((idea) => {
             if (idea.id === pinnedIdeaId) return true;
+            const ideaBrandId = canonicalBrandIdById.get(idea.brand_id) ?? idea.brand_id;
+            if (effectiveSelectedBrandId && normalize(ideaBrandId) !== normalize(effectiveSelectedBrandId)) return false;
+            const status = normalize((idea as any).status || 'generated');
+            if (status === 'removed' || status === 'superseded') return false;
             return !isTakenByAnotherApp(idea);
         });
-    }, [connectorForm.ideaId, ideas, isTakenByAnotherApp, selectedIdeaId]);
+    }, [canonicalBrandIdById, connectorForm.ideaId, effectiveSelectedBrandId, ideas, isTakenByAnotherApp, selectedIdeaId]);
     const availableCategories = React.useMemo(() => {
         const ids = new Set(availableIdeas.map((idea) => idea.category_id));
         return ideaCategories.filter((category) => ids.has(category.id));
@@ -147,7 +159,7 @@ export function ConnectorClientSpecPanel(props: {
         const idea = ideasById.get(nextIdeaId);
         if (!idea) return;
         setIdeaApplyBusy(true);
-        const ideaDescription = String(idea.description || '');
+        const ideaDescription = String(idea.client_spec_current || idea.description || '');
         const ideaTitle = normalize((idea as any).title);
         const nextVariables = { ...(connectorForm.variables || {}) } as Record<string, any>;
         if (ideaTitle) {
@@ -240,7 +252,7 @@ export function ConnectorClientSpecPanel(props: {
                                     const category = ideaCategoryById.get(idea.category_id);
                                     const categoryName = category?.name || '';
                                     const title = normalize((idea as any).title);
-                                    const preview = formatIdeaPreview(idea.description);
+                                    const preview = formatIdeaPreview(String(idea.client_spec_current || idea.description || ''));
                                     const label = title
                                         ? `#${n ?? '—'} · ${title.length > 36 ? `${title.slice(0, 35)}...` : title}`
                                         : `#${n ?? '—'} · ${preview}`;

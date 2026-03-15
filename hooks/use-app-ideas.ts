@@ -95,14 +95,15 @@ export const useAppIdeas = (payload: {
                 row: args.row,
             });
             if (error) throw error;
-            if (data) {
+            const nextIdea = ((data as unknown) || null) as AppIdea | null;
+            if (nextIdea) {
                 setIdeas((prev) => {
-                    const exists = prev.some((idea) => idea.id === data.id);
-                    if (exists) return prev.map((idea) => (idea.id === data.id ? data : idea));
-                    return [...prev, data];
+                    const exists = prev.some((idea) => idea.id === nextIdea.id);
+                    if (exists) return prev.map((idea) => (idea.id === nextIdea.id ? nextIdea : idea));
+                    return [nextIdea, ...prev];
                 });
             }
-            return data;
+            return nextIdea;
         },
         [session]
     );
@@ -119,8 +120,9 @@ export const useAppIdeas = (payload: {
                 patch: args.patch,
             });
             if (error) throw error;
-            if (data) setIdeas((prev) => prev.map((idea) => (idea.id === data.id ? data : idea)));
-            return data;
+            const nextIdea = ((data as unknown) || null) as AppIdea | null;
+            if (nextIdea) setIdeas((prev) => prev.map((idea) => (idea.id === nextIdea.id ? nextIdea : idea)));
+            return nextIdea;
         },
         [session]
     );

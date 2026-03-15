@@ -26,6 +26,7 @@ type WorkspaceSetupPanelsProps = {
     appIdeaAssignments: IdeaAppAssignment[];
     appIdeaCategories: AppIdeaCategory[];
     appIdeas: AppIdea[];
+    brands: Brand[];
     appStoreReviewHydrationSnapshot: React.ComponentProps<typeof AppStoreReviewWebhookRow>['hydrationSnapshot'];
     connectorEnabled: boolean;
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
@@ -71,6 +72,7 @@ export function WorkspaceSetupPanels({
     appIdeaAssignments,
     appIdeaCategories,
     appIdeas,
+    brands,
     appStoreReviewHydrationSnapshot,
     connectorEnabled,
     connectorForm,
@@ -120,6 +122,8 @@ export function WorkspaceSetupPanels({
                 ideaCategories={appIdeaCategories}
                 ideaAssignments={appIdeaAssignments}
                 selectedAppId={selectedApp?.id || null}
+                selectedBrandId={selectedBrand?.id || null}
+                brands={brands}
                 onOpenIdeas={onOpenIdeas}
                 text={text}
             />

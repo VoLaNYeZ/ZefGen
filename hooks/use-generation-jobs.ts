@@ -13,6 +13,7 @@ export type GenerationJobKind =
     | 'connector_integration'
     | 'connector_qa'
     | 'connector_screenshots'
+    | 'connector_idea_generation'
     | 'github_repo_create'
     | 'github_repo_delete';
 

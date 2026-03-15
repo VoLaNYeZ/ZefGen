@@ -228,12 +228,28 @@ export type AppIdeaCategory = {
     created_at?: string;
 };
 
+export type IdeaSource = 'manual' | 'generated';
+export type IdeaStatus = 'generated' | 'used' | 'superseded' | 'removed';
+export type IdeaCreativityTier = 'safe' | 'balanced' | 'wild';
+
 export type AppIdea = {
     id: string;
     user_id?: string;
+    brand_id: string;
     category_id: string;
+    idea_source?: IdeaSource;
+    status?: IdeaStatus;
     title: string;
     description: string;
+    client_spec_current: string;
+    alternate_names?: string[] | null;
+    idea_family_id?: string;
+    version_index?: number;
+    spec_revision_index?: number;
+    parent_idea_id?: string | null;
+    last_generated_output_id?: string | null;
+    edited_after_generation?: boolean | null;
+    memory_fingerprint?: string | null;
     updated_at?: string;
     created_at?: string;
 };
@@ -241,6 +257,46 @@ export type AppIdea = {
 export type IdeaAppAssignment = {
     app_id: string;
     idea_id: string;
+};
+
+export type IdeaGenerationRun = {
+    id: string;
+    job_id: string;
+    user_id?: string;
+    brand_id: string;
+    requested_count: number;
+    creativity_mix: Record<IdeaCreativityTier, number>;
+    suggested_categories?: Array<{ id?: string; slug?: string; reason?: string; confidence?: number }> | null;
+    confirmed_category_ids?: string[] | null;
+    generator_profile_id?: string | null;
+    template_mix_version?: string | null;
+    context_summary?: Record<string, any> | null;
+    created_at?: string;
+    updated_at?: string;
+};
+
+export type IdeaGenerationOutput = {
+    id: string;
+    run_id: string;
+    job_id: string;
+    user_id?: string;
+    brand_id: string;
+    app_idea_id?: string | null;
+    category_id: string;
+    idea_family_id: string;
+    version_index: number;
+    output_index: number;
+    parent_idea_id?: string | null;
+    creativity_tier: IdeaCreativityTier;
+    final_name: string;
+    alternate_names?: string[] | null;
+    idea_summary: string;
+    client_spec_generated: string;
+    classification: 'new_family' | 'new_version' | 'too_close_surface_repeat';
+    comparison_snapshot?: Record<string, any> | null;
+    generator_profile_id?: string | null;
+    template_mix_version?: string | null;
+    created_at?: string;
 };
 
 export type BrandFormState = {

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import type { AppItem } from '../types/zefgen';
+import type { AppItem, Brand } from '../types/zefgen';
 import type { ConnectorJob, ConnectorJobStatus } from '../data/connector-jobs';
 import { fetchConnectorJobsForUser, requestCancelConnectorJob } from '../data/connector-jobs';
 import type { GenerationJob, GenerationJobStatus } from './use-generation-jobs';
+import { isNoBrand } from '../utils/no-brand';
 
 const clampPollMs = (ms: number) => Math.max(1200, Math.floor(ms));
 
@@ -29,21 +30,29 @@ const mapStatus = (status: ConnectorJobStatus): { status: GenerationJobStatus; m
 
 const mapKind = (
     kind: string | null | undefined
-): 'connector_generate' | 'connector_fix' | 'connector_integration' | 'connector_qa' | 'connector_screenshots' => {
+):
+    | 'connector_generate'
+    | 'connector_fix'
+    | 'connector_integration'
+    | 'connector_qa'
+    | 'connector_screenshots'
+    | 'connector_idea_generation' => {
     const normalized = String(kind || '').toLowerCase();
     if (normalized === 'fix') return 'connector_fix';
     if (normalized === 'integration') return 'connector_integration';
     if (normalized === 'visual_qa') return 'connector_qa';
     if (normalized === 'screenshots') return 'connector_screenshots';
+    if (normalized === 'idea_generation') return 'connector_idea_generation';
     return 'connector_generate';
 };
 
 export const useConnectorJobQueue = (payload: {
     session: Session | null;
     apps: AppItem[];
+    brands: Brand[];
     pollMs?: number;
 }) => {
-    const { session, apps } = payload;
+    const { session, apps, brands } = payload;
     const pollMs = clampPollMs(payload.pollMs ?? 2500);
 
     const storageKey = useMemo(() => {
@@ -67,6 +76,13 @@ export const useConnectorJobQueue = (payload: {
         }
         return map;
     }, [apps]);
+    const brandLabelById = useMemo(() => {
+        const map = new Map<string, string>();
+        for (const brand of brands) {
+            map.set(brand.id, isNoBrand(brand) ? 'No Brand' : String(brand.name || '').trim() || brand.id.slice(0, 6));
+        }
+        return map;
+    }, [brands]);
 
     // Persist "dismissed" and "clear finished" across refresh so the queue feels product-grade.
     useEffect(() => {
@@ -210,7 +226,8 @@ export const useConnectorJobQueue = (payload: {
         const mapped = rows
             .filter((row) => row?.id && !shouldHideRow(row))
             .map((row) => {
-                const appLabel = appLabelById.get(row.app_id) ?? '';
+                const appLabel = row.app_id ? appLabelById.get(row.app_id) ?? '' : '';
+                const brandLabel = row.brand_id ? brandLabelById.get(row.brand_id) ?? '' : '';
                 const kind = mapKind(row.kind);
                 const statusMapped = mapStatus(row.status);
                 const startedAt = toTs(row.started_at || row.created_at);
@@ -219,9 +236,12 @@ export const useConnectorJobQueue = (payload: {
                 const cancelRequested = Boolean(row.cancel_requested_at) && !isTerminal(row.status);
                 const message = cancelRequested ? 'Cancel requested' : statusMapped.message;
 
-                const title = appLabel
-                    ? `Runner: ${appLabel} ${String(row.kind || 'generate')}`
-                    : `Runner: ${String(row.kind || 'job')}`;
+                const title =
+                    kind === 'connector_idea_generation'
+                        ? `Runner: Idea Generator${brandLabel ? ` · ${brandLabel}` : ''}`
+                        : appLabel
+                          ? `Runner: ${appLabel} ${String(row.kind || 'generate')}`
+                          : `Runner: ${String(row.kind || 'job')}`;
 
                 return {
                     id: `connector:${row.id}`,
@@ -236,7 +256,7 @@ export const useConnectorJobQueue = (payload: {
 
         mapped.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
         return mapped.slice(0, 50);
-    }, [cacheById, appLabelById, shouldHideRow]);
+    }, [appLabelById, brandLabelById, cacheById, shouldHideRow]);
 
     const hasRunningJobs = useMemo(
         () => jobs.some((j) => j.status === 'running' || j.status === 'queued'),

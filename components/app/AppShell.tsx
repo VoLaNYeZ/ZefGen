@@ -669,6 +669,7 @@ export function AppShell({ session }: AppShellProps) {
     const connectorJobQueue = useConnectorJobQueue({
         session,
         apps,
+        brands,
         pollMs: 2500,
     });
 
@@ -1021,6 +1022,7 @@ export function AppShell({ session }: AppShellProps) {
             appIdeaAssignments,
             appIdeaCategories,
             appIdeas,
+            brands,
             appStoreReviewHydrationSnapshot: selectedAppSnapshot?.appStoreReviewPanel ?? null,
             allAccounts: appstoreAccounts,
             canAddApp,
@@ -1345,10 +1347,13 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     const ideasContent = {
+        session,
         ideas: appIdeas,
         categories: appIdeaCategories,
         ideaAssignments: appIdeaAssignments,
         apps,
+        brands,
+        selectedBrand,
         loading: appIdeasLoading,
         error: appIdeasError,
         refresh: refreshAppIdeas,

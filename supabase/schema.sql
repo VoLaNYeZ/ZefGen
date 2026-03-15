@@ -152,13 +152,28 @@ create table if not exists public.app_idea_categories (
     created_at timestamptz not null default now()
 );
 
--- User-level idea pool for Step 2 client spec picker. (2026-02-22)
+-- User-level idea pool for Step 2 client spec picker + generated idea lineage. (2026-02-22, 2026-03-15)
 create table if not exists public.app_ideas (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
+    brand_id uuid not null references public.brands(id) on delete cascade,
     category_id uuid not null references public.app_idea_categories(id) on delete restrict,
+    idea_source text not null default 'manual' check (idea_source in ('manual', 'generated')),
+    status text not null default 'generated' check (status in ('generated', 'used', 'superseded', 'removed')),
     title text not null default '',
     description text not null default '',
+    client_spec_current text not null default '',
+    alternate_names jsonb not null default '[]'::jsonb
+        check (jsonb_typeof(alternate_names) = 'array'),
+    idea_family_id uuid not null default gen_random_uuid(),
+    version_index integer not null default 1
+        check (version_index >= 1),
+    spec_revision_index integer not null default 1
+        check (spec_revision_index >= 1),
+    parent_idea_id uuid references public.app_ideas(id) on delete set null,
+    last_generated_output_id uuid,
+    edited_after_generation boolean not null default false,
+    memory_fingerprint text,
     updated_at timestamptz not null default now(),
     created_at timestamptz not null default now()
 );
@@ -166,6 +181,9 @@ create table if not exists public.app_ideas (
 create index if not exists app_ideas_user_id_idx on public.app_ideas (user_id);
 create index if not exists app_ideas_user_category_idx on public.app_ideas (user_id, category_id);
 create index if not exists app_ideas_user_created_idx on public.app_ideas (user_id, created_at);
+create index if not exists app_ideas_user_brand_created_idx on public.app_ideas (user_id, brand_id, created_at desc);
+create index if not exists app_ideas_user_source_status_idx on public.app_ideas (user_id, idea_source, status, created_at desc);
+create index if not exists app_ideas_family_version_idx on public.app_ideas (idea_family_id, version_index);
 
 create table if not exists public.brand_references (
     id uuid primary key default gen_random_uuid(),
@@ -679,8 +697,9 @@ grant select (id, app_id, user_id, key, updated_at, created_at) on public.connec
 create table if not exists public.connector_jobs (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references auth.users(id) on delete cascade,
-    app_id uuid not null references public.apps(id) on delete cascade,
-    kind text not null check (kind in ('generate', 'fix', 'integration', 'visual_qa', 'screenshots')),
+    app_id uuid references public.apps(id) on delete cascade,
+    brand_id uuid references public.brands(id) on delete cascade,
+    kind text not null check (kind in ('generate', 'fix', 'integration', 'visual_qa', 'screenshots', 'idea_generation')),
     status text not null default 'queued' check (status in ('queued', 'running', 'waiting_for_user', 'succeeded', 'failed', 'canceled')),
     requested_by text,
     input jsonb not null default '{}'::jsonb,
@@ -701,11 +720,17 @@ create table if not exists public.connector_jobs (
     cancel_requested_at timestamptz,
     error text,
     updated_at timestamptz not null default now(),
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    constraint connector_jobs_scope_check check (
+        (kind = 'idea_generation' and brand_id is not null)
+        or (kind <> 'idea_generation' and app_id is not null)
+    )
 );
 
 create index if not exists connector_jobs_status_created_at_idx on public.connector_jobs (status, created_at);
 create index if not exists connector_jobs_user_app_created_at_idx on public.connector_jobs (user_id, app_id, created_at);
+create index if not exists connector_jobs_user_brand_created_at_idx on public.connector_jobs (user_id, brand_id, created_at desc);
+create index if not exists connector_jobs_user_kind_brand_created_at_idx on public.connector_jobs (user_id, kind, brand_id, created_at desc);
 create index if not exists connector_jobs_claimed_by_claimed_at_idx on public.connector_jobs (claimed_by, claimed_at);
 
 alter table public.connector_jobs enable row level security;
@@ -767,6 +792,99 @@ create policy "connector_job_artifacts_select_own" on public.connector_job_artif
               and jobs.user_id = auth.uid()
         )
     );
+
+-- Immutable run history for brand/no-brand idea generation. (2026-03-15)
+create table if not exists public.idea_generation_runs (
+    id uuid primary key default gen_random_uuid(),
+    job_id uuid not null references public.connector_jobs(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    brand_id uuid not null references public.brands(id) on delete cascade,
+    requested_count integer not null check (requested_count between 1 and 50),
+    creativity_mix jsonb not null default '{"safe":4,"balanced":3,"wild":3}'::jsonb
+        check (jsonb_typeof(creativity_mix) = 'object'),
+    suggested_categories jsonb not null default '[]'::jsonb
+        check (jsonb_typeof(suggested_categories) = 'array'),
+    confirmed_category_ids jsonb not null default '[]'::jsonb
+        check (jsonb_typeof(confirmed_category_ids) = 'array'),
+    generator_profile_id text,
+    template_mix_version text,
+    context_summary jsonb not null default '{}'::jsonb
+        check (jsonb_typeof(context_summary) = 'object'),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create unique index if not exists idea_generation_runs_job_id_key on public.idea_generation_runs (job_id);
+create index if not exists idea_generation_runs_user_brand_created_at_idx
+    on public.idea_generation_runs (user_id, brand_id, created_at desc);
+
+alter table public.idea_generation_runs enable row level security;
+
+create policy "idea_generation_runs_select_own" on public.idea_generation_runs
+    for select using (auth.uid() = user_id);
+create policy "idea_generation_runs_insert_own" on public.idea_generation_runs
+    for insert with check (auth.uid() = user_id);
+create policy "idea_generation_runs_update_own" on public.idea_generation_runs
+    for update using (auth.uid() = user_id);
+create policy "idea_generation_runs_delete_own" on public.idea_generation_runs
+    for delete using (auth.uid() = user_id);
+
+-- Immutable generated idea snapshots per run. (2026-03-15)
+create table if not exists public.idea_generation_outputs (
+    id uuid primary key default gen_random_uuid(),
+    run_id uuid not null references public.idea_generation_runs(id) on delete cascade,
+    job_id uuid not null references public.connector_jobs(id) on delete cascade,
+    user_id uuid not null references auth.users(id) on delete cascade,
+    brand_id uuid not null references public.brands(id) on delete cascade,
+    app_idea_id uuid references public.app_ideas(id) on delete set null,
+    category_id uuid not null references public.app_idea_categories(id) on delete restrict,
+    idea_family_id uuid not null,
+    version_index integer not null check (version_index >= 1),
+    parent_idea_id uuid references public.app_ideas(id) on delete set null,
+    creativity_tier text not null check (creativity_tier in ('safe', 'balanced', 'wild')),
+    final_name text not null,
+    alternate_names jsonb not null default '[]'::jsonb
+        check (jsonb_typeof(alternate_names) = 'array'),
+    output_index integer not null
+        check (output_index >= 1),
+    idea_summary text not null,
+    client_spec_generated text not null,
+    classification text not null check (classification in ('new_family', 'new_version', 'too_close_surface_repeat')),
+    comparison_snapshot jsonb not null default '{}'::jsonb
+        check (jsonb_typeof(comparison_snapshot) = 'object'),
+    generator_profile_id text,
+    template_mix_version text,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idea_generation_outputs_run_created_at_idx
+    on public.idea_generation_outputs (run_id, created_at asc);
+create unique index if not exists idea_generation_outputs_run_output_index_key
+    on public.idea_generation_outputs (run_id, output_index);
+create index if not exists idea_generation_outputs_user_brand_created_at_idx
+    on public.idea_generation_outputs (user_id, brand_id, created_at desc);
+create index if not exists idea_generation_outputs_app_idea_id_idx
+    on public.idea_generation_outputs (app_idea_id);
+create index if not exists idea_generation_outputs_family_version_idx
+    on public.idea_generation_outputs (idea_family_id, version_index);
+
+alter table public.idea_generation_outputs enable row level security;
+
+create policy "idea_generation_outputs_select_own" on public.idea_generation_outputs
+    for select using (auth.uid() = user_id);
+create policy "idea_generation_outputs_insert_own" on public.idea_generation_outputs
+    for insert with check (auth.uid() = user_id);
+create policy "idea_generation_outputs_update_own" on public.idea_generation_outputs
+    for update using (auth.uid() = user_id);
+create policy "idea_generation_outputs_delete_own" on public.idea_generation_outputs
+    for delete using (auth.uid() = user_id);
+
+-- Link visible idea rows back to their latest immutable generated snapshot. (2026-03-15)
+alter table public.app_ideas
+    add constraint app_ideas_last_generated_output_id_fkey
+    foreign key (last_generated_output_id) references public.idea_generation_outputs(id) on delete set null;
+
+create index if not exists app_ideas_last_generated_output_id_idx on public.app_ideas (last_generated_output_id);
 
 create or replace function public.connector_claim_next_job(p_runner_id text)
 returns public.connector_jobs
@@ -1773,6 +1891,8 @@ grant insert, update, delete on public.connector_app_secrets to authenticated;
 grant select, insert, update, delete on public.connector_jobs to authenticated;
 grant select, insert, update, delete on public.connector_job_messages to authenticated;
 grant select on public.connector_job_artifacts to authenticated;
+grant select, insert, update, delete on public.idea_generation_runs to authenticated;
+grant select, insert, update, delete on public.idea_generation_outputs to authenticated;
 grant select, insert, update, delete on public.appstore_accounts to authenticated;
 grant select, insert, update, delete on public.appstore_review_webhooks to authenticated;
 grant select on public.appstore_review_events to authenticated;
