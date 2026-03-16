@@ -4,6 +4,7 @@ export type Brand = {
     slug: string;
     order_index?: number | null;
     is_no_brand?: boolean | null;
+    is_inactive?: boolean | null;
     target_countries?: string[] | null;
     keywords?: string | null;
     release_strategy_notes?: string | null;
@@ -301,6 +302,7 @@ export type IdeaGenerationOutput = {
 
 export type BrandFormState = {
     name: string;
+    isInactive: boolean;
 };
 
 export type AppFormState = {

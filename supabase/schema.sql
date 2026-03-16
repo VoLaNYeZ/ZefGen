@@ -17,12 +17,15 @@ create table if not exists public.brands (
     order_index integer not null default 0,
     -- System-managed "No Brand" bucket flag. (2026-03-02)
     is_no_brand boolean not null default false,
+    -- Sidebar inactive bucket flag for hiding brands from the main list. (2026-03-16)
+    is_inactive boolean not null default false,
     -- Brand release planning metadata (target countries, keywords, notes). (2026-02-08)
     target_countries text[] not null default '{}',
     keywords text not null default '' check (char_length(keywords) <= 100),
     release_strategy_notes text not null default '',
     release_strategy_updated_at timestamptz,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    constraint brands_no_brand_not_inactive check (not (is_no_brand and is_inactive))
 );
 
 create unique index if not exists brands_user_slug_key on public.brands (user_id, slug);

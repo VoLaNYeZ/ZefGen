@@ -21,11 +21,11 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
     const lastUserIdRef = useRef<string | null>(null);
 
     const [brandFormOpen, setBrandFormOpen] = useState(false);
-    const [brandForm, setBrandForm] = useState<BrandFormState>({ name: '' });
+    const [brandForm, setBrandForm] = useState<BrandFormState>({ name: '', isInactive: false });
     const [brandFormError, setBrandFormError] = useState<string | null>(null);
     const [brandFormLoading, setBrandFormLoading] = useState(false);
     const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
-    const originalEditingBrandRef = useRef<{ id: string; name: string; slug: string } | null>(null);
+    const originalEditingBrandRef = useRef<{ id: string; name: string; slug: string; isInactive: boolean } | null>(null);
 
     const brandSlugPreview = useMemo(() => slugify(brandForm.name || ''), [brandForm.name]);
     const normalizedBrandName = String(brandForm.name || '').trim();
@@ -34,8 +34,12 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         if (!editingBrandId) return normalizedBrandName.length > 0;
         const original = originalEditingBrandRef.current;
         if (!original || original.id !== editingBrandId) return normalizedBrandName.length > 0;
-        return normalizedBrandName !== original.name || brandSlugPreview !== original.slug;
-    }, [brandFormOpen, editingBrandId, normalizedBrandName, brandSlugPreview]);
+        return (
+            normalizedBrandName !== original.name ||
+            brandSlugPreview !== original.slug ||
+            brandForm.isInactive !== original.isInactive
+        );
+    }, [brandForm.isInactive, brandFormOpen, editingBrandId, normalizedBrandName, brandSlugPreview]);
     const isEditingExistingBrandForm = Boolean(brandFormOpen && editingBrandId);
     const hasMeaningfulNewBrandDraft = Boolean(brandFormOpen && !editingBrandId && normalizedBrandName.length > 0);
 
@@ -98,11 +102,16 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
         if (isNoBrand(brand)) return;
         if (brand) {
             setEditingBrandId(brand.id);
-            setBrandForm({ name: brand.name });
-            originalEditingBrandRef.current = { id: brand.id, name: brand.name, slug: brand.slug };
+            setBrandForm({ name: brand.name, isInactive: Boolean(brand.is_inactive) });
+            originalEditingBrandRef.current = {
+                id: brand.id,
+                name: brand.name,
+                slug: brand.slug,
+                isInactive: Boolean(brand.is_inactive),
+            };
         } else {
             setEditingBrandId(null);
-            setBrandForm({ name: '' });
+            setBrandForm({ name: '', isInactive: false });
             originalEditingBrandRef.current = null;
         }
         setBrandFormError(null);
@@ -143,7 +152,13 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
                 return false;
             }
             const original = originalEditingBrandRef.current;
-            if (original && original.id === editingBrandId && name === original.name && slug === original.slug) {
+            if (
+                original &&
+                original.id === editingBrandId &&
+                name === original.name &&
+                slug === original.slug &&
+                brandForm.isInactive === original.isInactive
+            ) {
                 setBrandFormLoading(false);
                 closeBrandForm();
                 return true;
@@ -151,7 +166,7 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             const { data, error } = await updateBrand({
                 id: editingBrandId,
                 userId: session.user.id,
-                patch: { name, slug },
+                patch: { name, slug, is_inactive: brandForm.isInactive },
             });
             if (error) {
                 setBrandFormError(error.message);
@@ -160,7 +175,12 @@ export const useBrands = ({ session, text, setSelectedBrandId, onDataError }: Pa
             }
             if (data) {
                 setBrands((prev) => prev.map((brand) => (brand.id === editingBrandId ? data : brand)));
-                originalEditingBrandRef.current = { id: data.id, name: data.name, slug: data.slug };
+                originalEditingBrandRef.current = {
+                    id: data.id,
+                    name: data.name,
+                    slug: data.slug,
+                    isInactive: Boolean(data.is_inactive),
+                };
             }
         } else {
             const regularBrands = brands.filter((brand) => !isNoBrand(brand));

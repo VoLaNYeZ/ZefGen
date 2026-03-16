@@ -34,10 +34,13 @@ type QuestionOptionView = {
 type IdeaGeneratorPrefs = {
     scope_brand_id?: string;
     selected_category_ids_by_brand?: Record<string, string[]>;
+    table_scope_brand_id?: string;
 };
 
 const CREATIVITY_MIX = { safe: 4, balanced: 3, wild: 3 } as const;
 const IDEA_EXAMPLE_ROOT = 'Ideas_example';
+const TABLE_SCOPE_ALL = '__all__';
+const DEFAULT_SUGGESTED_CATEGORY_SLUGS = ['lifestyle', 'productivity', 'utilities'] as const;
 
 const normalizeInline = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const normalizeBlock = (value: unknown) => String(value ?? '').replace(/\r\n/g, '\n').trim();
@@ -99,6 +102,7 @@ const readIdeaGeneratorPrefs = (storageKey: string | null): IdeaGeneratorPrefs =
         return {
             scope_brand_id: normalizeInline(parsed.scope_brand_id),
             selected_category_ids_by_brand: selectedByBrand,
+            table_scope_brand_id: normalizeInline(parsed.table_scope_brand_id) || TABLE_SCOPE_ALL,
         };
     } catch {
         return {};
@@ -176,12 +180,21 @@ const buildSuggestedCategoryIds = (payload: {
         };
     });
 
+    const categoriesBySlug = new Map(
+        categoryList.map((category) => [normalizeInline(category.slug).toLowerCase(), category.id] as const)
+    );
+    const defaultIds = DEFAULT_SUGGESTED_CATEGORY_SLUGS
+        .map((slug) => categoriesBySlug.get(slug) || null)
+        .filter((value): value is string => Boolean(value));
+
     const ranked = scored
         .sort((a, b) => (b.score === a.score ? a.index - b.index : b.score - a.score))
-        .slice(0, 4)
+        .filter((item) => !defaultIds.includes(item.id))
         .map((item) => item.id);
 
-    return ranked.length ? ranked : categoryList.slice(0, 4).map((category) => category.id);
+    const combined = [...defaultIds, ...ranked];
+    if (combined.length) return combined.slice(0, 4);
+    return categoryList.slice(0, 4).map((category) => category.id);
 };
 
 export function IdeasPage(props: {
@@ -244,6 +257,8 @@ export function IdeasPage(props: {
     const [generatorBrandId, setGeneratorBrandId] = React.useState('');
     const [requestedCount, setRequestedCount] = React.useState('10');
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<string[]>([]);
+    const [tableScopeBrandId, setTableScopeBrandId] = React.useState<string>(TABLE_SCOPE_ALL);
+    const [prefsHydrated, setPrefsHydrated] = React.useState(false);
     const [questionAnswer, setQuestionAnswer] = React.useState('');
     const [answerBusy, setAnswerBusy] = React.useState(false);
     const saveTimersRef = React.useRef<Record<string, number>>({});
@@ -251,6 +266,7 @@ export function IdeasPage(props: {
     const lastQuestionIdRef = React.useRef<string>('');
     const persistedGeneratorBrandIdRef = React.useRef<string>('');
     const persistedCategoryIdsByBrandRef = React.useRef<Record<string, string[]>>({});
+    const persistedTableScopeBrandIdRef = React.useRef<string>(TABLE_SCOPE_ALL);
     const ideaGeneratorPrefsStorageKey = React.useMemo(
         () => getIdeaGeneratorPrefsStorageKey(session?.user?.id || null),
         [session?.user?.id]
@@ -269,9 +285,18 @@ export function IdeasPage(props: {
     const canonicalSelectedBrandId = selectedBrand?.id ? canonicalBrandIdById.get(selectedBrand.id) ?? selectedBrand.id : null;
 
     React.useEffect(() => {
+        setPrefsHydrated(false);
+        if (!ideaGeneratorPrefsStorageKey) {
+            persistedGeneratorBrandIdRef.current = '';
+            persistedCategoryIdsByBrandRef.current = {};
+            persistedTableScopeBrandIdRef.current = TABLE_SCOPE_ALL;
+            return;
+        }
         const prefs = readIdeaGeneratorPrefs(ideaGeneratorPrefsStorageKey);
         persistedGeneratorBrandIdRef.current = normalizeInline(prefs.scope_brand_id);
         persistedCategoryIdsByBrandRef.current = prefs.selected_category_ids_by_brand || {};
+        persistedTableScopeBrandIdRef.current = normalizeInline(prefs.table_scope_brand_id) || TABLE_SCOPE_ALL;
+        setPrefsHydrated(true);
     }, [ideaGeneratorPrefsStorageKey]);
 
     React.useEffect(() => {
@@ -288,6 +313,24 @@ export function IdeasPage(props: {
             return canonicalSelectedBrandId || visibleScopeBrands[0]?.id || '';
         });
     }, [canonicalSelectedBrandId, visibleScopeBrands]);
+
+    React.useEffect(() => {
+        if (!visibleScopeBrands.length) {
+            setTableScopeBrandId(TABLE_SCOPE_ALL);
+            return;
+        }
+        setTableScopeBrandId((prev) => {
+            const persistedTableScopeBrandId = persistedTableScopeBrandIdRef.current;
+            if (prev !== TABLE_SCOPE_ALL && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
+            if (
+                persistedTableScopeBrandId === TABLE_SCOPE_ALL ||
+                visibleScopeBrands.some((brand) => brand.id === persistedTableScopeBrandId)
+            ) {
+                return persistedTableScopeBrandId;
+            }
+            return TABLE_SCOPE_ALL;
+        });
+    }, [visibleScopeBrands]);
 
     const brandById = React.useMemo(() => new Map(brandList.map((brand) => [brand.id, brand])), [brandList]);
     const scopeBrandById = React.useMemo(() => new Map(visibleScopeBrands.map((brand) => [brand.id, brand])), [visibleScopeBrands]);
@@ -327,19 +370,22 @@ export function IdeasPage(props: {
     }, [generatorBrandId, suggestedCategoryIds, validCategoryIds]);
 
     React.useEffect(() => {
-        if (!ideaGeneratorPrefsStorageKey) return;
+        if (!ideaGeneratorPrefsStorageKey || !prefsHydrated) return;
 
         if (!generatorBrandId) {
             persistedGeneratorBrandIdRef.current = '';
+            persistedTableScopeBrandIdRef.current = tableScopeBrandId || TABLE_SCOPE_ALL;
             writeIdeaGeneratorPrefs(ideaGeneratorPrefsStorageKey, {
                 scope_brand_id: '',
                 selected_category_ids_by_brand: persistedCategoryIdsByBrandRef.current,
+                table_scope_brand_id: tableScopeBrandId || TABLE_SCOPE_ALL,
             });
             return;
         }
 
         const normalizedSelectedCategoryIds = safeSelectedCategoryIds.filter((categoryId) => validCategoryIds.has(categoryId));
         persistedGeneratorBrandIdRef.current = generatorBrandId;
+        persistedTableScopeBrandIdRef.current = tableScopeBrandId || TABLE_SCOPE_ALL;
         persistedCategoryIdsByBrandRef.current = {
             ...persistedCategoryIdsByBrandRef.current,
             [generatorBrandId]: normalizedSelectedCategoryIds,
@@ -348,8 +394,9 @@ export function IdeasPage(props: {
         writeIdeaGeneratorPrefs(ideaGeneratorPrefsStorageKey, {
             scope_brand_id: generatorBrandId,
             selected_category_ids_by_brand: persistedCategoryIdsByBrandRef.current,
+            table_scope_brand_id: tableScopeBrandId || TABLE_SCOPE_ALL,
         });
-    }, [generatorBrandId, ideaGeneratorPrefsStorageKey, safeSelectedCategoryIds, validCategoryIds]);
+    }, [generatorBrandId, ideaGeneratorPrefsStorageKey, prefsHydrated, safeSelectedCategoryIds, tableScopeBrandId, validCategoryIds]);
 
     const appliedAppsByIdeaId = React.useMemo(() => {
         const map = new Map<
@@ -565,9 +612,14 @@ export function IdeasPage(props: {
         });
     }, [appliedAppsByIdeaId, brandById, canonicalBrandIdById, categoryById, deferredSearch, draftById, ideaList, scopeBrandById, text]);
 
+    const tableFilteredIdeas = React.useMemo(() => {
+        if (tableScopeBrandId === TABLE_SCOPE_ALL) return visibleIdeas;
+        return visibleIdeas.filter((idea) => (canonicalBrandIdById.get(idea.brand_id) ?? idea.brand_id) === tableScopeBrandId);
+    }, [canonicalBrandIdById, tableScopeBrandId, visibleIdeas]);
+
     const visibleIdeasByBrandId = React.useMemo(() => {
         const map = new Map<string, AppIdea[]>();
-        for (const idea of visibleIdeas) {
+        for (const idea of tableFilteredIdeas) {
             const displayBrandId = canonicalBrandIdById.get(idea.brand_id) ?? idea.brand_id;
             const bucket = map.get(displayBrandId) ?? [];
             bucket.push(idea);
@@ -581,12 +633,12 @@ export function IdeasPage(props: {
             });
         }
         return map;
-    }, [canonicalBrandIdById, visibleIdeas]);
+    }, [canonicalBrandIdById, tableFilteredIdeas]);
 
     const orderedBrands = React.useMemo(() => {
         const listed = [...visibleScopeBrands];
         const knownIds = new Set(listed.map((brand) => brand.id));
-        for (const idea of visibleIdeas) {
+        for (const idea of tableFilteredIdeas) {
             const displayBrandId = canonicalBrandIdById.get(idea.brand_id) ?? idea.brand_id;
             if (knownIds.has(displayBrandId)) continue;
             listed.push({
@@ -597,17 +649,19 @@ export function IdeasPage(props: {
             knownIds.add(displayBrandId);
         }
         return listed;
-    }, [canonicalBrandIdById, text, visibleIdeas, visibleScopeBrands]);
+    }, [canonicalBrandIdById, tableFilteredIdeas, text, visibleScopeBrands]);
 
     const visibleBrandSections = React.useMemo(
         () =>
             orderedBrands.filter((brand) => {
+                if (tableScopeBrandId !== TABLE_SCOPE_ALL && brand.id !== tableScopeBrandId) return false;
                 const count = visibleIdeasByBrandId.get(brand.id)?.length || 0;
                 if (count > 0) return true;
+                if (tableScopeBrandId !== TABLE_SCOPE_ALL && brand.id === tableScopeBrandId) return true;
                 if (newDraft?.brand_id === brand.id) return true;
                 return brand.id === generatorBrandId;
             }),
-        [generatorBrandId, newDraft?.brand_id, orderedBrands, visibleIdeasByBrandId]
+        [generatorBrandId, newDraft?.brand_id, orderedBrands, tableScopeBrandId, visibleIdeasByBrandId]
     );
 
     const anyBusy = loading || newBusy || createGenerationBusy || Object.values(rowBusyById).some(Boolean);
@@ -916,6 +970,7 @@ export function IdeasPage(props: {
                             <label className="grid gap-1">
                                 <span className="text-[11px] text-indigo-200/55">{text('ideas_generator_scope')}</span>
                                 <select
+                                    data-testid="ideas-generator-scope-select"
                                     value={generatorBrandId}
                                     onChange={(event) => setGeneratorBrandId(event.target.value)}
                                     className={`${fieldBase} h-10`}
@@ -949,6 +1004,7 @@ export function IdeasPage(props: {
                                 </div>
                                 <button
                                     type="button"
+                                    data-testid="ideas-generator-reset-categories"
                                     onClick={() => setSelectedCategoryIds(suggestedCategoryIds)}
                                     className="inline-flex h-8 items-center rounded-full border border-white/10 bg-slate-950/20 px-3 text-[11px] font-semibold text-indigo-100/80 hover:border-indigo-300/35"
                                 >
@@ -963,6 +1019,9 @@ export function IdeasPage(props: {
                                         <button
                                             key={category.id}
                                             type="button"
+                                            data-testid={`ideas-generator-category-${normalizeInline(category.slug).toLowerCase() || category.id}`}
+                                            data-selected={selected ? 'true' : 'false'}
+                                            data-suggested={suggested ? 'true' : 'false'}
                                             onClick={() =>
                                                 setSelectedCategoryIds((prev) => toggleListValue(Array.isArray(prev) ? prev : [], category.id))
                                             }
@@ -1155,18 +1214,36 @@ export function IdeasPage(props: {
 
             <section className="rounded-2xl border border-white/10 bg-slate-950/10">
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
-                    <div className="relative w-full sm:w-[420px]">
-                        <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-200/45" />
-                        <input
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            className={`${searchInput} pl-10`}
-                            placeholder={text('ideas_search_placeholder')}
-                        />
+                    <div className="flex w-full flex-1 flex-wrap items-end gap-3">
+                        <div className="relative min-w-[260px] flex-1 sm:max-w-[420px]">
+                            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-200/45" />
+                            <input
+                                value={search}
+                                onChange={(event) => setSearch(event.target.value)}
+                                className={`${searchInput} pl-10`}
+                                placeholder={text('ideas_search_placeholder')}
+                            />
+                        </div>
+                        <label className="grid min-w-[220px] gap-1">
+                            <span className="text-[11px] text-indigo-200/55">{text('ideas_table_scope')}</span>
+                            <select
+                                data-testid="ideas-table-scope-select"
+                                value={tableScopeBrandId}
+                                onChange={(event) => setTableScopeBrandId(event.target.value || TABLE_SCOPE_ALL)}
+                                className={`${fieldBase} h-9`}
+                            >
+                                <option value={TABLE_SCOPE_ALL}>{text('ideas_table_scope_all')}</option>
+                                {visibleScopeBrands.map((brand) => (
+                                    <option key={brand.id} value={brand.id}>
+                                        {getBrandLabel(brand, text)}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
                     </div>
                     <div className="text-[11px] text-indigo-200/45">
                         {text('ideas_title')}:{' '}
-                        <span className="font-semibold text-indigo-100/80">{visibleIdeas.length}</span>
+                        <span className="font-semibold text-indigo-100/80">{tableFilteredIdeas.length}</span>
                     </div>
                 </div>
             </section>

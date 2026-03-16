@@ -59,11 +59,11 @@ export const updateBrand = async (payload: { id: string; userId: string; patch: 
 export const ensureNoBrand = async (payload: { userId: string; existingBrands: Brand[] }) => {
     const existingNoBrand = payload.existingBrands.find((brand) => isNoBrand(brand)) || null;
     if (existingNoBrand) {
-        // Self-heal legacy rows where "no-brand" exists but the boolean flag is still false.
-        if (!existingNoBrand.is_no_brand) {
+        // Self-heal legacy rows where "no-brand" exists but the boolean flag is still false or it was marked inactive.
+        if (!existingNoBrand.is_no_brand || existingNoBrand.is_inactive) {
             const promoted = await supabase
                 .from('brands')
-                .update({ is_no_brand: true } as any)
+                .update({ is_no_brand: true, is_inactive: false } as any)
                 .eq('id', existingNoBrand.id)
                 .eq('user_id', payload.userId)
                 .select()
@@ -71,7 +71,7 @@ export const ensureNoBrand = async (payload: { userId: string; existingBrands: B
             if (!promoted.error && promoted.data) {
                 return { data: promoted.data as Brand, error: null as any, created: false };
             }
-            if (promoted.error && !/is_no_brand/i.test(String(promoted.error.message || ''))) {
+            if (promoted.error && !/is_no_brand|is_inactive/i.test(String(promoted.error.message || ''))) {
                 return { data: existingNoBrand, error: promoted.error, created: false };
             }
         }
@@ -89,6 +89,7 @@ export const ensureNoBrand = async (payload: { userId: string; existingBrands: B
         slug,
         order_index: nextOrderIndex,
         is_no_brand: true,
+        is_inactive: false,
     };
 
     const res = await supabase.from('brands').insert(insertPayload).select().single();
@@ -97,7 +98,7 @@ export const ensureNoBrand = async (payload: { userId: string; existingBrands: B
     }
 
     // Defensive fallback for environments where is_no_brand column migration isn't applied yet.
-    if (/is_no_brand/i.test(String(res.error?.message || ''))) {
+    if (/is_no_brand|is_inactive/i.test(String(res.error?.message || ''))) {
         const fallback = await supabase
             .from('brands')
             .insert({

@@ -24,6 +24,10 @@ select 'brands.slug' as column, exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'brands' and column_name = 'slug'
 ) as exists
+union all select 'brands.is_inactive', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'brands' and column_name = 'is_inactive'
+)
 union all select 'apps.is_banned', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'apps' and column_name = 'is_banned'

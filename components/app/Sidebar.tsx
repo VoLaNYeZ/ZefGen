@@ -3,6 +3,8 @@ import {
     DoorOpen,
     Plus,
     ArrowUpRight,
+    ChevronDown,
+    ChevronRight,
     Loader2,
     X,
     Users,
@@ -248,9 +250,22 @@ export const Sidebar = ({
         () => brands.filter((brand) => !isNoBrand(brand)),
         [brands]
     );
+    const activeBrands = React.useMemo(
+        () => regularBrands.filter((brand) => !brand.is_inactive),
+        [regularBrands]
+    );
+    const inactiveBrands = React.useMemo(
+        () => regularBrands.filter((brand) => brand.is_inactive),
+        [regularBrands]
+    );
     const noBrand = React.useMemo(
         () => brands.find((brand) => isNoBrand(brand)) || null,
         [brands]
+    );
+    const [inactiveBrandsExpanded, setInactiveBrandsExpanded] = React.useState(false);
+    const hasPinnedInactiveBrand = React.useMemo(
+        () => inactiveBrands.some((brand) => brand.id === selectedBrandId || brand.id === editingBrandId),
+        [inactiveBrands, selectedBrandId, editingBrandId]
     );
     const isAccountsActive = activePage === 'accounts';
     const isIdeasActive = activePage === 'ideas';
@@ -280,6 +295,12 @@ export const Sidebar = ({
         const timer = window.setTimeout(() => setShowLockedBrandNotice(false), 2600);
         return () => window.clearTimeout(timer);
     }, [showLockedBrandNotice]);
+
+    React.useEffect(() => {
+        if (hasPinnedInactiveBrand) {
+            setInactiveBrandsExpanded(true);
+        }
+    }, [hasPinnedInactiveBrand]);
 
     return (
         <aside
@@ -408,11 +429,42 @@ export const Sidebar = ({
                             <input
                                 id="brand-form-name"
                                 value={brandForm.name}
-                                onChange={(event) => setBrandForm({ name: event.target.value })}
+                                onChange={(event) =>
+                                    setBrandForm((prev) => ({ ...prev, name: event.target.value }))
+                                }
                                 className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                                 placeholder="Adidas"
                             />
                         </div>
+                        {editingBrandId ? (
+                            <label className="flex cursor-pointer items-center justify-between rounded-lg px-1 py-1.5">
+                                <span className="text-xs font-semibold text-indigo-100/85">{text('brand_inactive_toggle')}</span>
+                                <span
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                                        brandForm.isInactive
+                                            ? 'border-amber-300/35 bg-amber-500/15'
+                                            : 'border-white/10 bg-slate-950/55'
+                                    }`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={brandForm.isInactive}
+                                        onChange={(event) =>
+                                            setBrandForm((prev) => ({ ...prev, isInactive: event.target.checked }))
+                                        }
+                                        className="sr-only"
+                                    />
+                                    <span
+                                        aria-hidden="true"
+                                        className={`inline-block h-4 w-4 rounded-full transition-transform duration-200 ${
+                                            brandForm.isInactive
+                                                ? 'translate-x-6 bg-amber-100 shadow-[0_0_14px_rgba(251,191,36,0.45)]'
+                                                : 'translate-x-1 bg-indigo-100/80'
+                                        }`}
+                                    />
+                                </span>
+                            </label>
+                        ) : null}
                         <div className="text-xs text-indigo-200/70">
                             {text('url_preview')}: /{brandSlugPreview || 'brand'}
                         </div>
@@ -463,11 +515,11 @@ export const Sidebar = ({
 
                     {isBrandReorderMode ? (
                         <SortableList
-                            ids={regularBrands.map((b) => b.id)}
+                            ids={activeBrands.map((b) => b.id)}
                             disabled={isBusy}
                             onActiveIdChange={setBrandListDragActiveId}
                             onCommitMove={({ activeId, toIndex }) => {
-                                const targetId = regularBrands[toIndex]?.id;
+                                const targetId = activeBrands[toIndex]?.id;
                                 if (!targetId) return;
                                 brandListLastDragAtRef.current = Date.now();
                                 reorderBrands(activeId, targetId);
@@ -488,6 +540,7 @@ export const Sidebar = ({
                                                     iconUrl={iconUrl}
                                                     summary={summary}
                                                     isActive={brand.id === selectedBrandId}
+                                                    isInactive={false}
                                                     isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                                     isBusy={isBusy}
                                                     isDragging={Boolean(activeId)}
@@ -513,7 +566,7 @@ export const Sidebar = ({
                             )}
                         </SortableList>
                     ) : (
-                        regularBrands.map((brand) => {
+                        activeBrands.map((brand) => {
                             const isActive = brand.id === selectedBrandId;
                             const iconUrl = brandIconUrls[brand.id];
                             const summary =
@@ -525,7 +578,8 @@ export const Sidebar = ({
                                         iconUrl={iconUrl}
                                         summary={summary}
                                         isActive={isActive}
-                                        isNoBrand={isNoBrand(brand)}
+                                        isInactive={false}
+                                        isNoBrand={false}
                                         isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                         isBusy={isBusy}
                                         onBlockedAction={onBlockedAction}
@@ -558,6 +612,83 @@ export const Sidebar = ({
                 ) : null}
             </div>
 
+            <div className="border-t border-white/6 bg-slate-950/70 px-3 py-2">
+                    <button
+                        type="button"
+                        data-testid="inactive-brands-toggle"
+                        onClick={() => {
+                            if (hasPinnedInactiveBrand) {
+                                setInactiveBrandsExpanded(true);
+                                return;
+                            }
+                            setInactiveBrandsExpanded((prev) => !prev);
+                        }}
+                        className="flex w-full items-center justify-between rounded-xl border border-white/8 bg-slate-950/35 px-3 py-2 text-left transition hover:border-indigo-400/20 hover:bg-slate-900/60"
+                    >
+                        <span className="inline-flex items-center gap-2">
+                            {inactiveBrandsExpanded ? (
+                                <ChevronDown size={14} className="text-indigo-200/70" />
+                            ) : (
+                                <ChevronRight size={14} className="text-indigo-200/70" />
+                            )}
+                            <span className="text-[11px] font-semibold tracking-[0.14em] text-indigo-200/70 uppercase">
+                                {text('inactive_brands')}
+                            </span>
+                        </span>
+                        <span className="inline-flex min-w-[24px] items-center justify-center rounded-full border border-amber-300/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-100/85 tabular-nums">
+                            {clampCount(inactiveBrands.length)}
+                        </span>
+                    </button>
+
+                    {inactiveBrandsExpanded ? (
+                        <div data-testid="inactive-brands-panel" className="mt-2 max-h-52 space-y-2 overflow-y-auto px-1 py-1">
+                            {inactiveBrands.length ? (
+                                inactiveBrands.map((brand) => {
+                                    const iconUrl = brandIconUrls[brand.id];
+                                    const summary =
+                                        brandAppSummaryByBrandId[brand.id] || {
+                                            total: 0,
+                                            active: 0,
+                                            green: 0,
+                                            yellow: 0,
+                                            red: 0,
+                                        };
+                                    return (
+                                        <React.Fragment key={brand.id}>
+                                            <PlainBrandRow
+                                                brand={brand}
+                                                iconUrl={iconUrl}
+                                                summary={summary}
+                                                isActive={brand.id === selectedBrandId}
+                                                isInactive
+                                                isNoBrand={false}
+                                                isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
+                                                isBusy={isBusy}
+                                                onBlockedAction={onBlockedAction}
+                                                onLockedAction={handleLockedBrandAction}
+                                                onSelect={() => {
+                                                    setSelectedBrandId(brand.id);
+                                                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                                }}
+                                                onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
+                                                clampCount={clampCount}
+                                                dotClass={dotClass}
+                                                countTextClass={countTextClass}
+                                                setRowRef={(el) => setBrandRowRef(brand.id, el)}
+                                                text={text}
+                                            />
+                                        </React.Fragment>
+                                    );
+                                })
+                            ) : (
+                                <div className="rounded-xl border border-dashed border-white/8 px-3 py-2 text-[11px] text-indigo-200/55">
+                                    {text('inactive_brands_empty')}
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+                </div>
+
             {noBrand ? (
                 <div className="border-t border-cyan-400/20 bg-gradient-to-b from-cyan-950/35 to-slate-900 px-3 py-3">
                     <React.Fragment key={noBrand.id}>
@@ -566,6 +697,7 @@ export const Sidebar = ({
                             iconUrl={brandIconUrls[noBrand.id]}
                             summary={brandAppSummaryByBrandId[noBrand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 }}
                             isActive={noBrand.id === selectedBrandId}
+                            isInactive={false}
                             isNoBrand
                             isLockedByOtherDevice={lockedBrandIdSet.has(noBrand.id)}
                             isBusy={isBusy}
@@ -704,6 +836,8 @@ function PlainBrandRow({
     iconUrl,
     summary,
     isActive,
+    isInactive,
+    enableActiveTestId = true,
     isNoBrand,
     isLockedByOtherDevice,
     isBusy,
@@ -721,6 +855,8 @@ function PlainBrandRow({
     iconUrl: string | undefined;
     summary: { total: number; active: number; green: number; yellow: number; red: number };
     isActive: boolean;
+    isInactive: boolean;
+    enableActiveTestId?: boolean;
     isNoBrand: boolean;
     isLockedByOtherDevice: boolean;
     isBusy: boolean;
@@ -743,6 +879,10 @@ function PlainBrandRow({
               : 'ring-cyan-300/45 bg-gradient-to-r from-cyan-950/40 to-slate-900/90 text-cyan-50 shadow-[0_14px_34px_-28px_rgba(34,211,238,0.75)] hover:from-cyan-950/55 hover:to-slate-900'
         : isLockedByOtherDevice
           ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
+          : isInactive
+            ? isActive
+              ? 'ring-amber-300/30 bg-amber-500/[0.08] text-amber-50 shadow-[0_16px_38px_-32px_rgba(251,191,36,0.6)]'
+              : 'ring-amber-300/15 bg-slate-950/30 text-indigo-100/80 hover:ring-amber-300/25 hover:bg-slate-900/75'
           : isActive
             ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
             : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
@@ -751,7 +891,7 @@ function PlainBrandRow({
         <button
             ref={setRowRef}
             data-brand-id={brand.id}
-            data-testid={isActive ? 'active-brand-row' : isNoBrand ? 'no-brand-row' : undefined}
+            data-testid={enableActiveTestId && isActive ? 'active-brand-row' : isNoBrand ? 'no-brand-row' : undefined}
             onClick={() => {
                 if (isLockedByOtherDevice) {
                     onLockedAction();
@@ -799,12 +939,17 @@ function PlainBrandRow({
                         <div className="flex items-start justify-between gap-2">
                             <p
                                 className={`font-semibold whitespace-nowrap overflow-hidden text-ellipsis truncate ${
-                                    isNoBrand ? 'text-cyan-50' : 'text-white'
+                                    isNoBrand ? 'text-cyan-50' : isInactive ? 'text-amber-50' : 'text-white'
                                 }`}
                                 title={brand.name}
                             >
                                 {brand.name}
                             </p>
+                            {isInactive && !isLockedByOtherDevice ? (
+                                <span className="shrink-0 rounded-full border border-amber-300/20 bg-amber-500/10 px-1.5 py-[1px] text-[9px] font-semibold text-amber-100/85 whitespace-nowrap leading-none">
+                                    {text('inactive_badge')}
+                                </span>
+                            ) : null}
                             {isLockedByOtherDevice ? (
                                 <span className="shrink-0 rounded-full border border-amber-300/35 bg-amber-500/10 px-1.5 py-[1px] text-[9px] font-semibold text-amber-100/90 whitespace-nowrap leading-none">
                                     {text('brand_used_by_another_user')}
@@ -860,6 +1005,7 @@ function SortableBrandRow({
     iconUrl,
     summary,
     isActive,
+    isInactive,
     isLockedByOtherDevice,
     isBusy,
     isDragging,
@@ -878,6 +1024,7 @@ function SortableBrandRow({
     iconUrl: string | undefined;
     summary: { total: number; active: number; green: number; yellow: number; red: number };
     isActive: boolean;
+    isInactive: boolean;
     isLockedByOtherDevice: boolean;
     isBusy: boolean;
     isDragging: boolean;
@@ -896,6 +1043,10 @@ function SortableBrandRow({
     const { attributes, listeners, setNodeRef, style } = useSortableTile(brand.id, isBusy || isLocked);
     const rowStateClass = isLocked
         ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
+        : isInactive
+          ? isActive
+            ? 'ring-amber-300/30 bg-amber-500/[0.08] text-amber-50 shadow-[0_16px_38px_-32px_rgba(251,191,36,0.6)]'
+            : 'ring-amber-300/15 bg-slate-950/30 text-indigo-100/80 hover:ring-amber-300/25 hover:bg-slate-900/75'
         : isActive
           ? 'ring-indigo-400/20 bg-transparent text-white shadow-none'
           : 'ring-white/5 bg-slate-950/30 hover:bg-slate-900/70';
@@ -958,11 +1109,18 @@ function SortableBrandRow({
                     <div className="min-w-0">
                         <div className="flex items-start justify-between gap-2">
                             <p
-                                className="font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis truncate"
+                                className={`font-semibold whitespace-nowrap overflow-hidden text-ellipsis truncate ${
+                                    isInactive ? 'text-amber-50' : 'text-white'
+                                }`}
                                 title={brand.name}
                             >
                                 {brand.name}
                             </p>
+                            {isInactive && !isLocked ? (
+                                <span className="shrink-0 rounded-full border border-amber-300/20 bg-amber-500/10 px-1.5 py-[1px] text-[9px] font-semibold text-amber-100/85 whitespace-nowrap leading-none">
+                                    {text('inactive_badge')}
+                                </span>
+                            ) : null}
                             {isLocked ? (
                                 <span className="shrink-0 rounded-full border border-amber-300/35 bg-amber-500/10 px-1.5 py-[1px] text-[9px] font-semibold text-amber-100/90 whitespace-nowrap leading-none">
                                     {text('brand_used_by_another_user')}

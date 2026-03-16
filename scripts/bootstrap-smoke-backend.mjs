@@ -266,11 +266,15 @@ const seedWorkspace = async (admin, userId) => {
         .from('app_ideas')
         .insert({
             user_id: userId,
+            brand_id: requireData('brand id', brand?.id),
             category_id: requireData('business category id', category?.id),
+            idea_source: 'manual',
+            status: 'generated',
             title: smokeConfig.primaryIdea.title,
             description: smokeConfig.primaryIdea.description,
+            client_spec_current: smokeConfig.primaryIdea.description,
         })
-        .select('id, title, description, category_id')
+        .select('id, brand_id, title, description, category_id')
         .single();
     expectNoError(primaryIdeaError, 'Could not insert primary smoke idea');
 
