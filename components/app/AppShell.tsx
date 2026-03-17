@@ -1257,6 +1257,9 @@ export function AppShell({ session }: AppShellProps) {
         setBrandForm,
         closeBrandForm,
         setSelectedBrandId: selectBrandFromSidebar,
+        onActivateInactiveBrand: (brandId) => {
+            void runWriteAction(() => patchBrand(brandId, { is_inactive: false }));
+        },
         onLockedBrandAction: reportLockedBrandWarning,
         openLightbox,
         handleLogout,

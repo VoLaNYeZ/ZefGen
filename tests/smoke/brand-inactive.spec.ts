@@ -16,7 +16,7 @@ test('brand can move into and out of the inactive drawer', async ({ page }) => {
     await expect(page.getByTestId('active-brand-row')).toContainText(brandName);
 
     await page.getByRole('button', { name: /^Edit brand$/ }).click();
-    await page.getByLabel('Inactive brand').check();
+    await page.getByTestId('brand-inactive-toggle').click();
     await sidebar.getByRole('button', { name: /update brand/i }).click();
 
     const inactiveToggle = page.getByTestId('inactive-brands-toggle');
@@ -26,10 +26,7 @@ test('brand can move into and out of the inactive drawer', async ({ page }) => {
     await expect(page.getByTestId('inactive-brands-panel')).toContainText(brandName);
     await expect(page.getByTestId('active-brand-row')).toContainText(brandName);
 
-    await page.getByRole('button', { name: /^Edit brand$/ }).click();
-    await page.getByLabel('Inactive brand').uncheck();
-    await sidebar.getByRole('button', { name: /update brand/i }).click();
-
+    await page.getByTestId('inactive-brands-panel').getByRole('button', { name: /^Activate$/ }).click();
     await expect(page.getByTestId('inactive-brands-toggle')).toBeVisible();
     await expect(page.getByTestId('inactive-brands-toggle')).toContainText(/0/);
     await expect(page.getByTestId('active-brand-row')).toContainText(brandName);

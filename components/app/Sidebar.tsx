@@ -72,6 +72,7 @@ type SidebarProps = {
     setBrandForm: React.Dispatch<React.SetStateAction<BrandFormState>>;
     closeBrandForm: () => void;
     setSelectedBrandId: (value: string | null) => void;
+    onActivateInactiveBrand: (brandId: string) => Promise<void> | void;
     onLockedBrandAction: () => void;
     openLightbox: (
         src: string,
@@ -118,6 +119,7 @@ export const Sidebar = ({
     setBrandForm,
     closeBrandForm,
     setSelectedBrandId,
+    onActivateInactiveBrand,
     onLockedBrandAction,
     openLightbox,
     handleLogout,
@@ -151,6 +153,7 @@ export const Sidebar = ({
     const [brandListDragActiveId, setBrandListDragActiveId] = React.useState<string | null>(null);
     const brandListLastDragAtRef = React.useRef<number>(0);
     const [showLockedBrandNotice, setShowLockedBrandNotice] = React.useState(false);
+    const [activatingInactiveBrandId, setActivatingInactiveBrandId] = React.useState<string | null>(null);
     const [isAmaterasuLogo, setIsAmaterasuLogo] = React.useState(false);
     const isBrandReorderMode = brandFormOpen && Boolean(editingBrandId);
     const cycleLogoVariant = React.useCallback(() => {
@@ -437,7 +440,7 @@ export const Sidebar = ({
                             />
                         </div>
                         {editingBrandId ? (
-                            <label className="flex cursor-pointer items-center justify-between rounded-lg px-1 py-1.5">
+                            <label data-testid="brand-inactive-toggle" className="flex cursor-pointer items-center justify-between rounded-lg px-1 py-1.5">
                                 <span className="text-xs font-semibold text-indigo-100/85">{text('brand_inactive_toggle')}</span>
                                 <span
                                     className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
@@ -655,25 +658,41 @@ export const Sidebar = ({
                                         };
                                     return (
                                         <React.Fragment key={brand.id}>
-                                            <PlainBrandRow
+                                            <InactiveDrawerBrandRow
                                                 brand={brand}
                                                 iconUrl={iconUrl}
                                                 summary={summary}
                                                 isActive={brand.id === selectedBrandId}
-                                                isInactive
-                                                isNoBrand={false}
                                                 isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                                 isBusy={isBusy}
+                                                isActivating={activatingInactiveBrandId === brand.id}
                                                 onBlockedAction={onBlockedAction}
                                                 onLockedAction={handleLockedBrandAction}
                                                 onSelect={() => {
                                                     setSelectedBrandId(brand.id);
                                                     if (window.innerWidth < 768) setIsSidebarOpen(false);
                                                 }}
+                                                onActivate={async () => {
+                                                    if (lockedBrandIdSet.has(brand.id)) {
+                                                        handleLockedBrandAction();
+                                                        return;
+                                                    }
+                                                    if (isBusy || activatingInactiveBrandId === brand.id) {
+                                                        onBlockedAction();
+                                                        return;
+                                                    }
+                                                    setActivatingInactiveBrandId(brand.id);
+                                                    try {
+                                                        await onActivateInactiveBrand(brand.id);
+                                                        setSelectedBrandId(brand.id);
+                                                        setInactiveBrandsExpanded(false);
+                                                        if (window.innerWidth < 768) setIsSidebarOpen(false);
+                                                    } finally {
+                                                        setActivatingInactiveBrandId(null);
+                                                    }
+                                                }}
                                                 onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
                                                 clampCount={clampCount}
-                                                dotClass={dotClass}
-                                                countTextClass={countTextClass}
                                                 setRowRef={(el) => setBrandRowRef(brand.id, el)}
                                                 text={text}
                                             />
@@ -997,6 +1016,127 @@ function PlainBrandRow({
                 )}
             </div>
         </button>
+    );
+}
+
+function InactiveDrawerBrandRow({
+    brand,
+    iconUrl,
+    summary,
+    isActive,
+    isLockedByOtherDevice,
+    isBusy,
+    isActivating,
+    onBlockedAction,
+    onLockedAction,
+    onSelect,
+    onActivate,
+    onOpenLightbox,
+    clampCount,
+    setRowRef,
+    text,
+}: {
+    brand: Brand;
+    iconUrl: string | undefined;
+    summary: { total: number; active: number; green: number; yellow: number; red: number };
+    isActive: boolean;
+    isLockedByOtherDevice: boolean;
+    isBusy: boolean;
+    isActivating: boolean;
+    onBlockedAction: () => void;
+    onLockedAction: () => void;
+    onSelect: () => void;
+    onActivate: () => Promise<void> | void;
+    onOpenLightbox: () => void;
+    clampCount: (n: number) => string;
+    setRowRef: (el: HTMLButtonElement | null) => void;
+    text: (key: TranslationKey) => string;
+}) {
+    const rowStateClass = isLockedByOtherDevice
+        ? 'ring-white/10 bg-slate-950/20 text-indigo-100/70 opacity-55'
+        : isActive
+          ? 'ring-amber-300/30 bg-amber-500/[0.08] text-amber-50 shadow-[0_16px_38px_-32px_rgba(251,191,36,0.6)]'
+          : 'ring-amber-300/15 bg-slate-950/30 text-indigo-100/80 hover:ring-amber-300/25 hover:bg-slate-900/75';
+
+    return (
+        <div className={`flex items-center justify-between gap-2.5 rounded-2xl px-4 py-3 transition ring-1 ${rowStateClass}`}>
+            <button
+                ref={setRowRef}
+                type="button"
+                data-brand-id={brand.id}
+                data-testid={isActive ? 'active-brand-row' : undefined}
+                onClick={() => {
+                    if (isLockedByOtherDevice) {
+                        onLockedAction();
+                    }
+                    if (isBusy || isActivating) {
+                        onBlockedAction();
+                        return;
+                    }
+                    onSelect();
+                }}
+                className="min-w-0 flex flex-1 items-center gap-2.5 text-left"
+            >
+                <div
+                    className={`h-9 w-9 overflow-hidden rounded-[12px] bg-slate-800/35 flex items-center justify-center text-[11px] text-indigo-200/70 shrink-0 ${
+                        iconUrl ? 'border border-transparent' : 'border border-indigo-400/20'
+                    }`}
+                >
+                    {iconUrl ? (
+                        <img
+                            src={iconUrl}
+                            alt={text('icon_reference')}
+                            className="h-full w-full object-cover rounded-[12px] cursor-zoom-in"
+                            loading="lazy"
+                            decoding="async"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onOpenLightbox();
+                            }}
+                        />
+                    ) : (
+                        <span>{brand.name.slice(0, 1).toUpperCase()}</span>
+                    )}
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="min-w-0">
+                        <p
+                            className="truncate whitespace-nowrap text-[14px] font-semibold leading-tight text-amber-50"
+                            title={brand.name}
+                        >
+                            {brand.name}
+                        </p>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                        <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
+                            /{brand.slug}
+                        </p>
+                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
+                            {clampCount(summary.active)}
+                        </span>
+                    </div>
+                </div>
+            </button>
+            <button
+                type="button"
+                onClick={(event) => {
+                    event.stopPropagation();
+                    if (isLockedByOtherDevice) {
+                        onLockedAction();
+                        return;
+                    }
+                    if (isBusy || isActivating) {
+                        onBlockedAction();
+                        return;
+                    }
+                    void onActivate();
+                }}
+                disabled={isLockedByOtherDevice || isBusy || isActivating}
+                className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 text-[9px] font-semibold text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15 disabled:opacity-60"
+            >
+                {isActivating ? text('saving') : text('activate_brand')}
+            </button>
+        </div>
     );
 }
 
