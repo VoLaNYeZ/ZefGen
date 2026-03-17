@@ -1268,6 +1268,7 @@ export function IdeasPage(props: {
                                 type="button"
                                 onClick={() => openNewRow(brand.id)}
                                 disabled={anyBusy}
+                                aria-label={`${text('ideas_new')} ${getBrandLabel(brand, text)}`}
                                 className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs font-semibold text-indigo-100 hover:border-indigo-300/35 disabled:opacity-60"
                             >
                                 <Plus size={14} />

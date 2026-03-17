@@ -15,7 +15,7 @@ test('ideas show up in client spec picker and App Store links validate and persi
     await openIdeas(page);
 
     const newIdeaRow = page.locator('#idea-row-new');
-    await page.getByTestId('ideas-page-root').getByRole('button', { name: /new idea/i }).click();
+    await page.getByTestId('ideas-page-root').getByRole('button', { name: /^new idea$/i }).click();
     await newIdeaRow.locator('select').selectOption({ label: 'Business' });
     await newIdeaRow.locator('input').fill(ideaTitle);
     await newIdeaRow.locator('textarea').fill(ideaDescription);
