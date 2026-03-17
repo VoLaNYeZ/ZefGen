@@ -628,9 +628,7 @@ export const translations = {
         connector_screenshots_missing_code: 'Run a successful code-producing job before screenshots.',
         connector_screenshots_missing_code_sha: 'The latest successful code-producing job does not have a commit SHA yet.',
         connector_screenshots_stale_qa: 'Run QA again before generating screenshots for the latest build.',
-        connector_screenshots_ready_hint: 'Renders mode is the supported path in the worker right now.',
-        connector_screenshots_mode_warning:
-            'Simulator and Both are valid requests, but the worker still fails fast until simulator capture exists.',
+        connector_screenshots_ready_hint: 'Current worker support: Renders.',
         connector_screenshots_targets_sha: 'Screenshots target SHA:',
         connector_secret_ready: 'Ready',
         connector_secret_missing: 'Missing',
@@ -1321,9 +1319,7 @@ export const translations = {
         connector_screenshots_missing_code: 'Сначала нужен успешный code-producing job.',
         connector_screenshots_missing_code_sha: 'У последнего успешного code-producing job пока нет commit SHA.',
         connector_screenshots_stale_qa: 'Сначала запусти QA заново для последней сборки.',
-        connector_screenshots_ready_hint: 'Режим renders сейчас реально поддерживается worker-ом.',
-        connector_screenshots_mode_warning:
-            'Simulator и Both валидны как запросы, но worker пока завершает их fast-fail до появления симуляторного захвата.',
+        connector_screenshots_ready_hint: 'Текущая поддержка worker-а: только renders.',
         connector_screenshots_targets_sha: 'Скриншоты возьмут SHA:',
         connector_secret_ready: 'Готово',
         connector_secret_missing: 'Не хватает',

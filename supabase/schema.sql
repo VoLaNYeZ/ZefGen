@@ -727,6 +727,10 @@ create table if not exists public.connector_jobs (
     constraint connector_jobs_scope_check check (
         (kind = 'idea_generation' and brand_id is not null)
         or (kind <> 'idea_generation' and app_id is not null)
+    ),
+    constraint connector_jobs_downstream_capture_mode_check check (
+        kind not in ('visual_qa', 'screenshots')
+        or coalesce(input ->> 'capture_mode', '') = 'renders'
     )
 );
 

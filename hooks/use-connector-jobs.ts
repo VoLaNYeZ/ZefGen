@@ -1,8 +1,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { AppItem } from '../types/zefgen';
-import type { DownstreamCaptureMode } from '../data/connector-jobs';
-import { createConnectorJob, fetchConnectorJobs, requestCancelConnectorJob } from '../data/connector-jobs';
+import type { DownstreamCaptureMode } from '../data/connector-jobs.ts';
+import {
+    assertRunnerSupportedCaptureMode,
+    createConnectorJob,
+    DEFAULT_RUNNER_CAPTURE_MODE,
+    fetchConnectorJobs,
+    requestCancelConnectorJob,
+} from '../data/connector-jobs.ts';
+
+const normalizeDownstreamSource = (value: string) => String(value || '').trim();
+
+export const buildVisualQaConnectorJobInput = (payload: { sourceJobId: string; sourceRef: string }) => {
+    const sourceJobId = normalizeDownstreamSource(payload.sourceJobId);
+    const sourceRef = normalizeDownstreamSource(payload.sourceRef);
+    if (!sourceJobId || !sourceRef) throw new Error('Missing source job id or source ref for QA.');
+
+    return {
+        source_job_id: sourceJobId,
+        source_ref: sourceRef,
+        capture_mode: DEFAULT_RUNNER_CAPTURE_MODE,
+    };
+};
+
+export const buildScreenshotsConnectorJobInput = (payload: {
+    sourceJobId: string;
+    sourceRef: string;
+    captureMode: DownstreamCaptureMode | string;
+}) => {
+    const sourceJobId = normalizeDownstreamSource(payload.sourceJobId);
+    const sourceRef = normalizeDownstreamSource(payload.sourceRef);
+    if (!sourceJobId || !sourceRef) {
+        throw new Error('Missing source job id or source ref for screenshots.');
+    }
+
+    return {
+        source_job_id: sourceJobId,
+        source_ref: sourceRef,
+        capture_mode: assertRunnerSupportedCaptureMode(payload.captureMode),
+    };
+};
 
 export const useConnectorJobs = (payload: {
     session: Session | null;
@@ -183,21 +221,13 @@ export const useConnectorJobs = (payload: {
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
-            const sourceJobId = String(payload.sourceJobId || '').trim();
-            const sourceRef = String(payload.sourceRef || '').trim();
-            if (!sourceJobId || !sourceRef) throw new Error('Missing source job id or source ref for QA.');
-
             const { data, error: e } = await createConnectorJob({
                 userId: session.user.id,
                 appId: selectedApp.id,
                 kind: 'visual_qa',
                 repoFullName,
                 baseBranch,
-                input: {
-                    source_job_id: sourceJobId,
-                    source_ref: sourceRef,
-                    capture_mode: 'renders',
-                },
+                input: buildVisualQaConnectorJobInput(payload),
             });
             if (e) throw e;
             await refresh();
@@ -212,24 +242,13 @@ export const useConnectorJobs = (payload: {
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
-            const sourceJobId = String(payload.sourceJobId || '').trim();
-            const sourceRef = String(payload.sourceRef || '').trim();
-            const captureMode = String(payload.captureMode || '').trim() as DownstreamCaptureMode;
-            if (!sourceJobId || !sourceRef || !captureMode) {
-                throw new Error('Missing source job id, source ref, or capture mode for screenshots.');
-            }
-
             const { data, error: e } = await createConnectorJob({
                 userId: session.user.id,
                 appId: selectedApp.id,
                 kind: 'screenshots',
                 repoFullName,
                 baseBranch,
-                input: {
-                    source_job_id: sourceJobId,
-                    source_ref: sourceRef,
-                    capture_mode: captureMode,
-                },
+                input: buildScreenshotsConnectorJobInput(payload),
             });
             if (e) throw e;
             await refresh();

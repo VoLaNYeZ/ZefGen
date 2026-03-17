@@ -4,7 +4,12 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import type { TranslationKey } from '../../i18n';
 import type { AppItem } from '../../types/zefgen';
-import type { ConnectorJob, DownstreamCaptureMode } from '../../data/connector-jobs';
+import {
+    DEFAULT_RUNNER_CAPTURE_MODE,
+    RUNNER_SUPPORTED_CAPTURE_MODES,
+    type ConnectorJob,
+    type RunnerSupportedCaptureMode,
+} from '../../data/connector-jobs';
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { useConnectorJobArtifacts } from '../../hooks/use-connector-job-artifacts';
@@ -15,7 +20,6 @@ import { deriveConnectorJobState, groupConnectorArtifacts } from '../../utils/co
 
 const SPINNER = ['|', '/', '-', '\\'];
 const PANEL_TRANSITION_EASE = [0.22, 1, 0.36, 1] as const;
-const CAPTURE_MODES: DownstreamCaptureMode[] = ['renders', 'simulator', 'both'];
 const MAIN_BRANCH = 'main';
 
 const formatElapsed = (ms: number) => {
@@ -76,10 +80,8 @@ const getScreenshotsDisabledMessage = (reason: string, text: (key: TranslationKe
     return '';
 };
 
-const getCaptureModeLabel = (mode: DownstreamCaptureMode, text: (key: TranslationKey) => string) => {
+const getCaptureModeLabel = (mode: RunnerSupportedCaptureMode, text: (key: TranslationKey) => string) => {
     if (mode === 'renders') return text('connector_capture_mode_renders');
-    if (mode === 'simulator') return text('connector_capture_mode_simulator');
-    if (mode === 'both') return text('connector_capture_mode_both');
     return mode;
 };
 
@@ -103,7 +105,7 @@ export function ConnectorRunnerPanel(props: {
     const [startingGenerate, setStartingGenerate] = React.useState(false);
     const [animateTerminalAccent, setAnimateTerminalAccent] = React.useState(false);
     const [selectedJobId, setSelectedJobId] = React.useState<string | null>(null);
-    const [captureMode, setCaptureMode] = React.useState<DownstreamCaptureMode>('renders');
+    const [captureMode, setCaptureMode] = React.useState<RunnerSupportedCaptureMode>(DEFAULT_RUNNER_CAPTURE_MODE);
     const prefersReducedMotion = useReducedMotion();
 
     const {
@@ -159,7 +161,7 @@ export function ConnectorRunnerPanel(props: {
         setStartingGenerate(false);
         setAnimateTerminalAccent(false);
         setSelectedJobId(null);
-        setCaptureMode('renders');
+        setCaptureMode(DEFAULT_RUNNER_CAPTURE_MODE);
     }, [selectedApp?.id]);
 
     React.useEffect(() => {
@@ -348,8 +350,7 @@ export function ConnectorRunnerPanel(props: {
 
     const qaDisabledMessage = getQaDisabledMessage(connectorJobState.qaDisabledReason, text);
     const screenshotsDisabledMessage = getScreenshotsDisabledMessage(connectorJobState.screenshotsDisabledReason, text);
-    const screenshotsModeHint =
-        captureMode === 'renders' ? text('connector_screenshots_ready_hint') : text('connector_screenshots_mode_warning');
+    const screenshotsModeHint = text('connector_screenshots_ready_hint');
 
     const runGenerate = async () => {
         if (isReadOnly) return;
@@ -672,11 +673,11 @@ export function ConnectorRunnerPanel(props: {
                                         </span>
                                         <select
                                             value={captureMode}
-                                            onChange={(event) => setCaptureMode(event.target.value as DownstreamCaptureMode)}
+                                            onChange={(event) => setCaptureMode(event.target.value as RunnerSupportedCaptureMode)}
                                             disabled={isReadOnly || busy}
                                             className="rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/85 outline-none hover:border-indigo-400/35 disabled:opacity-60"
                                         >
-                                            {CAPTURE_MODES.map((mode) => (
+                                            {RUNNER_SUPPORTED_CAPTURE_MODES.map((mode) => (
                                                 <option key={mode} value={mode}>
                                                     {getCaptureModeLabel(mode, text)}
                                                 </option>
@@ -722,15 +723,7 @@ export function ConnectorRunnerPanel(props: {
                                             </span>
                                         </div>
                                     ) : null}
-                                    <div
-                                        className={
-                                            captureMode === 'renders'
-                                                ? 'text-indigo-200/45'
-                                                : 'font-semibold text-amber-100/90'
-                                        }
-                                    >
-                                        {screenshotsModeHint}
-                                    </div>
+                                    <div className="text-indigo-200/45">{screenshotsModeHint}</div>
                                 </div>
                             </motion.div>
 

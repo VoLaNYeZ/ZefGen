@@ -1,5 +1,3 @@
-import { supabase } from '../lib/supabase';
-
 export type ConnectorJobKind =
     | 'generate'
     | 'fix'
@@ -8,6 +6,9 @@ export type ConnectorJobKind =
     | 'screenshots'
     | 'idea_generation';
 export type DownstreamCaptureMode = 'renders' | 'simulator' | 'both';
+export const RUNNER_SUPPORTED_CAPTURE_MODES = ['renders'] as const satisfies readonly DownstreamCaptureMode[];
+export type RunnerSupportedCaptureMode = (typeof RUNNER_SUPPORTED_CAPTURE_MODES)[number];
+export const DEFAULT_RUNNER_CAPTURE_MODE: RunnerSupportedCaptureMode = RUNNER_SUPPORTED_CAPTURE_MODES[0];
 export type ConnectorJobStatus =
     | 'queued'
     | 'running'
@@ -15,6 +16,21 @@ export type ConnectorJobStatus =
     | 'succeeded'
     | 'failed'
     | 'canceled';
+
+const normalizeCaptureMode = (value: unknown) => String(value ?? '').trim();
+
+export const isRunnerSupportedCaptureMode = (value: unknown): value is RunnerSupportedCaptureMode =>
+    (RUNNER_SUPPORTED_CAPTURE_MODES as readonly string[]).includes(normalizeCaptureMode(value));
+
+export const assertRunnerSupportedCaptureMode = (value: unknown): RunnerSupportedCaptureMode => {
+    const normalized = normalizeCaptureMode(value);
+    if (isRunnerSupportedCaptureMode(normalized)) return normalized;
+    throw new Error(
+        `Unsupported capture mode "${normalized || '<empty>'}". The runner currently supports: ${RUNNER_SUPPORTED_CAPTURE_MODES.join(', ')}.`
+    );
+};
+
+const getSupabase = async () => (await import('../lib/supabase.ts')).supabase;
 
 export type ConnectorJob = {
     id: string;
@@ -46,7 +62,7 @@ export type ConnectorJob = {
 };
 
 export const fetchConnectorJobs = async (payload: { userId: string; appId: string; limit?: number }) =>
-    supabase
+    (await getSupabase())
         .from('connector_jobs')
         .select('*')
         .eq('user_id', payload.userId)
@@ -61,6 +77,7 @@ export const fetchConnectorJobsForUser = async (payload: {
     brandId?: string | null;
     status?: ConnectorJobStatus;
 }) => {
+    const supabase = await getSupabase();
     let query = supabase
         .from('connector_jobs')
         .select('*')
@@ -92,6 +109,7 @@ export const createConnectorJob = async (payload: {
     baseBranch?: string;
     input?: any;
 }) => {
+    const supabase = await getSupabase();
     const row = {
         user_id: payload.userId,
         app_id: payload.appId ?? null,
@@ -111,7 +129,7 @@ export const createConnectorJob = async (payload: {
 
 export const requestCancelConnectorJob = async (payload: { userId: string; jobId: string }) => {
     const nowIso = new Date().toISOString();
-    return supabase
+    return (await getSupabase())
         .from('connector_jobs')
         .update({ cancel_requested_at: nowIso })
         .eq('id', payload.jobId)
