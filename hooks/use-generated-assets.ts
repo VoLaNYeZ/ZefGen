@@ -53,6 +53,10 @@ import { fetchScreenshotSets, createScreenshotSet, updateScreenshotSet, deleteSc
 import { fetchAssetPicks, setIconPick, setScreenshotPick } from '../data/asset-picks';
 import { fetchExportStatus, upsertExportStatus } from '../data/export-status';
 import { isNoBrand } from '../utils/no-brand';
+import {
+    composeScreenshotGenerationUserPrompt,
+    getScreenshotSlotGenerationState,
+} from '../utils/screenshot-prompt-workflow';
 
 type SlotMapping = {
     brandRefId: string | null;
@@ -164,7 +168,7 @@ export const useGeneratedAssets = ({
     const [generationSize, setGenerationSize] = useState<'6.5' | '6.9'>('6.5');
     const [iconProviderId, setIconProviderId] = useState<ScreenshotProviderId>('replicate:seedream-4');
     const [iconVariationsCount, setIconVariationsCount] = useState(1);
-    const [screenshotProviderId, setScreenshotProviderId] = useState<ScreenshotProviderId>('replicate:seedream-4');
+    const [screenshotProviderId, setScreenshotProviderId] = useState<ScreenshotProviderId>('replicate:nano-banana-2');
     const [editAssetId, setEditAssetId] = useState<string | null>(null);
     const [editDrafts, setEditDrafts] = useState<Record<string, EditState>>({});
     const [editSaving, setEditSaving] = useState<string | null>(null);
@@ -572,6 +576,24 @@ export const useGeneratedAssets = ({
         () => generatedAssets.filter((asset) => asset.app_id === selectedApp?.id),
         [generatedAssets, selectedApp?.id]
     );
+
+    const screenshotStyleAssetIdSet = useMemo(() => {
+        return new Set(
+            selectedGeneratedAssets
+                .filter((asset) => asset.kind === 'screenshot' || asset.kind === 'screenshot_enhanced')
+                .map((asset) => String(asset.id))
+        );
+    }, [selectedGeneratedAssets]);
+
+    const pickedScreenshotAssetIdBySetSlot = useMemo(() => {
+        const map: Record<string, string> = {};
+        for (const pick of assetPicks) {
+            if (pick.kind !== 'screenshot') continue;
+            if (!pick.screenshot_set_id || typeof pick.slot_index !== 'number') continue;
+            map[`${pick.screenshot_set_id}:${pick.slot_index}`] = pick.generated_asset_id;
+        }
+        return map;
+    }, [assetPicks]);
 
     const noBrandStyleReferenceOptions = useMemo<NoBrandStyleReferenceOption[]>(() => {
         const setNameById = new Map<string, string>();
@@ -1260,14 +1282,28 @@ export const useGeneratedAssets = ({
             const setId = activeScreenshotSetId;
             const key = getScreenshotSlotKey(slotIndex, setId);
             const stored = systemPromptTemplateByKey[key];
+            const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
+            const explicitStyleRefAssetId =
+                mapping.styleRefAssetId && screenshotStyleAssetIdSet.has(String(mapping.styleRefAssetId))
+                    ? String(mapping.styleRefAssetId)
+                    : null;
+            const implicitSlot1StyleAssetId =
+                slotIndex > 1 &&
+                !effectiveBrandRefId &&
+                !explicitStyleRefAssetId &&
+                setId &&
+                screenshotStyleAssetIdSet.has(String(pickedScreenshotAssetIdBySetSlot[`${setId}:1`] || ''))
+                    ? String(pickedScreenshotAssetIdBySetSlot[`${setId}:1`])
+                    : null;
+            const effectiveStyleRefAssetId = explicitStyleRefAssetId || implicitSlot1StyleAssetId;
 
             const fallback: SystemPromptTemplate = isNoBrandMode
-                ? mapping.styleRefAssetId
+                ? effectiveStyleRefAssetId
                     ? 'same_style_like'
                     : 'no_ref_like'
-                : mapping.brandRefId
+                : effectiveBrandRefId
                     ? 'ref_like'
-                    : mapping.styleRefAssetId
+                    : effectiveStyleRefAssetId
                         ? 'same_style_like'
                         : 'no_ref_like';
 
@@ -1275,7 +1311,15 @@ export const useGeneratedAssets = ({
             if (isNoBrandMode && raw === 'ref_like') return 'no_ref_like';
             return raw;
         },
-        [activeScreenshotSetId, getScreenshotSlotKey, getSlotMapping, selectedBrand, systemPromptTemplateByKey]
+        [
+            activeScreenshotSetId,
+            getScreenshotSlotKey,
+            getSlotMapping,
+            pickedScreenshotAssetIdBySetSlot,
+            screenshotStyleAssetIdSet,
+            selectedBrand,
+            systemPromptTemplateByKey,
+        ]
     );
 
     const setSystemPromptTemplateForSlot = useCallback(
@@ -2753,12 +2797,15 @@ export const useGeneratedAssets = ({
         }
 
         const mapping = getSlotMapping(slotIndex);
+        const slotContext = resolveSlotGenerationContext(slotIndex);
+        if (!slotContext.ready) {
+            throw new Error(slotContext.blockedReason || text('generation_failed'));
+        }
+
         const isNoBrandMode = isNoBrand(selectedBrand);
-        const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
-        const selectedStyleRefAssetId = mapping.styleRefAssetId;
-        const selectedTemplate = getSystemPromptTemplateForSlot(slotIndex);
-        const template: SystemPromptTemplate =
-            isNoBrandMode && selectedTemplate === 'ref_like' ? 'no_ref_like' : selectedTemplate;
+        const effectiveBrandRefId = slotContext.effectiveBrandRefId;
+        const selectedStyleRefAssetId = slotContext.effectiveStyleRefAssetId;
+        const template = slotContext.template;
         const simShotId = mapping.simShotId;
         if (!simShotId) {
             throw new Error(text('select_sim_screenshot'));
@@ -2786,7 +2833,7 @@ export const useGeneratedAssets = ({
         const size = SCREENSHOT_SIZES[sizeLabel];
 
         const slotKey = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
-        const slotPrompt = (slotPromptBySlotKey[slotKey] ?? '').trim();
+        const slotPrompt = (slotContext.slotPrompt ?? slotPromptBySlotKey[slotKey] ?? '').trim();
 
         const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
         const inputImageUrls: string[] = [anchorImageUrl];
@@ -2820,7 +2867,10 @@ export const useGeneratedAssets = ({
                 brandRefUrls[brandRef.id] ??
                 (await getSignedUrl(BRAND_BUCKET, brandRef.image_path));
             inputImageUrls.push(brandReferenceUrl, simulatorImageUrl);
-            userPrompt = (promptsByRefId[effectiveBrandRefId] ?? '').trim();
+            userPrompt = composeScreenshotGenerationUserPrompt({
+                brandPrompt: slotContext.brandPrompt ?? promptsByRefId[effectiveBrandRefId] ?? '',
+                slotPrompt,
+            });
         } else if (template === 'same_style_like') {
             const styleReferenceUrl = await resolveStyleReferenceUrl();
             if (!styleReferenceUrl) {
@@ -3118,6 +3168,11 @@ export const useGeneratedAssets = ({
 
     const handleGenerateSlot = async (slotIndex: number) => {
         if (!session || !selectedBrand || !selectedApp) return;
+        const slotContext = resolveSlotGenerationContext(slotIndex);
+        if (!slotContext.ready) {
+            reportError(slotContext.blockedReason || text('generation_failed'));
+            return;
+        }
         setSlotGenerating(slotIndex);
         const jobId = createJob({
             title: `Generate screenshot ${slotIndex}`,
@@ -3210,6 +3265,10 @@ export const useGeneratedAssets = ({
             reportError(text('need_simulator_screenshots'));
             return;
         }
+        if (generateAllBlockedReason) {
+            reportError(generateAllBlockedReason);
+            return;
+        }
 
         const jobId = createJob({
             title: 'Generate all screenshots',
@@ -3276,7 +3335,6 @@ export const useGeneratedAssets = ({
             selectedBrand &&
             (isNoBrand(selectedBrand) || brandIconReference)
     );
-    const canGenerateScreenshots = Boolean(selectedApp && selectedBrand);
 
     const slotPromptBySlotIndex = useMemo(() => {
         const out: Record<number, string> = {};
@@ -3313,16 +3371,6 @@ export const useGeneratedAssets = ({
         [assetPicks]
     );
 
-    const pickedScreenshotAssetIdBySetSlot = useMemo(() => {
-        const map: Record<string, string> = {};
-        for (const pick of assetPicks) {
-            if (pick.kind !== 'screenshot') continue;
-            if (!pick.screenshot_set_id || typeof pick.slot_index !== 'number') continue;
-            map[`${pick.screenshot_set_id}:${pick.slot_index}`] = pick.generated_asset_id;
-        }
-        return map;
-    }, [assetPicks]);
-
     const pickedScreenshotAssetIdBySlotIndex = useMemo(() => {
         const out: Record<number, string | null> = {};
         if (!activeScreenshotSetId) return out;
@@ -3331,6 +3379,142 @@ export const useGeneratedAssets = ({
         }
         return out;
     }, [activeScreenshotSetId, pickedScreenshotAssetIdBySetSlot, targetSlotCount]);
+
+    const getSlotBlockedReasonMessage = useCallback(
+        (reason: string | null) => {
+            if (reason === 'missing_simulator') return text('select_sim_screenshot');
+            if (reason === 'pick_slot_1_first') return text('screenshot_pick_slot_1_first');
+            if (reason === 'missing_guidance') return text('screenshot_prompt_guidance_required');
+            return null;
+        },
+        [text]
+    );
+
+    const slotGenerateBlockedReasonBySlotIndex = useMemo(() => {
+        const out: Record<number, string | null> = {};
+        const slot1HasGeneratedOutput = Boolean(
+            (generatedScreenshotSlots.find((slot) => slot.slotIndex === 1)?.versions.length ?? 0) > 0 ||
+                (enhancedScreenshotSlots.find((slot) => slot.slotIndex === 1)?.versions.length ?? 0) > 0
+        );
+        const slot1PickedAssetId = activeScreenshotSetId
+            ? pickedScreenshotAssetIdBySetSlot[`${activeScreenshotSetId}:1`] ?? null
+            : null;
+
+        for (let slotIndex = 1; slotIndex <= targetSlotCount; slotIndex += 1) {
+            const mapping = getSlotMapping(slotIndex);
+            const effectiveBrandRefId = selectedBrand && isNoBrand(selectedBrand) ? null : mapping.brandRefId;
+            const explicitStyleRefAssetId =
+                mapping.styleRefAssetId && screenshotStyleAssetIdSet.has(String(mapping.styleRefAssetId))
+                    ? String(mapping.styleRefAssetId)
+                    : null;
+            const promptRefId = effectiveBrandRefId ? String(effectiveBrandRefId) : '';
+            const slotPrompt = slotPromptBySlotIndex[slotIndex] ?? '';
+            const brandPrompt = promptRefId ? promptsByRefId[promptRefId] ?? '' : '';
+            const state = getScreenshotSlotGenerationState({
+                slotIndex,
+                isNoBrandMode: Boolean(selectedBrand && isNoBrand(selectedBrand)),
+                simShotId: mapping.simShotId,
+                brandRefId: effectiveBrandRefId,
+                styleRefAssetId: explicitStyleRefAssetId,
+                slotPrompt,
+                brandPrompt,
+                slot1PickedAssetId,
+                slot1HasGeneratedOutput,
+            });
+            out[slotIndex] = getSlotBlockedReasonMessage(state.reason);
+        }
+
+        return out;
+    }, [
+        activeScreenshotSetId,
+        enhancedScreenshotSlots,
+        generatedScreenshotSlots,
+        getSlotBlockedReasonMessage,
+        getSlotMapping,
+        pickedScreenshotAssetIdBySetSlot,
+        promptsByRefId,
+        screenshotStyleAssetIdSet,
+        selectedBrand,
+        slotPromptBySlotIndex,
+        targetSlotCount,
+    ]);
+
+    const generateAllBlockedReason = useMemo(() => {
+        if (!selectedApp || !selectedBrand || !activeScreenshotSetId) return null;
+        for (let slotIndex = 1; slotIndex <= targetSlotCount; slotIndex += 1) {
+            const blockedReason = slotGenerateBlockedReasonBySlotIndex[slotIndex];
+            if (blockedReason) {
+                return `${text('slot')} ${slotIndex}: ${blockedReason}`;
+            }
+        }
+        return null;
+    }, [
+        activeScreenshotSetId,
+        selectedApp,
+        selectedBrand,
+        slotGenerateBlockedReasonBySlotIndex,
+        targetSlotCount,
+        text,
+    ]);
+
+    const canGenerateScreenshots = Boolean(selectedApp && selectedBrand && activeScreenshotSetId && !generateAllBlockedReason);
+
+    function resolveSlotGenerationContext(slotIndex: number) {
+        const mapping = getSlotMapping(slotIndex);
+        const isNoBrandMode = Boolean(selectedBrand && isNoBrand(selectedBrand));
+        const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
+        const explicitStyleRefAssetId =
+            mapping.styleRefAssetId && screenshotStyleAssetIdSet.has(String(mapping.styleRefAssetId))
+                ? String(mapping.styleRefAssetId)
+                : null;
+        const rawSlot1PickedAssetId = activeScreenshotSetId
+            ? pickedScreenshotAssetIdBySetSlot[`${activeScreenshotSetId}:1`] ?? null
+            : null;
+        const slot1PickedAssetId =
+            rawSlot1PickedAssetId && screenshotStyleAssetIdSet.has(String(rawSlot1PickedAssetId))
+                ? String(rawSlot1PickedAssetId)
+                : null;
+        const slot1HasGeneratedOutput = Boolean(
+            (generatedScreenshotSlots.find((slot) => slot.slotIndex === 1)?.versions.length ?? 0) > 0 ||
+                (enhancedScreenshotSlots.find((slot) => slot.slotIndex === 1)?.versions.length ?? 0) > 0
+        );
+        const slotPrompt = slotPromptBySlotIndex[slotIndex] ?? '';
+        const brandPrompt = effectiveBrandRefId ? promptsByRefId[String(effectiveBrandRefId)] ?? '' : '';
+        const state = getScreenshotSlotGenerationState({
+            slotIndex,
+            isNoBrandMode,
+            simShotId: mapping.simShotId,
+            brandRefId: effectiveBrandRefId,
+            styleRefAssetId: explicitStyleRefAssetId,
+            slotPrompt,
+            brandPrompt,
+            slot1PickedAssetId,
+            slot1HasGeneratedOutput,
+        });
+        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
+        const storedTemplate = systemPromptTemplateByKey[key];
+        const fallbackTemplate: SystemPromptTemplate = isNoBrandMode
+            ? state.effectiveStyleRefAssetId
+                ? 'same_style_like'
+                : 'no_ref_like'
+            : effectiveBrandRefId
+                ? 'ref_like'
+                : state.effectiveStyleRefAssetId
+                    ? 'same_style_like'
+                    : 'no_ref_like';
+        const rawTemplate = storedTemplate || fallbackTemplate;
+        const template: SystemPromptTemplate =
+            isNoBrandMode && rawTemplate === 'ref_like' ? 'no_ref_like' : rawTemplate;
+
+        return {
+            ...state,
+            blockedReason: getSlotBlockedReasonMessage(state.reason),
+            brandPrompt,
+            effectiveBrandRefId,
+            slotPrompt,
+            template,
+        };
+    }
 
     const handlePickIcon = useCallback(
         async (assetId: string) => {
@@ -3704,5 +3888,7 @@ export const useGeneratedAssets = ({
         slotsToCreate,
         canGenerateIcon,
         canGenerateScreenshots,
+        slotGenerateBlockedReasonBySlotIndex,
+        generateAllBlockedReason,
     };
 };

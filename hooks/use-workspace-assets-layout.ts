@@ -3,6 +3,7 @@ import type { TranslationKey } from '../i18n';
 import type { AppPage } from '../utils/routes';
 
 type ExportStatusLike = {
+    app_id?: string | null;
     is_completed?: boolean | null;
 } | null;
 
@@ -42,6 +43,11 @@ export function useWorkspaceAssetsLayout({
         }
     );
     const seenExportCompletedByAppRef = useRef<Record<string, boolean>>({});
+    const exportStatusMatchesSelectedApp = Boolean(
+        selectedAppId && exportStatus && String(exportStatus.app_id || '') === String(selectedAppId)
+    );
+    const selectedAppCanCollapseAssets = exportStatusMatchesSelectedApp && Boolean(exportStatus?.is_completed);
+    const selectedAppAssetsCollapsedStorageKey = selectedAppId ? `zefgen.assetsCollapsed.${selectedAppId}` : null;
 
     useEffect(() => {
         if (!selectedAppId) {
@@ -54,43 +60,50 @@ export function useWorkspaceAssetsLayout({
 
     useEffect(() => {
         if (!selectedAppId) return;
-        if (!exportStatus) return;
-        const key = `zefgen.assetsCollapsed.${selectedAppId}`;
-        if (!exportStatus.is_completed) {
+        if (!exportStatusMatchesSelectedApp) {
+            setAssetsCollapsed(false);
+            return;
+        }
+        const key = selectedAppAssetsCollapsedStorageKey;
+        if (!key) return;
+        if (!exportStatus?.is_completed) {
             setAssetsCollapsed(false);
             window.localStorage.setItem(key, '0');
             return;
         }
         const raw = window.localStorage.getItem(key);
         setAssetsCollapsed(raw === '1');
-    }, [exportStatus, selectedAppId]);
+    }, [exportStatus?.is_completed, exportStatusMatchesSelectedApp, selectedAppAssetsCollapsedStorageKey, selectedAppId]);
 
     useEffect(() => {
-        if (!selectedAppId) return;
-        const isCompleted = Boolean(exportStatus?.is_completed);
+        if (!selectedAppId || !exportStatusMatchesSelectedApp) return;
+        const isCompleted = Boolean(exportStatus.is_completed);
         const wasCompleted = Boolean(seenExportCompletedByAppRef.current[selectedAppId]);
+        const key = selectedAppAssetsCollapsedStorageKey;
+        if (!key) return;
 
         if (isCompleted && !wasCompleted) {
             setAssetsCollapsed(true);
-            window.localStorage.setItem(`zefgen.assetsCollapsed.${selectedAppId}`, '1');
+            window.localStorage.setItem(key, '1');
         }
 
         seenExportCompletedByAppRef.current[selectedAppId] = isCompleted;
-    }, [exportStatus?.is_completed, selectedAppId]);
+    }, [exportStatus?.is_completed, exportStatusMatchesSelectedApp, selectedAppAssetsCollapsedStorageKey, selectedAppId]);
 
     const toggleAssetsCollapsed = useCallback(() => {
         if (!selectedAppId) return;
-        if (!exportStatus?.is_completed) {
-            reportActionError(text('need_picks_to_complete'));
-            return;
-        }
         setAssetsCollapsed((prev) => {
+            if (!prev && !selectedAppCanCollapseAssets) {
+                reportActionError(text('need_picks_to_complete'));
+                return prev;
+            }
             const next = !prev;
-            const key = `zefgen.assetsCollapsed.${selectedAppId}`;
+            const key = selectedAppAssetsCollapsedStorageKey;
+            if (!key) return prev;
             window.localStorage.setItem(key, next ? '1' : '0');
             return next;
         });
-    }, [exportStatus?.is_completed, reportActionError, selectedAppId, text]);
+    }, [reportActionError, selectedAppAssetsCollapsedStorageKey, selectedAppCanCollapseAssets, selectedAppId, text]);
 
     useEffect(() => {
         if (activePage !== 'workspace') {

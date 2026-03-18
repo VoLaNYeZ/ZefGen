@@ -124,6 +124,58 @@ test.describe('noncritical hydration failures', () => {
     });
 });
 
+test('workspace does not stay collapsed when a switched app receives mismatched completed export status', async ({ page }) => {
+    await gotoNoBrandCollapsedWorkspace(page);
+
+    const targetAppId = smokeEnv.seed.primaryApp.id;
+    const mismatchedCompletedAppId = smokeEnv.seed.noBrandCompletedApp.id;
+    let mismatchedStatusInjected = false;
+
+    await page.evaluate((appId) => {
+        window.localStorage.setItem(`zefgen.assetsCollapsed.${appId}`, '1');
+    }, targetAppId);
+
+    await page.route('**/rest/v1/app_export_status*', async (route) => {
+        const url = route.request().url();
+        const matchesTargetApp =
+            url.includes(`app_id=eq.${targetAppId}`) || url.includes(`app_id=eq.${encodeURIComponent(targetAppId)}`);
+        if (!matchesTargetApp || mismatchedStatusInjected) {
+            await route.continue();
+            return;
+        }
+
+        mismatchedStatusInjected = true;
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                app_id: mismatchedCompletedAppId,
+                brand_id: smokeEnv.seed.noBrand.id,
+                is_completed: true,
+                completed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            }),
+        });
+    });
+
+    await page.locator(`[data-brand-id="${smokeEnv.seed.brand.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.workspace)}$`));
+    await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.primaryApp.alias.toUpperCase());
+
+    await page.evaluate(() => {
+        window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new Event('online'));
+    });
+
+    await expect
+        .poll(() => mismatchedStatusInjected, {
+            message: 'Expected the mismatched export-status response to be injected during the workspace switch',
+        })
+        .toBe(true);
+    await expect(page.getByTestId('workspace-panel-generated-screenshots')).toBeVisible();
+    await expect(page.getByRole('button', { name: /show workspace/i })).toHaveCount(0);
+});
+
 test('client spec changes survive an immediate app switch', async ({ page }) => {
     await gotoWorkspace(page);
 

@@ -65,6 +65,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     handleNoBrandIconPromptAutogen: GenerationModuleProps['handleNoBrandIconPromptAutogen'];
     handleNoBrandIconPromptChange: GenerationModuleProps['handleNoBrandIconPromptChange'];
     handleNoBrandIconPromptSave: GenerationModuleProps['handleNoBrandIconPromptSave'];
+    handleScreenshotPromptAutogen: GenerationModuleProps['handleScreenshotPromptAutogen'];
     handlePickIcon: GenerationModuleProps['handlePickIcon'];
     handlePickScreenshot: GenerationModuleProps['handlePickScreenshot'];
     handleReorderAppScreenshot: SimulatorProps['handleReorderAppScreenshot'];
@@ -87,6 +88,8 @@ export type UseWorkspaceGenerationViewModelParams = {
     noBrandIconPromptAutogenBusy: GenerationModuleProps['noBrandIconPromptAutogenBusy'];
     noBrandIconPromptValue: GenerationModuleProps['noBrandIconPromptValue'];
     noBrandStyleReferenceOptions: GenerationModuleProps['noBrandStyleReferenceOptions'];
+    canScreenshotPromptAutogen: GenerationModuleProps['canScreenshotPromptAutogen'];
+    screenshotPromptAutogenBusy: GenerationModuleProps['screenshotPromptAutogenBusy'];
     onCreateBrand: () => void;
     openLightbox: GenerationModuleProps['openLightbox'];
     pickedIconAssetId: GenerationModuleProps['pickedIconAssetId'];
@@ -103,6 +106,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     screenshotProviderId: GenerationModuleProps['screenshotProviderId'];
     screenshotSets: GenerationModuleProps['screenshotSets'];
     screenshotsGenerating: GenerationModuleProps['screenshotsGenerating'];
+    generateAllBlockedReason: GenerationModuleProps['generateAllBlockedReason'];
     selectedApp: GenerationModuleProps['selectedApp'];
     selectedAppScreenshots: GenerationModuleProps['selectedAppScreenshots'];
     setActiveScreenshotSetId: GenerationModuleProps['setActiveScreenshotSetId'];
@@ -121,6 +125,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     setSystemPromptTemplateForSlot: GenerationModuleProps['setSystemPromptTemplateForSlot'];
     showNoAppsEmptyState: boolean;
     slotGenerating: GenerationModuleProps['slotGenerating'];
+    slotGenerateBlockedReasonBySlotIndex: GenerationModuleProps['slotGenerateBlockedReasonBySlotIndex'];
     slotHeadlineBySlotIndex: GenerationModuleProps['slotHeadlineBySlotIndex'];
     slotHeadlinePosBySlotIndex: GenerationModuleProps['slotHeadlinePosBySlotIndex'];
     slotPromptBySlotIndex: GenerationModuleProps['slotPromptBySlotIndex'];
@@ -186,6 +191,7 @@ export function useWorkspaceGenerationViewModel({
     handleNoBrandIconPromptAutogen,
     handleNoBrandIconPromptChange,
     handleNoBrandIconPromptSave,
+    handleScreenshotPromptAutogen,
     handlePickIcon,
     handlePickScreenshot,
     handleReorderAppScreenshot,
@@ -208,6 +214,8 @@ export function useWorkspaceGenerationViewModel({
     noBrandIconPromptAutogenBusy,
     noBrandIconPromptValue,
     noBrandStyleReferenceOptions,
+    canScreenshotPromptAutogen,
+    screenshotPromptAutogenBusy,
     onCreateBrand,
     openLightbox,
     pickedIconAssetId,
@@ -224,6 +232,7 @@ export function useWorkspaceGenerationViewModel({
     screenshotProviderId,
     screenshotSets,
     screenshotsGenerating,
+    generateAllBlockedReason,
     selectedApp,
     selectedAppScreenshots,
     setActiveScreenshotSetId,
@@ -242,6 +251,7 @@ export function useWorkspaceGenerationViewModel({
     setSystemPromptTemplateForSlot,
     showNoAppsEmptyState,
     slotGenerating,
+    slotGenerateBlockedReasonBySlotIndex,
     slotHeadlineBySlotIndex,
     slotHeadlinePosBySlotIndex,
     slotPromptBySlotIndex,
@@ -355,11 +365,16 @@ export function useWorkspaceGenerationViewModel({
         handleNoBrandIconPromptSave: (value) => runWriteAction(() => handleNoBrandIconPromptSave?.(value)),
         handleNoBrandIconPromptAutogen: () => runWriteAction(() => handleNoBrandIconPromptAutogen?.()),
         noBrandIconPromptAutogenBusy,
+        canScreenshotPromptAutogen,
+        handleScreenshotPromptAutogen: () => runWriteAction(() => handleScreenshotPromptAutogen?.()),
+        screenshotPromptAutogenBusy,
         handleAutoGrowInput,
         openLightbox,
         text,
         fonts: EDIT_FONTS,
         isReadOnly: isCurrentBrandReadOnly,
+        generateAllBlockedReason,
+        slotGenerateBlockedReasonBySlotIndex,
     };
 
     const generationSections = showNoAppsEmptyState

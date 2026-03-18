@@ -1,458 +1,478 @@
 # Project Structure
 
-Concise overview of the current post-refactor layout. Excludes `node_modules/` and `dist/`.
-Screenshot prompts are stored in Supabase (`app_screenshot_prompts`).
-Screenshot sets + export picks/completion state are stored in Supabase (`app_screenshot_sets`, `app_asset_picks`, `app_export_status`).
-Brand release planning metadata is stored in Supabase on `brands` (`target_countries`, `keywords`, `release_strategy_notes`, `release_strategy_updated_at`).
-Brand ordering is stored in Supabase on `brands.order_index` (drag-and-drop reorder in Sidebar edit mode).
-Accounts are stored in Supabase (`appstore_accounts`) and managed via the `/accounts` screen (pooled rows, optional 1-per-app assignment).
-Ideas are stored in Supabase (`app_ideas`) with fixed categories in `app_idea_categories`; selected idea per app is persisted on `connector_app_configs.idea_id`.
-Canonical App Store links are stored on `apps.appstore_url` and edited from the workspace App Store row.
-Workspace collaboration presence + brand locks are stored in Supabase (`workspace_sessions`) and mediated via `/api/workspace-sessions`.
-Hybrid lock UX is enabled by default: busy brands can be opened in view-only mode and require explicit “Start editing” claim before writes.
-`No Brand` is a system-managed workspace bucket (real brand row) rendered as a separate fixed sidebar section above Accounts/Ideas, with a dedicated slate/cyan visual style to distinguish it from regular brands.
-App aliases are globally unique per user (case-insensitive) via `public.apps (user_id, lower(alias))`.
+Current repository map for the post-March 2026 layout.
+
+This document focuses on maintained source directories and the product flows they own. Generated/runtime directories are intentionally not documented in detail: `node_modules/`, `node_modules.bak.20260206023905/`, `dist/`, `playwright-report/`, `test-results/`, `playwright/.auth/`, `playwright/.tmp/`, `supabase/.temp/`, `supabase/.branches/`, and `.vercel/`.
+
+## Source Tree
+
+```text
+.
+├── App.tsx
+├── index.tsx
+├── index.css
+├── i18n.ts
+├── api/
+├── cloudflare/
+├── components/
+│   ├── app/
+│   ├── fancy/
+│   └── ui/
+├── constants/
+├── contexts/
+├── data/
+├── docs/
+├── hooks/
+├── lib/
+├── public/
+├── scripts/
+├── supabase/
+│   ├── functions/
+│   └── migrations/
+├── templates/
+├── tests/
+│   └── smoke/
+├── types/
+└── utils/
+```
 
 ## Top-Level Files
-- `App.tsx` - App entry that gates auth and mounts `AppShell`.
-- `index.tsx` - React bootstrap and root render.
-- `index.html` - Vite HTML entry with CSP meta placeholder; final `connect-src` is injected by Vite so local smoke/dev can talk to local Supabase safely.
-- `index.css` - Global styles and app theme CSS (including app-folder styles).
-- `i18n.ts` - Translation strings and `t()` helper.
-- `package.json` - Scripts and dependencies.
-- `tsconfig.json` - TypeScript compiler config.
-- `vite.config.ts` - Vite build and dev config, including local `/api/*` middleware and dev/smoke CSP injection for local Supabase.
-- `tailwind.config.js` - Tailwind theme and plugins.
-- `postcss.config.js` - PostCSS config.
-- `.env.local` - Local environment variables (not committed).
-- `vercel.json` - Deployment config.
-- `components.json` - Shadcn UI config.
-- `playwright.config.ts` - Playwright smoke harness config (Chromium, auth setup project, failure artifacts, dev server orchestration).
 
-## Key Directories
-- `.github/workflows/` - CI guardrails; includes the main build checks and the Playwright smoke job.
-- `api/` - Vercel Serverless Functions (served under `/api/*` in production).
-- `components/` - Reusable UI and feature components.
-- `components/app/` - Main app UI split into focused sections (see breakdown below).
-- `components/fancy/` - Custom visual effects, logo, and text treatments.
-- `components/ui/` - Shared UI primitives (shadcn-style components).
-- `data/` - Thin Supabase data access layer (queries, inserts, updates).
-- `hooks/` - App hooks for auth, routing, layout, storage, and device handling.
-- `utils/` - Pure helpers (routes, images, DOM, ids, downloads).
-- `types/` - Domain types used across app features.
-- `constants/` - Shared constants and configuration.
-- `constants/countries.ts` - Static ISO country list + priority ordering for the Target countries dropdown.
-- `lib/` - Shared runtime helpers, service clients, and server-only logic (including Supabase clients and webhook helpers).
-- `public/` - Static assets.
-- `docs/` - Product and design documentation.
-- `supabase/` - Supabase configuration and local dev assets, including local smoke-test config/schema fallback inputs.
-- `tests/` - Node tests plus browser smoke coverage.
-- `contexts/` - Reserved for future React contexts (currently empty).
+- `App.tsx` - auth gate and top-level app entry that mounts the authenticated shell or the login page.
+- `index.tsx` - React bootstrap.
+- `index.css` - global styling, theme tokens, workspace layout styles, and shared utility classes.
+- `index.html` - Vite HTML entry.
+- `i18n.ts` - translations and `t()` helper.
+- `package.json` - scripts and dependencies.
+- `package-lock.json` - npm lockfile.
+- `tsconfig.json` - TypeScript config.
+- `vite.config.ts` - Vite config, local API middleware, and build settings.
+- `vite-env.d.ts` - Vite client types.
+- `tailwind.config.js` / `postcss.config.js` - styling toolchain config.
+- `playwright.config.ts` - smoke-test harness config.
+- `vercel.json` - Vercel routing/deployment config.
+- `components.json` - local shadcn-style component config.
+- `.env.example` - local env template.
+- `.env.local` - local uncommitted environment overrides used for Vite/Vercel dev.
+- `PLANS.md` - ongoing implementation notes.
 
-## Guardrails & Smoke Tests
-- CI workflow: `.github/workflows/guardrails.yml`
-  - `guardrails` job runs credential checks, legal-links smoke checks, and production build.
-  - `smoke` job runs the full browser smoke guardrail via `npm run smoke`.
-- Canonical local command: `npm run smoke`
-  - runs `npm run smoke:backend`
-  - then runs `npm run smoke:test`
-- Smoke harness files:
-  - `scripts/bootstrap-smoke-backend.mjs` - Local Supabase bootstrap/reset/seed script for smoke runs. If Supabase CLI skips repo migrations because of the current filename format, it falls back to applying `supabase/schema.sql` and waits for PostgREST schema refresh before seeding.
-  - `tests/smoke/` - Playwright smoke specs for auth, workspace render, navigation, accounts paste flow, brand/app CRUD, and ideas/App Store link flow.
-  - `tests/smoke/support/fixtures.ts` - Browser guard layer that fails tests on unexpected `pageerror`, `console.error`, and failed navigations.
-  - `tests/smoke/support/helpers.ts` - Shared smoke navigation/auth/paste helpers.
-  - `docs/testing/smoke-tests.md` - Local smoke-test runbook.
-- Smoke environment shape:
-  - local Docker + local Supabase is the canonical regression environment for refactors
-  - one deterministic fake smoke user is recreated for each run
-  - smoke data is reseeded before Playwright runs
-  - Chromium is the only browser target for now
+## Top-Level Directories
 
-## components/app Breakdown
-- `components/app/AppShell.tsx` - Main authenticated shell orchestrator. It owns the top-level workspace/data hooks, coordinates selection/navigation/collaboration state, and shapes the view-model props passed into the shell layout/content layers.
-- `components/app/AppShellLayout.tsx` - Top-level shell scaffold that composes `Sidebar`, `WorkspaceShellChrome`, `AppShellPageContent`, and `AppShellOverlays`, including the mobile sidebar toggle/backdrop.
-- `components/app/AppShellPageContent.tsx` - Page branch router for `workspace`, `accounts`, and `ideas`.
-- `components/app/WorkspacePage.tsx` - Workspace-page renderer that composes brand panels, `WorkspaceFolderSurface`, and the workspace switch overlay.
-- `components/app/WorkspaceFolderSurface.tsx` - App-folder surface that renders the collapsed deliverables card, app picker, setup panels / no-apps state, and generation sections inside `AppFolder`.
-- `components/app/AppShellOverlays.tsx` - Bottom shell overlay layer for the deliverables rail, collaboration/alias notices, lightbox, and generation queue widget.
-- `components/app/WorkspaceShellChrome.tsx` - Sticky workspace header, top-level shell alerts, read-only banner, and first-brand empty state.
-- `components/app/Sidebar.tsx` - Brand list, brand form, global controls, active-session indicator, and lock-state badges/notices (locked brands remain openable in view mode). Renders No Brand as a dedicated fixed system card (outside reorderable list) with its own slate/cyan palette.
-- `components/app/BrandReleaseInfoPanel.tsx` - Brand release planning fields (target countries, keywords, release notes) with read-only write guards.
-- `components/app/BrandReferencesPanel.tsx` - Collapsible screenshot reference library for the brand (read-only aware for upload/delete/reorder).
-- `components/app/CountryMultiSelect.tsx` - Multi-select dropdown used for Target countries.
-- `components/app/AppFolder.tsx` - App-folder wrapper and gooey layout container.
-- `components/app/WorkspaceCollapsedDeliverables.tsx` - Collapsed deliverables card shown when the image workspace is hidden.
-- `components/app/AppPills.tsx` - App pill row with drag/reorder and toggle.
-- `components/app/AppFormCard.tsx` - Create/edit app form UI.
-- `components/app/WorkspaceAppSelection.tsx` - Workspace-folder app picker chrome: app actions, app pill row, and app form card wiring.
-- `components/app/WorkspaceNoAppsEmptyState.tsx` - Empty-state CTA shown when a brand has no apps yet.
-- `components/app/WorkspaceSetupPanels.tsx` - Workspace-folder setup side: App Store link/webhook, client spec, variables/secrets, GitHub, runner, integration, and auto-release panels.
-- `components/app/AppSimulatorSection.tsx` - Simulator screenshots upload + reorder (Step 8 in the AppFolder), read-only aware.
-- `components/app/AppGenerationSection.tsx` - Generation UI modules (Icon generation, Screenshot prompts, Generated screenshots), read-only aware. In No Brand mode icon prompt is app-level (`apps.icon_prompt`) and does not require brand icon reference; screenshot slots omit brand references and may optionally reuse style from previously generated screenshots.
-- `components/app/StepBlock.tsx` - Step badge wrapper used to render workflow numbers outside the folder body.
-- `components/app/DevFilesPanel.tsx` - GitHub repository panel (create/delete repo, clone command), read-only aware.
-- `components/app/AppStoreLinkRow.tsx` - Canonical App Store URL row (save/copy/open + geo chips from target countries), read-only aware.
-- `components/app/AppStoreReviewWebhookRow.tsx` - App Store Connect review-webhook control row (receiver creation, Apple credential save, `appshelp.cc` bridge sync/test, recent delivery timeline), read-only aware.
-- `components/app/ConnectorClientSpecPanel.tsx` - Step 2 idea picker (category + idea dropdowns) + client spec editor.
-- `components/app/ConnectorVariablesSecretsPanel.tsx` - Connector config: variables + secrets (Step 3), including `Generate links` and `Generate webpage` actions.
-- `components/app/AccountsPage.tsx` - Accounts pool UI (`/accounts`): view/edit modes, save-all, copy, optional app assignment.
-- `components/app/IdeasPage.tsx` - Ideas pool UI (`/ideas`): category + description rows with per-row save/delete.
-- `components/app/ConnectorRunnerPanel.tsx` - Hosted runner UI: jobs, messages, questions, generate/fix actions (Step 5), read-only aware.
-- `components/app/IntegrationModulePanel.tsx` - Integration readiness checklist (placeholder) driven by Setup data (Step 6), with optional IAP surfaced as non-blocking.
-- `components/app/AutoReleaseModulePanel.tsx` - Auto-release / Fastlane placeholder (Step 7).
-- `components/app/MatrixTerminal.tsx` - Matrix-themed terminal frame used by the Runner messages panel.
-- `components/app/MatrixRain.tsx` - Canvas-based Matrix "code rain" idle animation (Runner).
-- `components/app/EditPanel.tsx` - Text-layer editor for generated assets.
-- `components/app/Lightbox.tsx` - Image lightbox overlay.
-- `components/app/GenerationQueueWidget.tsx` - Bottom-right job/status widget for generation + ZIP + GitHub + Runner jobs.
-- `components/app/TextLayersCanvasOverlay.tsx` - Canvas-rendered text overlay for accurate shadow/outline preview.
-- `components/app/ConfirmIconButton.tsx` - Reusable inline delete confirmation popover for image deletes.
+- `.github/workflows/guardrails.yml` - CI build and smoke guardrails.
+- `.githooks/pre-commit` - local git hook entrypoint installed by `scripts/install-git-hooks.mjs`.
+- `.agent/` - local connector/agent rules and exec plans; not shipped to app repos.
+- `.codex/` - Codex local environment metadata.
+- `Ideas_example/` - sample idea-generation reference material.
+- `New_Type_Jobs/` - runner-job handoff specs and rollout plans for newer job types.
+- `api/` - Vercel serverless functions exposed under `/api/*`.
+- `cloudflare/` - Cloudflare worker used for the public App Store review webhook bridge and landing pages.
+- `components/` - React components, split into app features, fancy experiments, and UI primitives.
+- `constants/` - shared app-wide constants and static lists.
+- `contexts/` - currently empty; reserved for future React contexts.
+- `data/` - thin data access layer around Supabase, Edge Functions, and first-party APIs.
+- `docs/` - product, architecture, test, and feature docs.
+- `hooks/` - stateful app logic and orchestration hooks.
+- `lib/` - shared runtime helpers and server-only prompt helpers.
+- `public/` - static assets and no-brand seed/reference images.
+- `scripts/` - local tooling, smoke bootstrap, and guardrail checks.
+- `supabase/` - Supabase config, schema, storage policies, Edge Functions, and migrations.
+- `templates/` - GitHub repo seed templates used by repo creation.
+- `tests/` - node-level regression tests and Playwright smoke coverage.
+- `types/` - shared domain types and workspace orchestration types.
+- `utils/` - pure helpers and cross-cutting workflow utilities.
 
-## AppFolder Steps (Module Order)
-The App-level workflow inside the gooey folder is ordered as:
-1. Icon generation (`components/app/AppGenerationSection.tsx` via `IconGenerationModule`)
-2. Idea picker + Client spec (`components/app/ConnectorClientSpecPanel.tsx`) (project kind is fixed to iOS)
-3. Connector config: Variables + Secrets (`components/app/ConnectorVariablesSecretsPanel.tsx`)
-4. GitHub repository (`components/app/DevFilesPanel.tsx`)
-5. Development (`components/app/ConnectorRunnerPanel.tsx`)
-6. Integration (placeholder) (`components/app/IntegrationModulePanel.tsx`)
-7. Auto-release (placeholder) (`components/app/AutoReleaseModulePanel.tsx`)
-8. Simulator screenshots (`components/app/AppSimulatorSection.tsx`)
-9. Screenshot prompts (`components/app/AppGenerationSection.tsx` via `ScreenshotPromptsModule`)
-10. Generated screenshots (`components/app/AppGenerationSection.tsx` via `GeneratedScreenshotsModule`)
-11. No Brand only: Move app to regular brand (`hooks/use-workspace-generation-view-model-impl.tsx`)
+## App Surface
 
-No Brand nuance:
-- In No Brand mode, Steps 1 and 2 are swapped: Client spec is Step 1 and Icon generation is Step 2.
-- Icon prompt supports an AI helper button that derives a prompt idea from the first client-spec lines (`/api/generate-icon-prompt`, default model `gpt-5.2`).
+The authenticated app currently exposes three main surfaces:
 
-The sticky Deliverables rail is anchored to Steps 8–10 only.
+- `workspace` - the brand/app workspace for setup, generation, runner jobs, deliverables, App Store links, and review webhooks.
+- `accounts` - pooled App Store accounts, assignments, and notes.
+- `ideas` - idea CRUD plus brand-scoped `idea_generation` runner jobs.
 
-## Integration Step (Readiness + Action)
-The Integration step (Step 6) is an action station driven by the values stored in Setup data (Step 3). It shows readiness badges, an editable `base_branch`, the latest integration status, and queues the `Integration` job only when required data is present.
+The authenticated shell is composed through:
 
-- Apphud Key → Setup data: Variables `apphud_api_key`
-- IAP Product ID (optional) → Setup data: Variables `id_purchases`
-- Analytics URL → Setup data: Variables `domain` (the worker adapts to the CRM key directly)
-- Bundle ID → Setup data: Variables `bundle_id`
-- Privacy Policy URL → Setup data: Variables `privacy_policy_url`
-- Terms of Use URL → Setup data: Variables `terms_of_use_url`
-- Support form URL → Setup data: Variables `support_form_url`
-- Firebase plist snippet → Setup data: Variables `firebase_plist_snippet`
-- Company name → Setup data: read-only and sourced from the app’s assigned usable account (`appstore_accounts.company_name`)
-- `base_branch` defaults to `main`, is editable per app, and is used for all code-producing jobs. QA and Screenshots stay SHA-driven downstream.
+- `components/app/AppShell.tsx`
+- `components/app/AppShellLayout.tsx`
+- `components/app/AppShellPageContent.tsx`
+- `components/app/AppShellOverlays.tsx`
 
-## Auto-Release Step (Placeholder)
-Step 7 (“Auto-release”) is a placeholder for future Fastlane setup and release automation.
+## Components
 
-- Gating: the “Fastlane integration” button is disabled until all Integration (Step 6) requirements are filled.
-- Current behavior: when enabled and clicked, it only shows a “Coming soon” toast (no repo modifications yet).
-- Future intent: use the same Setup data + secrets to apply a Fastlane integration template into the app repo (and later run delivery jobs).
+### Shared components
 
-## hooks Breakdown
-- `hooks/use-auth-session.ts` - Supabase auth session + loading state.
-- `hooks/use-brands.ts` - Brand list + brand form state and CRUD (ensures exactly one system No Brand row per user and keeps it non-editable/reorder-excluded).
-- `hooks/use-apps.ts` - App list + app form, reorder, and ban/unban (global alias auto-allocation + collision notifications).
-- `hooks/use-brand-references.ts` - Brand references CRUD, uploads, and prompts.
-- `hooks/use-app-screenshots.ts` - Simulator screenshots CRUD and uploads.
-- `hooks/use-generated-assets.ts` - Generation actions, downloads, and edit state.
-- `hooks/use-generation-jobs.ts` - In-memory job tracking for long-running operations (generation, ZIP).
-- `hooks/use-app-screenshot-prompts.ts` - Screenshot prompt persistence in Supabase.
-- `hooks/use-connector-config-form.ts` - Loads/saves Connector app config (+ selected `idea_id`) and secret metadata (used by Step 2/3 panels).
-- `hooks/use-app-ideas.ts` - Ideas/categories pool list + CRUD for `/ideas`.
-- `hooks/use-connector-messages.ts` - Connector runner message log + Q/A transcript.
-- `hooks/use-route-sync.ts` - URL sync with selected brand/app (alias matching normalized case-insensitively).
-- `hooks/use-workspace-collaboration.ts` - Session presence polling + heartbeat, brand lock claim/release, lock conflict state, and optional `heartbeatBrandId` lock-hold override.
-- `hooks/use-app-shell-notices.ts` - Timed action/collaboration/alias notice state + helper reporters for the shell chrome.
-- `hooks/use-app-shell-actions.ts` - Shell-level retry/logout/write-guard/account-pick action helpers.
-- `hooks/use-app-shell-ui-state.ts` - Shell-local UI state and persistent refs for sidebar visibility, page/language, header/main scroll containers, and app-drag affordances.
-- `hooks/use-app-shell-selection-models.ts` - Brand/app selection derivations for requested vs. active app, No Brand mode, regular brand filtering, and cached workspace snapshot lookup.
-- `hooks/use-app-shell-derived-state.ts` - Shell-level pure derived values for route/data loading, deliverables state, and GitHub job flags.
-- `hooks/use-app-screenshot-downloads.ts` - Client-side ZIP download actions for simulator screenshots, including queue widget progress and final blob download.
-- `hooks/use-signed-url-cache.ts` - Signed URL caching for storage assets.
-- `hooks/use-slot-mappings.ts` - Slot mapping persistence.
-- `hooks/use-app-folder-layout.ts` - Gooey layout measurements + refs; background height is derived from normal-flow content bounds so the folder can shrink correctly after collapsed sections.
-- `hooks/use-app-pill-pan.ts` - Pointer-based horizontal panning logic.
-- `hooks/use-workspace-switch-overlay.ts` - Workspace switch overlay stage timing and loader visibility.
-- `hooks/use-workspace-navigation-actions.ts` - Public workspace/accounts/ideas navigation callbacks used by sidebar and pills.
-- `hooks/use-workspace-navigation-controller.ts` - Internal route/selection switch orchestration, hydration sequencing, and navigation restoration.
-- `hooks/use-workspace-switch-preparation.ts` - Pre-switch save/flush/lock preparation for workspace changes.
-- `hooks/use-workspace-lock-side-effects.ts` - Collaboration lock heartbeat sync, read-only warning behavior, fallback brand switching, and the explicit "Start editing" CTA flow.
-- `hooks/use-workspace-busy-guards.ts` - Aggregated busy-state unload protection plus queue widget job merging/dismiss/clear/cancel actions.
-- `hooks/use-workspace-readonly-state.ts` - Collaboration lock/read-only derivations for the selected workspace plus sidebar lock visibility.
-- `hooks/use-no-brand-workspace-actions.ts` - No Brand icon-prompt state/actions and move-to-brand workflow.
-- `hooks/use-workspace-assets-layout.ts` - Per-app workspace collapse state and deliverables rail positioning/persistence.
-- `hooks/use-workspace-presentation-state.ts` - App-switch pulse, lightbox state, and folder presentation derivations.
-- `hooks/use-workspace-step-readiness.ts` - Derived workspace step completion/readiness flags and No Brand step numbering.
-- `hooks/use-workspace-generation-view-model.ts` - Stable public hook entry for the workspace generation view-model.
-- `hooks/use-workspace-generation-view-model-impl.tsx` - Guarded generation view-model implementation for the workspace folder: icon module props plus simulator/prompt/generated/No Brand move sections.
-- `hooks/use-workspace-snapshot-hydration.ts` - Snapshot fetch/hydration for connector config, webhook panel, screenshot prompts, and generated assets.
-- `hooks/use-workspace-snapshot-cache.ts` - Snapshot cache synchronization for the currently selected app.
-- `hooks/use-brand-app-summaries.ts` - Sidebar indicator fetch/state and per-brand app summary counts (active, ready, A/B, banned).
-- `hooks/use-detect-browser.ts` - Browser detection helper.
-- `hooks/use-screen-size.ts` - Screen size tracking.
-- `hooks/use-connector-jobs.ts` - Connector job polling + runner job lifecycle actions.
-- `hooks/use-connector-job-queue.ts` - Global Runner job polling across apps (feeds the bottom-right job queue widget).
-- `hooks/use-appstore-accounts.ts` - App Store accounts pool list + CRUD (feeds `/accounts` and Setup data account block).
+- `components/LoginPage.tsx` - unauthenticated login screen.
+- `components/ErrorBoundary.tsx` - global React error boundary wrapper.
+- `components/FluidBackground.tsx` - animated background effect used in the shell.
+- `components/ConfirmationPopover.tsx` - generic confirm popover.
+- `components/DateRangePicker.tsx` - shared date-range input.
 
-## data Breakdown
-- `data/auth.ts` - Auth actions (sign out).
-- `data/brands.ts` - Brand queries and writes.
-- `data/apps.ts` - App queries and writes (includes `move_app_to_brand` RPC wrapper).
-- `data/brand-references.ts` - Brand reference queries + storage ops.
-- `data/app-screenshots.ts` - App screenshot queries + storage ops.
-- `data/generated-assets.ts` - Generated asset queries + storage ops.
-- `data/screenshot-sets.ts` - Screenshot set queries and writes (`app_screenshot_sets`).
-- `data/asset-picks.ts` - Export pick queries and writes (`app_asset_picks`).
-- `data/export-status.ts` - Completion status queries and writes (`app_export_status`).
-- `data/app-screenshot-prompts.ts` - Screenshot prompt upserts/deletes.
-- `data/connector-app-config.ts` - Connector non-secret app config (`connector_app_configs`).
-- `data/app-ideas.ts` - Ideas/categories CRUD (`app_ideas`, `app_idea_categories`).
-- `data/connector-secrets.ts` - Connector secrets write-only storage (`connector_app_secrets`).
-- `data/connector-legal-links.ts` - Legal links precheck/fingerprint + Edge Function invoke (`generate-legal-links`).
-- `data/appstore-description.ts` - App Store description generation API client (`/api/generate-appstore-description`) with auth refresh/retry.
-- `data/appstore-review-webhooks.ts` - App Store review webhook row/event queries and writes (`appstore_review_webhooks`, `appstore_review_events`).
-- `data/appstore-review-webhook-api.ts` - Webhook status + `appshelp.cc` bridge client (`/api/appstore-review-webhook-status`, `/_bridge/appstore/*`).
-- `data/icon-prompt.ts` - No Brand icon prompt generation API client (`/api/generate-icon-prompt`) with auth refresh/retry.
-- `data/connector-jobs.ts` - Runner job queue (`connector_jobs`) + user-level job fetch for the global job widget.
-- `data/connector-messages.ts` - Runner message log + Q/A (`connector_job_messages`).
-- `data/appstore-accounts.ts` - App Store accounts pool CRUD (`appstore_accounts`).
+### App shell and page components
 
-## api Breakdown
-- `api/workspace-sessions.ts` - Collaboration endpoint for `snapshot | heartbeat | claim_brand | release_brand`.
-  - Presence snapshot is computed from table rows (`workspace_sessions`) using a 180s recency window (`last_seen_at`).
-  - `active_session_count` is unique per `client_device_id` (deduped devices, not raw tab/session rows).
-  - Brand locks remain strict on active lease (`expires_at > now()`) with 30s TTL.
-  - Retention cleanup is best-effort per request: deletes caller-owned rows older than 48h past expiry.
-- `api/provider-status.ts` - Environment/provider diagnostics endpoint.
-- `api/generate-screenshot.ts` - Server-side screenshot generation proxy.
-- `api/generate-appstore-description.ts` - Server-side App Store description generator (OpenAI-backed, bearer-protected).
-- `api/generate-icon-prompt.ts` - Server-side No Brand icon-prompt generator (OpenAI-backed, bearer-protected).
-- `api/appstore-review-webhook-status.js` - Read-only webhook status/events endpoint for the workspace UI.
-- `api/create-github-repo.ts` - GitHub repository creation endpoint.
-- `api/delete-github-repo.ts` - GitHub repository deletion endpoint.
+- `components/app/AppShell.tsx` - top-level orchestrator that wires data hooks, route state, collaboration state, workspace snapshots, and view models.
+- `components/app/AppShellLayout.tsx` - shell scaffold that composes sidebar, chrome, page content, and overlays.
+- `components/app/AppShellPageContent.tsx` - page router for `workspace`, `accounts`, and `ideas`.
+- `components/app/AppShellOverlays.tsx` - overlay layer for deliverables, notices, lightbox, and job queue.
+- `components/app/WorkspacePage.tsx` - workspace page composition.
+- `components/app/AccountsPage.tsx` - App Store accounts page.
+- `components/app/IdeasPage.tsx` - ideas table/editor plus idea-generation runner UI.
+- `components/app/Sidebar.tsx` - brands list, forms, locks, app counts, and global navigation.
+- `components/app/WorkspaceShellChrome.tsx` - sticky workspace header, alerts, and read-only banners.
+- `components/app/WorkspaceSwitchOverlay.tsx` - animated overlay during guarded workspace switches.
 
-## utils Breakdown
-- `utils/slug.ts` - Slug creation helpers (`makeUniqueAlias` allocates first free numbered alias, e.g. `ef-02` instead of `ef-01-2`).
-- `utils/routes.ts` - Route build/parse helpers.
-- `utils/id.ts` - ID creation helper.
-- `utils/images.ts` - Image validation, loading, resizing, and rendering.
-- `utils/dom.ts` - Auto-grow textarea sync.
-- `utils/download.ts` - Download trigger helper.
-- `utils/appstore.ts` - App Store URL normalization and geo-link helpers.
-- `utils/retry.ts` - Retry helper for async actions.
-- `utils/runner-log.ts` - Best-effort parser that compacts Runner log lines into a user-friendly status view.
-- `utils/no-brand.ts` - No Brand detector utility (supports legacy rows via slug/name fallback).
+### Workspace selection and folder chrome
 
-## Generation/Download Notes
-- Step markers:
-  - Step number chips are rendered via `components/app/StepBlock.tsx` and visually indicate completion by turning green.
-  - Step completion is UI heuristic-based (e.g. picked icon, project brief saved, repo present, variables filled, runner success, prompts/screenshots/export completion) and is non-blocking.
-- Generated assets upload a small `-preview.jpg` variant for fast UI thumbnails/lightbox.
-- Older assets may not have previews; the UI falls back to full-size objects automatically.
-- “Download all screenshots” produces a ZIP of final-rendered images named in App Store order (`iOS 6.5 1.jpg`, ...).
-- “Download simulator screenshots (ZIP)” produces a ZIP of the current app’s uploaded simulator images named in upload order (`Simulator 01.jpg`, ...).
-- While client-side generation/ZIP is running, the app warns on refresh/close to avoid wasting work. Brand/app switching is allowed; jobs continue in background. Runner jobs do not trigger unload warnings.
-- Screenshot sets:
-  - Each app has a default set named `Original`, plus optional additional named sets (A/B tests).
-  - Screenshot generation/enhancement is scoped to the currently selected set.
-- Slot mappings + prompts:
-  - Slot source mapping (simulator screenshot + optional brand reference) is stored in `localStorage` per app: `zefgen.slotMappings.<appId>`.
-  - In No Brand mode, `brandRefId` is always forced to `null` and ignored by generation even if stale legacy values exist in localStorage/DB prompts.
-  - Users can select “No reference” per slot (persisted as `brandRefId: null`). Generation still works by reusing image 1 as image 2 and instructing the provider to ignore image 2.
-  - When “No reference” is selected, the per-slot prompt is stored in `localStorage` per app + set + slot: `zefgen.slotPrompt.<appId>.<setId>.<slotIndex>`.
-- Slot system prompts:
-  - Each screenshot slot shows a “System prompt” block (provider-facing instructions).
-  - Overrides are stored in `localStorage` per app + screenshot set + slot (generate/enhance modes) and used for subsequent generations.
-- Picks + completion:
-  - Users explicitly pick 1 icon and 1 screenshot per slot per set for export (`app_asset_picks`).
-  - “Mark as completed” validates picks and can prune unpicked generated assets to save storage (`app_export_status`).
-  - When deliverables are collapsed, only the deliverables/generation workspace is compacted; the App Store link, review webhook row, and icon step remain visible in setup.
-  - In collapsed mode, the deliverables panel shows download-only ZIP buttons per set.
+- `components/app/WorkspaceFolderSurface.tsx` - main folder surface that composes setup panels, generation sections, and collapsed deliverables.
+- `components/app/AppFolder.tsx` - gooey folder container and layout shell.
+- `components/app/WorkspaceAppSelection.tsx` - app pills, app create/edit card, and selection controls.
+- `components/app/AppPills.tsx` - app chip row with reorder affordances.
+- `components/app/AppFormCard.tsx` - create/edit app form.
+- `components/app/WorkspaceNoAppsEmptyState.tsx` - no-app CTA state.
+- `components/app/WorkspaceCollapsedDeliverables.tsx` - compact deliverables card when the assets area is collapsed.
 
-## GitHub Repo Creation
-- Serverless endpoint: `api/create-github-repo.ts` (Vercel Function) creates a private repo, adds default collaborators, and seeds template files.
-- Serverless endpoint: `api/delete-github-repo.ts` deletes the created repo and clears the stored app link.
-- Templates live in `templates/github/*.tpl` and are committed into the created repo with simple `{{VAR_NAME}}` substitution.
-- Important: keep runner-local instruction packs out of the remote repo. `ZefGen_Connector` blocks jobs if files like `INSTRUCTIONS.md`, `.agent/`, `docs/spec/`, etc become tracked in git.
-- Repo links are persisted on `public.apps` so they work across devices: `github_repo_url`, `github_repo_full_name`.
-- Invariant: repo creation requires a picked icon first, and seeds `assets/app_icon.jpg`.
+### Workspace setup panels
 
-## Connector (Hosted Runner)
-- Migration: `supabase/migrations/20260209000001_connector_runner_jobs.sql`
-  - Tables: `connector_app_configs`, `connector_app_secrets`, `connector_jobs`, `connector_job_messages`
-  - RPC: `connector_claim_next_job(p_runner_id text)` (service-role only)
-- The Runner verify log (`verify_tail`) is hidden by default (too noisy for normal users).
-  - Debug enable (local only): `localStorage.setItem('zefgen.debug.verifyTail', '1'); location.reload();`
-- The Runner log output is compacted by default (product-grade).
-  - Debug enable verbose logs (local only): `localStorage.setItem('zefgen.debug.runnerVerbose', '1'); location.reload();`
-  - Debug disable: `localStorage.removeItem('zefgen.debug.runnerVerbose'); location.reload();`
+- `components/app/WorkspaceSetupPanels.tsx` - ordered setup step renderer for App Store link, review webhook, icon, idea/client spec, setup data, repo, runner, integration, and auto-release.
+- `components/app/WorkspaceSetupPanelsContent.tsx` - adapter that injects the generation view model into `WorkspaceSetupPanels`.
+- `components/app/AppStoreLinkRow.tsx` - canonical App Store URL editor.
+- `components/app/AppStoreReviewWebhookRow.tsx` - webhook and public `appshelp.cc` row.
+- `components/app/BrandReleaseInfoPanel.tsx` - brand release planning fields.
+- `components/app/BrandReferencesPanel.tsx` - brand screenshot/icon reference library.
+- `components/app/CountryMultiSelect.tsx` - target-countries selector.
+- `components/app/ConnectorClientSpecPanel.tsx` - client spec plus idea assignment UI.
+- `components/app/ConnectorVariablesSecretsPanel.tsx` - setup data, secrets, legal-links generation, App Store description, and account assignment.
+- `components/app/ConnectorAutosaveStatus.tsx` - autosave badge for connector config state.
+- `components/app/ConnectorSaveConflictBanner.tsx` - stale-save conflict banner with reload/overwrite actions.
+- `components/app/DevFilesPanel.tsx` - GitHub repo creation/deletion step.
+- `components/app/ConnectorRunnerPanel.tsx` - runner job launcher, Q/A loop, logs, QA artifacts, and screenshot artifact viewers.
+- `components/app/IntegrationModulePanel.tsx` - integration readiness and integration job trigger.
+- `components/app/AutoReleaseModulePanel.tsx` - placeholder auto-release/Fastlane step.
 
-## Workspace Collaboration (Brand Locks + Presence)
-- Base migration: `supabase/migrations/20260218000003_workspace_sessions_brand_lock.sql`
-  - Table: `public.workspace_sessions`
-  - RPCs: `workspace_claim_brand_lock`, `workspace_heartbeat_session`, `workspace_release_brand_lock`, `workspace_snapshot`
-- Follow-up migration: `supabase/migrations/20260218000004_workspace_sessions_lock_preserve_conflict.sql`
-  - Preserves existing lock on blocked switch and adds `session_id_collision` handling.
-- Presence-window migration: `supabase/migrations/20260218000002_workspace_presence_window.sql`
-  - Keeps lock enforcement strict while widening snapshot presence recency semantics.
-- Current runtime path:
-  - API snapshot reads table rows directly and normalizes payload shape.
-  - Lock actions prefer RPC; API has table-based fallback paths for resilience.
-  - Client hook (`hooks/use-workspace-collaboration.ts`) uses persistent `client_device_id` (localStorage) and per-load `client_session_id` (runtime), polls every 10s, and triggers immediate refresh on focus/visibility/online.
-- Hybrid soft-lock mode (current default):
-  - Controlled by `WORKSPACE_SOFT_LOCK_VIEW_MODE_ENABLED` (`constants/zefgen.ts`).
-  - Busy brand by another device opens in view-only mode instead of hard navigation block.
-  - Workspace shows top notice with explicit “Start editing” button to attempt lock claim.
-  - Heartbeat lock-hold is decoupled from selected brand via `heartbeatBrandId`; read-only viewing does not keep claiming the lock.
-  - If lock is lost mid-edit, user stays on the same brand and switches to read-only (no forced brand redirect).
-  - Write paths across workspace panels are guarded in read-only mode; read-safe actions (navigation/open/copy/preview) remain available.
+### Generation, deliverables, and editing
 
-## App Store URL (Workspace Surface)
-- Migration: `supabase/migrations/20260218000001_apps_appstore_url.sql`
-  - Adds `public.apps.appstore_url`.
-- UI: `components/app/AppStoreLinkRow.tsx` (shown in workspace when an app is selected).
-- Utilities: `utils/appstore.ts` for canonicalization and geo-friendly URL helpers.
+- `components/app/AppGenerationSection.tsx` - icon generation, screenshot prompts, and generated screenshots modules.
+- `components/app/WorkspaceGenerationSectionContent.tsx` - adapter that renders generation sections from the workspace generation view model.
+- `components/app/AppSimulatorSection.tsx` - simulator screenshot upload/pick workflow.
+- `components/app/DeliverablesPanel.tsx` - collapsed deliverables/download panel.
+- `components/app/ExportCompletionRail.tsx` - completion rail that tracks picks and locks in final deliverables.
+- `components/app/EditPanel.tsx` - text-layer editing UI for generated assets.
+- `components/app/TextLayersCanvasOverlay.tsx` - canvas preview for text overlays.
+- `components/app/Lightbox.tsx` - asset preview overlay.
+- `components/app/ConfirmIconButton.tsx` - reusable destructive-action confirmation wrapper.
+- `components/app/StepBlock.tsx` - numbered step wrapper.
+- `components/app/GenerationQueueWidget.tsx` - global queue widget for client-side generation, downloads, GitHub, and runner jobs.
 
-## App Store Review Webhooks
-- Migration: `supabase/migrations/20260307000001_appstore_review_webhooks.sql`
-  - Adds `public.appstore_review_webhooks` (one listener config per app).
-  - Adds `public.appstore_review_events` (append-only delivery timeline per app).
-- Migration: `supabase/migrations/20260307000002_appstore_review_webhooks_apple_connect.sql`
-  - Adds Apple binding/sync metadata (`key_mode`, `key_id`, `issuer_id`, `asc_app_id`, `apple_webhook_id`, etc).
-- Migration: `supabase/migrations/20260308000001_appstore_review_webhook_public_subdomain.sql`
-  - Adds persistent clean `public_subdomain` allocation for `*.appshelp.cc`.
-- Migration: `supabase/migrations/20260308000002_appstore_review_webhook_publish_and_bridge.sql`
-  - Adds `public_page_published_at` and bridge/public-page support fields.
-- UI: `components/app/AppStoreReviewWebhookRow.tsx` (rendered below the App Store URL row in the workspace).
-- Data layer: `data/appstore-review-webhooks.ts`.
-- Bridge client: `data/appstore-review-webhook-api.ts` (browser calls to `https://{subdomain}.appshelp.cc/_bridge/appstore/...`).
-- Utility: `utils/appstore-review-webhook.ts` (clean `public_subdomain` + effective public webhook/page URL helpers).
-- Status/read API: `api/appstore-review-webhook-status.js` (shared ZefGen reads current webhook state for the UI).
-- Worker bridge/public surface: `cloudflare/appstore-review-bridge/worker.js`
-  - `/_bridge/appstore/apps|sync|ping` = Apple-facing setup/test actions
-  - `/appstore-review` = raw webhook forwarder to the hidden Supabase receiver
-  - `/`, `/privacy`, `/terms`, `/support`, `/icon` = public app page/redirect/icon routes on the same subdomain
-- Hidden receiver: `supabase/functions/appstore-review-webhook/index.ts` (called behind the Worker; deploy with `--no-verify-jwt`).
-- Public URL behavior:
-  - Managed/default flow is `https://{subdomain}.appshelp.cc/appstore-review?token=...`.
-  - Public landing page flow is `https://{subdomain}.appshelp.cc/` after explicit `Generate webpage`.
-  - Legacy explicit custom HTTPS webhook URLs are still honored if they are not the raw Supabase host.
+### Runner visuals and motion helpers
 
-## Alias Uniqueness & Allocation
-- DB contract:
-  - Legacy per-brand index remains: `apps_brand_alias_key`.
-  - Global enforcement index: `apps_user_alias_lower_key` on `(user_id, lower(alias))`.
-  - Different users may reuse the same alias; uniqueness scope is per user workspace.
-- Migration behavior:
-  - `supabase/migrations/20260302000001_global_alias_uniqueness.sql` fails fast if existing duplicates are found by `(user_id, lower(alias))`.
-- App create/edit behavior:
-  - Alias input is normalized with `slugify`.
-  - If requested alias is busy globally for the same user, client auto-picks first free alias.
-  - For numbered aliases, allocator picks first free number (`ef-01` busy -> `ef-02`, not `ef-01-2`).
-  - UI shows a toast notification when auto-adjustment is applied.
-- No Brand move behavior:
-  - Step 11 alias collision preflight is global (all apps of same user).
-  - Auto-adjusted alias is surfaced to user via toast notification.
+- `components/app/MatrixTerminal.tsx` - themed runner terminal frame.
+- `components/app/MatrixRain.tsx` - matrix-style idle animation.
 
-## Legal Links Generation (Step 3 Setup data)
-- Trigger UI: `Generate links` / `Regenerate links` in `components/app/ConnectorVariablesSecretsPanel.tsx`.
-- Related publish action: `Generate webpage` / `Open webpage` in the same panel controls when the public `appshelp.cc` page goes live.
-- Backend: Supabase Edge Function `supabase/functions/generate-legal-links/index.ts`.
-- Output keys in `connector_app_configs.variables`:
-  - `privacy_policy_url`
-  - `terms_of_use_url`
-  - `support_form_url`
-- History table: `public.connector_legal_links` (succeeded/failed runs, fingerprint, metadata).
-- Atomic success write: RPC `public.connector_commit_legal_links_success(...)` updates setup URLs + inserts success run in one transaction.
+### DnD and UI primitives
 
-### Inputs / preconditions
-- Required data:
-  - `company_name` (from variables, fallback to assigned account company name)
-  - `appstore_name`
-  - assigned account `email`
-- `appstore_name` is capped at 30 chars (App Store constraint).
-- Frontend blocks generation when required inputs are missing.
+- `components/app/dnd/sortable-list.tsx` - generic sortable list helper.
+- `components/app/dnd/sortable-grid.tsx` - generic sortable grid helper.
+- `components/ui/button.tsx` - shared button primitive.
+- `components/ui/InstantTooltip.tsx` - lightweight tooltip.
 
-### Generation behavior
-- Fingerprint = `sha256(normalize(company_name) + "|" + normalize(appstore_name) + "|" + normalize(email))`.
-- If latest succeeded run has same fingerprint and `confirmRegenerate=false`, function returns `confirm_required`.
-- Creates per-app folder in Google My Drive (`zefgen-<appId>-<slug>`), then:
-  - Google Doc: Privacy Policy
-  - Google Doc: Terms of Use
-  - Google Form: Support form
-- Docs are shared as anyone-with-link reader.
-- Form is published and accepting responses.
-- On failure after partial file creation, function does best-effort cleanup by moving created Google files to trash.
+### Fancy components
 
-### Parallel App Store Description Generation (Step 3)
-- Trigger: same Step 3 button (`Generate links` / `Regenerate links`) now runs two tasks in parallel:
-  - legal links generation (Supabase Edge Function);
-  - App Store description generation (Vercel API).
-- Description endpoint: `POST /api/generate-appstore-description` (`api/generate-appstore-description.ts`).
-- Auth model for endpoint: `Authorization: Bearer <supabase_access_token>` verified via Supabase `/auth/v1/user`.
-- Data layer client: `data/appstore-description.ts`.
-- Hook integration: `hooks/use-connector-config-form.ts` adds:
-  - `generateDescriptionBusy`
-  - `regenerateAppstoreDescription(...)`
-- Storage target: generated text is saved into `connector_app_configs.variables.appstore_description`.
-- Short-spec rule:
-  - If `project_brief` (`Client spec`) has fewer than 100 chars, description generation returns `skipped_short_spec`.
-  - This does not block legal links generation.
-- Prompting:
-  - 3 in-code long-form prompt templates.
-  - One template is selected randomly per run (uniform distribution).
-  - Output is validated server-side for length, paragraph structure, bullet overuse, and generic CTA endings before it is saved.
-- Field-level actions (Step 3 Variables):
-  - `appstore_description` has `Regenerate` (description-only) and `Copy`.
-  - `Regenerate` is disabled when `Client spec < 100`.
+- `components/fancy/filter/` - gooey SVG filter primitives and demo components.
+- `components/fancy/text/` - animated text effects, helper utilities, and the barrel export in `components/fancy/text/index.ts`.
 
-### Where support form responses go
-- Responses are stored in Google Forms (Google account context), not in Supabase.
-- Supabase stores only generated URLs + generation run history.
+## Hooks
 
-### Auth model (important)
-- Google side: OAuth refresh token flow (`GOOGLE_OAUTH_*` secrets), personal My Drive mode.
-- Supabase side for this function: deploy with gateway JWT verification disabled and validate bearer token inside function via `service.auth.getUser(token)`.
-- Deployment guardrail command:
-  - `npm run deploy:legal-links`
-  - (equivalent) `supabase functions deploy generate-legal-links --project-ref onzswbbqaikkjpmvzplb --use-api --no-verify-jwt`
+### Shell, routing, and layout
 
-### Common troubleshooting
-- `Invalid JWT` / auth errors on invoke:
-  - ensure function was deployed with `--no-verify-jwt`;
-  - hard refresh app and re-login once;
-  - verify frontend uses current auth session (data-layer handles refresh/retry).
-- Google 403 quota/storage errors:
-  - check target Google account storage and OAuth scopes.
+- `hooks/use-app-shell-ui-state.ts` - shell-local UI state.
+- `hooks/use-app-shell-selection-models.ts` - brand/app selection derivations.
+- `hooks/use-app-shell-derived-state.ts` - shell-level derived loading and readiness state.
+- `hooks/use-app-shell-actions.ts` - shell-level action helpers.
+- `hooks/use-app-shell-notices.ts` - notices and transient warnings.
+- `hooks/use-route-sync.ts` - URL synchronization for selected brand/app/page.
+- `hooks/use-workspace-navigation-actions.ts` - public navigation callbacks.
+- `hooks/use-workspace-navigation-controller.ts` - guarded workspace switching and restore logic.
+- `hooks/use-workspace-switch-preparation.ts` - pre-switch save/flush orchestration.
+- `hooks/use-workspace-switch-overlay.ts` - switch overlay stage timing.
+- `hooks/use-app-folder-layout.ts` - gooey folder measurements and refs.
+- `hooks/use-app-pill-pan.ts` - horizontal panning for app pill rows.
+- `hooks/use-workspace-assets-layout.ts` - collapsed/expanded asset layout state.
+- `hooks/use-workspace-presentation-state.ts` - lightbox and app-switch presentation state.
+- `hooks/use-screen-size.ts` - viewport size tracking.
+- `hooks/use-detect-browser.ts` - browser detection.
 
-## Generation Providers (Prod)
-- `api/generate-screenshot.ts` runs server-side on Vercel so provider keys are never exposed to the client.
-- `api/generate-appstore-description.ts` runs server-side on Vercel for text generation.
-- Replicate:
-  - Requires `REPLICATE_API_TOKEN` in the prod environment.
-  - Supported models in this app:
-    - `google/nano-banana-pro`
-    - `google/nano-banana-2` (wired with `resolution=2K`, `google_search=false`, `image_search=false`)
-    - `bytedance/seedream-4`
-  - If the token/account has insufficient credit, Replicate responds with 402 and the UI surfaces a billing/token ownership hint.
-- OpenAI:
-  - Requires `OPENAI_API_KEY` in the prod environment.
-  - Optional model override for appstore descriptions: `OPENAI_APPSTORE_MODEL` (default: `gpt-5.2`).
+### Auth, catalog data, and read models
 
-## How to Add Features
-Use this path when introducing a new domain feature (data + UI).
-1. Define or extend domain types in `types/zefgen.ts`.
-2. Add Supabase queries in `data/` (one file per domain object).
-3. Create a hook in `hooks/` to own state + side effects + actions.
-4. Add a focused UI component in `components/app/` (or `components/` if shared).
-5. Wire the hook and component in `components/app/AppShell.tsx`.
-6. Update `docs/PROJECT_STRUCTURE.md` to document the new files and responsibilities.
+- `hooks/use-auth-session.ts` - Supabase auth session and loading state.
+- `hooks/use-brands.ts` - brand CRUD, reorder, inactive state, and system No Brand maintenance.
+- `hooks/use-apps.ts` - app CRUD, alias allocation, reorder, ban/unban, and brand scoping.
+- `hooks/use-brand-references.ts` - brand reference uploads and CRUD.
+- `hooks/use-app-screenshots.ts` - simulator screenshot CRUD and uploads.
+- `hooks/use-app-screenshot-prompts.ts` - screenshot prompt persistence and hydration.
+- `hooks/use-generated-assets.ts` - generated asset fetch, generation state, edit state, screenshot sets, picks, export status, and download flows.
+- `hooks/use-app-screenshot-downloads.ts` - ZIP download flows for simulator screenshots and deliverables.
+- `hooks/use-app-ideas.ts` - ideas/categories CRUD and app assignments.
+- `hooks/use-appstore-accounts.ts` - pooled App Store accounts CRUD.
+- `hooks/use-appstore-account.ts` - app-level account read helper.
+- `hooks/use-brand-app-summaries.ts` - sidebar app counts and ready/banned/completed indicators.
+- `hooks/use-signed-url-cache.ts` - signed URL caching across storage-backed assets.
 
-Data flow: UI component → hook → data layer → Supabase.
+### Connector, jobs, and artifacts
+
+- `hooks/use-connector-config-form.ts` - connector config load/save, autosave state, save-conflict handling, and App Store description/legal-links actions.
+- `hooks/use-connector-jobs.ts` - app-scoped runner jobs.
+- `hooks/use-connector-job-queue.ts` - global job queue across apps.
+- `hooks/use-connector-job-artifacts.ts` - QA/report/screenshot artifact polling and URL hydration.
+- `hooks/use-connector-messages.ts` - runner message log and question/answer loop.
+- `hooks/use-generation-jobs.ts` - client-side long-running generation/download jobs.
+- `hooks/use-idea-generation-jobs.ts` - brand-scoped `idea_generation` job lifecycle for the ideas page.
+
+### Workspace collaboration and snapshots
+
+- `hooks/use-workspace-collaboration.ts` - presence polling and brand lock lifecycle.
+- `hooks/use-workspace-readonly-state.ts` - current read-only and lock visibility state.
+- `hooks/use-workspace-lock-side-effects.ts` - read-only transitions, lost-lock handling, and explicit claim flow.
+- `hooks/use-workspace-busy-guards.ts` - unload protection and busy-state aggregation.
+- `hooks/use-workspace-snapshot-hydration.ts` - hydrate cached workspace snapshots into active hooks.
+- `hooks/use-workspace-snapshot-cache.ts` - keep per-app snapshots warm in memory.
+- `hooks/use-workspace-step-readiness.ts` - current step completion/readiness model.
+- `hooks/use-workspace-generation-view-model.ts` - stable public generation view-model entry.
+- `hooks/use-workspace-generation-view-model-impl.tsx` - actual generation section assembly.
+
+### No Brand and local workspace helpers
+
+- `hooks/use-no-brand-workspace-actions.ts` - no-brand icon-prompt autogen, screenshot-prompt autogen, and move-to-brand flow.
+- `hooks/use-slot-mappings.ts` - local per-app slot mapping persistence.
+
+## Data Layer
+
+### Core workspace data
+
+- `data/auth.ts` - sign-out actions.
+- `data/brands.ts` - brand reads/writes.
+- `data/apps.ts` - app reads/writes and move-to-brand RPC integration.
+- `data/brand-references.ts` - brand reference storage and CRUD.
+- `data/app-screenshots.ts` - simulator screenshot storage and CRUD.
+- `data/generated-assets.ts` - generated asset storage, CRUD, uploads, and related fetch helpers.
+- `data/app-indicators.ts` - lightweight counts used for sidebar summaries.
+
+### Screenshot workflow data
+
+- `data/screenshot-sets.ts` - screenshot-set CRUD.
+- `data/asset-picks.ts` - export pick persistence.
+- `data/export-status.ts` - completion/lock-in state.
+- `data/app-screenshot-prompts.ts` - per-slot prompt persistence.
+- `data/screenshot-prompt-autogen.ts` - client API wrapper for no-brand screenshot prompt/title autogeneration.
+
+### Ideas, accounts, and connector config
+
+- `data/app-ideas.ts` - ideas, categories, and app assignments.
+- `data/appstore-accounts.ts` - pooled App Store accounts and app assignment queries.
+- `data/connector-app-config.ts` - connector config persistence.
+- `data/connector-secrets.ts` - secret writes and metadata.
+- `data/connector-legal-links.ts` - legal-links generation trigger/history.
+- `data/connector-jobs.ts` - runner jobs CRUD and polling helpers.
+- `data/connector-messages.ts` - runner message log and Q/A helpers.
+- `data/connector-job-artifacts.ts` - runner artifact reads.
+
+### Server-backed generation and webhook clients
+
+- `data/appstore-description.ts` - browser client for App Store description generation.
+- `data/icon-prompt.ts` - browser client for no-brand icon prompt generation.
+- `data/appstore-review-webhooks.ts` - review webhook row/event persistence.
+- `data/appstore-review-webhook-api.ts` - bridge calls to `appshelp.cc` and status endpoints.
+
+## Types, Constants, Lib, and Utils
+
+### Types
+
+- `types/zefgen.ts` - main domain types for brands, apps, assets, jobs, ideas, accounts, webhooks, and provider IDs.
+- `types/workspace-snapshot.ts` - cached per-app workspace snapshot shape.
+- `types/workspace-switch.ts` - guarded workspace-switch contracts.
+
+### Constants
+
+- `constants/zefgen.ts` - feature flags, limits, storage bucket names, fonts, screenshot sizes, and collaboration defaults.
+- `constants/countries.ts` - ISO countries and priority ordering.
+
+### Shared libraries
+
+- `lib/supabase.ts` - shared browser Supabase client.
+- `lib/server/generate-appstore-description.shared.js` - server prompt sanitizers/helpers reused across text-generation endpoints.
+- `lib/server/appstore-review-webhook.shared.js` - shared webhook parsing/normalization helpers.
+
+### Utilities
+
+- `utils/slug.ts` - slugify and unique alias allocation.
+- `utils/routes.ts` - route parsing/building.
+- `utils/id.ts` - id helper.
+- `utils/images.ts` - image validation, rendering, resize, and edit-layer composition.
+- `utils/download.ts` - file and blob download helpers.
+- `utils/dom.ts` - textarea auto-grow helper.
+- `utils/retry.ts` - async retry helper.
+- `utils/no-brand.ts` - No Brand detection and brand option helpers.
+- `utils/appstore.ts` - App Store URL normalization and helper links.
+- `utils/appstore-review-webhook.ts` - public subdomain and effective review-webhook URL helpers.
+- `utils/accounts-paste.ts` - bulk account paste parser.
+- `utils/runner-log.ts` - runner log compaction and stage parsing.
+- `utils/connector-runner-state.js` - runner-state derivation and artifact grouping.
+- `utils/integration-terminal.js` - integration terminal parsing helpers.
+- `utils/screenshot-prompt-workflow.js` - no-brand screenshot prompt templates and slot readiness logic.
+
+## Backend and External Integrations
+
+### Vercel `/api` functions
+
+- `api/generate-screenshot.ts` - server-side image generation proxy.
+- `api/generate-icon-prompt.ts` - no-brand icon prompt autogen.
+- `api/generate-screenshot-prompts.ts` - app-theme and screenshot-title autogen for no-brand flows.
+- `api/generate-appstore-description.ts` - App Store description generation.
+- `api/provider-status.ts` - local env/provider diagnostics.
+- `api/create-github-repo.ts` - GitHub repo creation and seeding.
+- `api/delete-github-repo.ts` - GitHub repo deletion.
+- `api/workspace-sessions.ts` - presence snapshot, heartbeat, claim/release lock.
+- `api/appstore-review-webhook-status.js` - review webhook status and event timeline reads.
+
+### Supabase Edge Functions
+
+- `supabase/functions/generate-legal-links/index.ts` - generates legal documents, Google Drive files, and support form URLs.
+- `supabase/functions/appstore-review-webhook/index.ts` - hidden review-webhook receiver behind the Cloudflare bridge.
+- `supabase/functions/_shared/google-auth.ts` - Google OAuth helpers.
+- `supabase/functions/_shared/google-drive.ts` - Google Drive helpers.
+- `supabase/functions/_shared/google-docs.ts` - Google Docs helpers.
+- `supabase/functions/_shared/google-forms.ts` - Google Forms helpers.
+- `supabase/functions/_shared/legal-templates.ts` - legal document templates.
+
+### Cloudflare bridge
+
+- `cloudflare/appstore-review-bridge/worker.js` - public `appshelp.cc` worker that exposes the bridge endpoints, raw webhook ingress, and public landing/privacy/terms/support/icon routes.
+- `cloudflare/appstore-review-bridge/wrangler.jsonc` - worker config.
+- `cloudflare/appstore-review-bridge/wrangler.jsonc.example` - config template.
+
+### Repo templates
+
+- `templates/github/README.md.tpl` - initial README seeded into app repos created from ZefGen.
+
+## Supabase and Database
+
+- `supabase/config.toml` - local Supabase config.
+- `supabase/schema.sql` - canonical schema fallback used by smoke bootstrap when migrations are skipped.
+- `supabase/schema_check.sql` - schema verification query file.
+- `supabase/seed.sql` - local seed data.
+- `supabase/storage_policies.sql` - storage policy definitions.
+- `supabase/migrations/` - sequential schema history. Major groups currently cover:
+  - initial schema and generated assets
+  - screenshot sets, picks, and completion
+  - GitHub repo tracking
+  - brand release planning and brand ordering
+  - runner jobs and connector handshake/safe-save followups
+  - App Store accounts pool and notes
+  - legal links and commit RPC
+  - App Store URL
+  - workspace presence and brand locks
+  - ideas and idea title cleanup
+  - global alias uniqueness and no-brand move-to-brand
+  - review webhooks, Apple Connect sync, public subdomains, and Cloudflare bridge/public page support
+  - idea-generation jobs and indexes
+  - brand inactive state
+  - downstream capture mode enforcement
+
+## Tests and Tooling
+
+### Scripts
+
+- `scripts/bootstrap-smoke-backend.mjs` - boots local Supabase, applies schema fallback if needed, and seeds smoke data.
+- `scripts/check-credentials.mjs` - credential leak guard.
+- `scripts/check-declaration-order.mjs` - declaration-order guard.
+- `scripts/check-supabase-migration-filenames.mjs` - migration naming guard.
+- `scripts/dev-restart.mjs` - local dev-server restart helper.
+- `scripts/install-git-hooks.mjs` - installs `.githooks/pre-commit`.
+- `scripts/smoke-legal-links.mjs` - legal-links smoke check.
+
+### Tests
+
+- `tests/*.test.*` - node-level regression tests for accounts paste, App Store description helpers, review webhooks, capture modes, runner state, integration terminal parsing, and screenshot prompt workflow.
+- `tests/smoke/*.spec.ts` - browser smoke coverage for auth, navigation, workspace CRUD, brand inactive behavior, accounts, ideas, and screenshot prompt workflows.
+- `tests/smoke/auth.setup.ts` - authenticated Playwright setup.
+- `tests/smoke/support/fixtures.ts` - global browser guard layer for smoke tests.
+- `tests/smoke/support/helpers.ts` - shared smoke helpers.
+- `tests/smoke/support/smoke-env.ts` - typed access to generated smoke env metadata.
+- `playwright/.auth/` and `playwright/.tmp/` - generated smoke auth/session artifacts and temp outputs.
+
+## Docs and Reference Material
+
+- `docs/PROJECT_STRUCTURE.md` - this file.
+- `docs/testing/smoke-tests.md` - smoke test runbook.
+- `docs/appstore-review-webhook-cloudflare.md` - Cloudflare bridge rollout notes.
+- `docs/zefgen-logo-font.md` - logo/font notes.
+- `docs/spec/` - product spec set, UI map, system map, open questions, acceptance tests, and milestones.
+- `docs/spec/00_source/initial_brief.md` - original brief source.
+- `docs/ai/` - working AI-generated briefs, UI map, runner spec, interview log, and open questions.
+
+## Current Workflow Notes
+
+### Workspace step order
+
+The workspace currently renders:
+
+- non-numbered app rows first: App Store link and App Store review webhook
+- numbered setup steps after that:
+  1. icon generation
+  2. idea picker and client spec
+  3. variables and secrets
+  4. GitHub repo
+  5. runner
+  6. integration
+  7. auto-release placeholder
+
+No Brand mode swaps numbered steps 1 and 2, and adds:
+
+- no-brand icon prompt autogen via `api/generate-icon-prompt.ts`
+- screenshot prompt/title autogen via `api/generate-screenshot-prompts.ts`
+- move-to-brand actions in `hooks/use-no-brand-workspace-actions.ts`
+
+The generation area below setup continues through:
+
+- simulator screenshots
+- screenshot prompts
+- generated screenshots
+- picks/completion rail
+- deliverables downloads
+
+### Runner job kinds
+
+`data/connector-jobs.ts` currently defines:
+
+- `generate`
+- `fix`
+- `integration`
+- `visual_qa`
+- `screenshots`
+- `idea_generation`
+
+Runner artifacts currently cover:
+
+- `qa_report`
+- `qa_evidence`
+- `screenshot_manifest`
+- `screenshot_image`
 
 ## Local Dev Notes
-- `npm run dev` runs the Vite client only (no `/api/*` serverless functions).
-- `npm run dev` also mounts a small local middleware for a subset of `/api/*` routes (currently: `generate-screenshot`, `generate-appstore-description`, `generate-icon-prompt`, `create-github-repo`, `delete-github-repo`, `workspace-sessions`) so you can iterate without `vercel dev`.
-- The local middleware also exposes `GET /api/provider-status` for quick env diagnostics.
-- To run the full Vercel routing layer locally (for `/api/*` + rewrites), use `vercel dev` (requires Vercel CLI) and ensure env vars are set.
+
+- `npm run dev` starts the Vite app and the local middleware-backed subset of `/api/*` routes.
+- `npm run dev:vercel` runs the full Vercel routing layer locally.
+- `npm run smoke` is the canonical full regression command.
+- `npm run smoke:backend` resets/boots local Supabase and smoke data.
+- `npm run smoke:test` runs Playwright smoke coverage.
+- `npm run typecheck` runs TypeScript without emitting.
+- `npm run build` runs migration/declaration checks and the production build.
+
+## Adding New Features
+
+Keep the layering consistent:
+
+1. Start with `types/` and `constants/` if the domain model changes.
+2. Add reads/writes in `data/`.
+3. Add orchestration in `hooks/`.
+4. Add focused UI in `components/app/` or shared UI in `components/`.
+5. Wire the feature into `components/app/AppShell.tsx` or the relevant page component.
+6. Add regression coverage in `tests/` or `tests/smoke/`.
+7. Update this file when the shape of the repo changes.

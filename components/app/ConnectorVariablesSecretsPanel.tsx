@@ -40,6 +40,7 @@ const isUsableLegalUrl = (value: unknown) => {
 export function ConnectorVariablesSecretsPanel(props: {
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     isEnabled: boolean;
+    isReadOnly?: boolean;
     selectedApp: AppItem | null;
     account: AppstoreAccount | null;
     allAccounts: AppstoreAccount[];
@@ -47,8 +48,19 @@ export function ConnectorVariablesSecretsPanel(props: {
     onOpenAccountsForApp?: () => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { connectorForm, isEnabled, selectedApp, account, allAccounts, onPickAccount, onOpenAccountsForApp, text } =
+    const {
+        connectorForm,
+        isEnabled,
+        isReadOnly = false,
+        selectedApp,
+        account,
+        allAccounts,
+        onPickAccount,
+        onOpenAccountsForApp,
+        text,
+    } =
         props;
+    const canEdit = isEnabled && !isReadOnly;
 
     const [secretKey, setSecretKey] = React.useState('');
     const [secretValue, setSecretValue] = React.useState('');
@@ -306,7 +318,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     );
 
     const handleGenerateLinks = React.useCallback(async () => {
-        if (!isEnabled) return;
+        if (!canEdit) return;
         if (connectorForm.generateLinksBusy) return;
         if (connectorForm.generateDescriptionBusy) {
             showActionHint('generate', text('connector_appstore_desc_busy'));
@@ -408,10 +420,10 @@ export function ConnectorVariablesSecretsPanel(props: {
         setGenerateNotice(text('connector_generate_links_success'));
     }, [
         connectorForm,
+        canEdit,
         generateBlocked,
         generateButtonTitle,
         getDescriptionFailureNotice,
-        isEnabled,
         persistGeneratedDescription,
         resolvedAccountEmail,
         resolvedAppStoreName,
@@ -421,7 +433,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     ]);
 
     const handleRegenerateDescriptionOnly = async () => {
-        if (!isEnabled || connectorForm.generateDescriptionBusy || appstoreDescriptionRegenerateBlocked) return;
+        if (!canEdit || connectorForm.generateDescriptionBusy || appstoreDescriptionRegenerateBlocked) return;
         setGenerateNotice(null);
         const result = await connectorForm.regenerateAppstoreDescription({
             companyName: resolvedCompanyName,
@@ -439,7 +451,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     };
 
     const handleGenerateWebpage = React.useCallback(async () => {
-        if (!isEnabled) return;
+        if (!canEdit) return;
         if (connectorForm.publishWebpageBusy) return;
         if (webpagePublished && connectorForm.publicWebpageUrl) {
             window.open(connectorForm.publicWebpageUrl, '_blank', 'noopener,noreferrer');
@@ -467,7 +479,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         setGenerateNotice(text('connector_webpage_published'));
     }, [
         connectorForm,
-        isEnabled,
+        canEdit,
         showActionHint,
         text,
         webpageButtonTitle,
@@ -622,7 +634,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     aria-label={text('accounts_account')}
                                     value={pickerValue}
                                     onChange={(e) => void handlePickChange(e.target.value)}
-                                    disabled={!isEnabled || !selectedApp || !onPickAccount || pickBusy}
+                                    disabled={!canEdit || !selectedApp || !onPickAccount || pickBusy}
                                     className="h-9 rounded-full border border-white/10 bg-slate-950/20 pl-4 pr-9 text-[11px] font-semibold text-indigo-100/85 outline-none hover:border-indigo-400/35 disabled:opacity-60"
                                     title={text('accounts_account')}
                                 >
@@ -763,7 +775,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                         )
                                     }
                                     maxLength={APP_NAME_VARIABLE_KEYS.has(f.key) ? APP_NAME_MAX_LENGTH : undefined}
-                                    disabled={!isEnabled}
+                                    disabled={!canEdit}
                                     className={`w-full rounded-full px-4 py-2 text-xs outline-none placeholder:text-indigo-200/30 disabled:opacity-60 ${
                                         OPTIONAL_VARIABLE_KEYS.has(f.key)
                                             ? 'border border-white/8 bg-slate-950/16 text-indigo-100/78 placeholder:italic placeholder:text-indigo-200/28 focus:border-indigo-300/24'
@@ -885,7 +897,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                                         type="button"
                                                         onClick={() => void handleRegenerateDescriptionOnly()}
                                                         disabled={
-                                                            !isEnabled ||
+                                                            !canEdit ||
                                                             connectorForm.generateDescriptionBusy ||
                                                             connectorForm.generateLinksBusy ||
                                                             appstoreDescriptionRegenerateBlocked
@@ -940,7 +952,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                             }
                                             rows={4}
                                             maxLength={isAppstoreDescription ? APPSTORE_DESCRIPTION_MAX_LENGTH : undefined}
-                                            disabled={!isEnabled}
+                                            disabled={!canEdit}
                                             className={`w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60 ${
                                                 f.key === 'firebase_plist_snippet' ? 'font-mono text-[11px]' : ''
                                             }`}
@@ -973,7 +985,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             title="Add secret"
                             aria-label="Add secret"
                             onClick={() => {
-                                if (!isEnabled || connectorForm.secretBusy) return;
+                                if (!canEdit || connectorForm.secretBusy) return;
                                 if (!secretKey.trim()) setSecretKey('OPENAI_API_KEY');
                                 requestAnimationFrame(() => {
                                     secretKeyInputRef.current?.scrollIntoView({
@@ -983,7 +995,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     secretKeyInputRef.current?.focus();
                                 });
                             }}
-                            disabled={!isEnabled || connectorForm.secretBusy}
+                            disabled={!canEdit || connectorForm.secretBusy}
                             className="ui-btn-fit ui-btn-fit-dense inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
                         >
                             <Plus size={16} />
@@ -995,7 +1007,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             ref={secretKeyInputRef}
                             value={secretKey}
                             onChange={(e) => setSecretKey(e.target.value)}
-                            disabled={!isEnabled}
+                            disabled={!canEdit}
                             className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
                             placeholder="OPENAI_API_KEY"
                         />
@@ -1003,14 +1015,14 @@ export function ConnectorVariablesSecretsPanel(props: {
                             value={secretValue}
                             onChange={(e) => setSecretValue(e.target.value)}
                             type="password"
-                            disabled={!isEnabled}
+                            disabled={!canEdit}
                             className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
                             placeholder={text('connector_secret_value_placeholder')}
                         />
                         <button
                             type="button"
                             onClick={upsertSecret}
-                            disabled={!isEnabled || connectorForm.secretBusy || !secretKey.trim() || !secretValue}
+                            disabled={!canEdit || connectorForm.secretBusy || !secretKey.trim() || !secretValue}
                             className="ui-btn-fit inline-flex items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15 disabled:opacity-60"
                         >
                             {text('connector_set_secret')}
@@ -1035,7 +1047,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                 <button
                                     type="button"
                                     onClick={() => connectorForm.removeSecret(String(m.key || ''))}
-                                    disabled={!isEnabled || connectorForm.secretBusy}
+                                    disabled={!canEdit || connectorForm.secretBusy}
                                     className="ui-btn-fit ui-btn-fit-dense inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-200/70 hover:border-rose-400/40 hover:text-white disabled:opacity-60"
                                 >
                                     {text('delete')}

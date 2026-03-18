@@ -20,7 +20,11 @@ import { useWorkspaceCollaboration } from '../../hooks/use-workspace-collaborati
 import { useWorkspaceNavigationActions } from '../../hooks/use-workspace-navigation-actions';
 import { useWorkspaceNavigationController } from '../../hooks/use-workspace-navigation-controller';
 import { useWorkspaceLockSideEffects } from '../../hooks/use-workspace-lock-side-effects';
-import { useNoBrandIconPromptActions, useNoBrandMoveToBrand } from '../../hooks/use-no-brand-workspace-actions';
+import {
+    useNoBrandIconPromptActions,
+    useNoBrandMoveToBrand,
+    useNoBrandScreenshotPromptAutogenActions,
+} from '../../hooks/use-no-brand-workspace-actions';
 import { useAppShellNotices } from '../../hooks/use-app-shell-notices';
 import { useWorkspaceAssetsLayout } from '../../hooks/use-workspace-assets-layout';
 import { useWorkspaceBusyGuards } from '../../hooks/use-workspace-busy-guards';
@@ -480,6 +484,8 @@ export function AppShell({ session }: AppShellProps) {
         slotsToCreate,
         canGenerateIcon,
         canGenerateScreenshots,
+        slotGenerateBlockedReasonBySlotIndex,
+        generateAllBlockedReason,
     } = useGeneratedAssets({
         session,
         selectedBrand,
@@ -548,6 +554,22 @@ export function AppShell({ session }: AppShellProps) {
         selectedApp,
         session,
         showAliasNotice,
+        text,
+    });
+
+    const {
+        canScreenshotPromptAutogen,
+        handleScreenshotPromptAutogen,
+        screenshotPromptAutogenBusy,
+    } = useNoBrandScreenshotPromptAutogenActions({
+        clientSpec: connectorForm.projectBrief,
+        isNoBrandMode,
+        reportActionError,
+        selectedApp,
+        session,
+        setSlotPrompt,
+        showAliasNotice,
+        targetSlotCount,
         text,
     });
 
@@ -854,7 +876,7 @@ export function AppShell({ session }: AppShellProps) {
     useEffect(() => {
         const elements = document.querySelectorAll<HTMLTextAreaElement>('.auto-grow');
         elements.forEach((element) => syncAutoGrowTextarea(element));
-    }, [brandIconReference?.prompt, noBrandIconPromptDraft, brandScreenshotReferences, promptsByRefId]);
+    }, [brandIconReference?.prompt, noBrandIconPromptDraft, brandScreenshotReferences, promptsByRefId, slotPromptBySlotIndex]);
     const {
         githubStepDone,
         iconStepNumber,
@@ -1118,6 +1140,7 @@ export function AppShell({ session }: AppShellProps) {
             handleNoBrandIconPromptAutogen,
             handleNoBrandIconPromptChange,
             handleNoBrandIconPromptSave,
+            handleScreenshotPromptAutogen,
             handlePickIcon,
             handlePickScreenshot,
             handleReorderAppScreenshot,
@@ -1140,6 +1163,8 @@ export function AppShell({ session }: AppShellProps) {
             noBrandIconPromptAutogenBusy,
             noBrandIconPromptValue: noBrandIconPromptDraft,
             noBrandStyleReferenceOptions,
+            canScreenshotPromptAutogen,
+            screenshotPromptAutogenBusy,
             onCreateBrand: () => openBrandForm(),
             openLightbox,
             pickedIconAssetId,
@@ -1156,6 +1181,7 @@ export function AppShell({ session }: AppShellProps) {
             screenshotProviderId,
             screenshotSets,
             screenshotsGenerating,
+            generateAllBlockedReason,
             selectedApp,
             selectedAppScreenshots,
             setActiveScreenshotSetId,
@@ -1174,6 +1200,7 @@ export function AppShell({ session }: AppShellProps) {
             setSystemPromptTemplateForSlot,
             showNoAppsEmptyState,
             slotGenerating,
+            slotGenerateBlockedReasonBySlotIndex,
             slotHeadlineBySlotIndex,
             slotHeadlinePosBySlotIndex,
             slotPromptBySlotIndex,

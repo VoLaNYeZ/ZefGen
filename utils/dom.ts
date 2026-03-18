@@ -2,13 +2,15 @@ import { AUTO_GROW_MULTIPLIER } from '../constants/zefgen';
 
 export const syncAutoGrowTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
-    const baseHeight = element.dataset.baseHeight
-        ? Number(element.dataset.baseHeight)
-        : element.offsetHeight || element.scrollHeight;
+    const requestedBaseHeight = Number(element.dataset.autoGrowBase || 0);
+    const cachedBaseHeight = Number(element.dataset.baseHeight || 0);
+    const measuredBaseHeight = element.offsetHeight || element.scrollHeight;
+    const baseHeight = cachedBaseHeight || Math.max(requestedBaseHeight, measuredBaseHeight);
     if (!element.dataset.baseHeight) {
         element.dataset.baseHeight = String(baseHeight);
     }
-    const maxHeight = baseHeight * AUTO_GROW_MULTIPLIER;
+    const requestedMultiplier = Number(element.dataset.autoGrowMultiplier || 0);
+    const maxHeight = baseHeight * (requestedMultiplier > 0 ? requestedMultiplier : AUTO_GROW_MULTIPLIER);
     element.style.minHeight = `${baseHeight}px`;
     element.style.maxHeight = `${maxHeight}px`;
     element.style.height = 'auto';

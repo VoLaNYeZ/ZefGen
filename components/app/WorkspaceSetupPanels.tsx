@@ -181,7 +181,8 @@ export function WorkspaceSetupPanels({
                 <div data-testid="workspace-panel-variables-secrets">
                     <ConnectorVariablesSecretsPanel
                         connectorForm={connectorForm}
-                        isEnabled={connectorEnabled && !isCurrentBrandReadOnly}
+                        isEnabled={connectorEnabled}
+                        isReadOnly={isCurrentBrandReadOnly}
                         selectedApp={selectedApp}
                         account={selectedAppstoreAccount}
                         allAccounts={allAccounts}

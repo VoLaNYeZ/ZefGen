@@ -137,6 +137,11 @@ type AppGenerationSectionProps = {
     handleNoBrandIconPromptSave?: (value: string) => void;
     handleNoBrandIconPromptAutogen?: () => void;
     noBrandIconPromptAutogenBusy?: boolean;
+    canScreenshotPromptAutogen?: boolean;
+    handleScreenshotPromptAutogen?: () => void;
+    screenshotPromptAutogenBusy?: boolean;
+    slotGenerateBlockedReasonBySlotIndex: Record<number, string | null>;
+    generateAllBlockedReason: string | null;
     handleAutoGrowInput: (event: React.FormEvent<HTMLTextAreaElement>) => void;
     openLightbox: (
         src: string,
@@ -242,6 +247,11 @@ export const AppGenerationSection = ({
     handleNoBrandIconPromptSave,
     handleNoBrandIconPromptAutogen,
     noBrandIconPromptAutogenBusy = false,
+    canScreenshotPromptAutogen = false,
+    handleScreenshotPromptAutogen,
+    screenshotPromptAutogenBusy = false,
+    slotGenerateBlockedReasonBySlotIndex,
+    generateAllBlockedReason,
     handleAutoGrowInput,
     openLightbox,
     text,
@@ -939,6 +949,7 @@ export const AppGenerationSection = ({
                             <div className="flex items-center gap-2">
                                 <span className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/60">{text('provider')}</span>
                                 <select
+                                    data-testid="screenshot-provider-select"
                                     value={screenshotProviderId}
                                     onChange={(event) => setScreenshotProviderId(event.target.value as ScreenshotProviderId)}
                                     className="ui-btn-fit rounded-full border border-indigo-500/20 bg-slate-950/60 px-3 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -952,8 +963,10 @@ export const AppGenerationSection = ({
                             </div>
                             <button
                                 type="button"
+                                data-testid="screenshot-generate-all-button"
                                 onClick={handleGenerateAllScreenshots}
                                 disabled={isReadOnly || !canGenerateScreenshots || screenshotsGenerating}
+                                title={generateAllBlockedReason || undefined}
                                 className={`ui-btn-fit inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold border ${
                                     canGenerateScreenshots
                                         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
@@ -964,6 +977,11 @@ export const AppGenerationSection = ({
                             </button>
                         </div>
                     </div>
+                    {generateAllBlockedReason ? (
+                        <p data-testid="screenshot-generate-all-reason" className="text-[11px] text-amber-100/80">
+                            {generateAllBlockedReason}
+                        </p>
+                    ) : null}
 
                     <div className="grid gap-3 sm:grid-cols-2">
                         <div>
@@ -1001,10 +1019,55 @@ export const AppGenerationSection = ({
                         </div>
                     </div>
                     {isNoBrandMode ? (
-                        <p className="rounded-lg border border-cyan-300/25 bg-cyan-950/20 px-2.5 py-1.5 text-[10px] text-cyan-100/80">
-                            {text('no_brand_screenshot_mode_hint')}
-                        </p>
-                    ) : null}
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cyan-300/25 bg-cyan-950/20 px-2.5 py-2">
+                            <p className="flex-1 text-[10px] text-cyan-100/80">
+                                {text('no_brand_screenshot_mode_hint')}
+                            </p>
+                            <button
+                                type="button"
+                                data-testid="screenshot-prompt-autogen-button"
+                                onClick={handleScreenshotPromptAutogen}
+                                disabled={isReadOnly || !selectedApp || !canScreenshotPromptAutogen || screenshotPromptAutogenBusy}
+                                className={`ui-btn-fit inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold border ${
+                                    !isReadOnly && selectedApp && canScreenshotPromptAutogen && !screenshotPromptAutogenBusy
+                                        ? 'border-cyan-300/35 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25'
+                                        : 'border-white/10 text-indigo-200/40'
+                                }`}
+                            >
+                                {screenshotPromptAutogenBusy ? (
+                                    <>
+                                        <Loader2 size={13} className="animate-spin" />
+                                        <span>{text('screenshot_prompt_autogen_loading')}</span>
+                                    </>
+                                ) : (
+                                    text('screenshot_prompt_autogen')
+                                )}
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                data-testid="screenshot-prompt-autogen-button"
+                                onClick={handleScreenshotPromptAutogen}
+                                disabled={isReadOnly || !selectedApp || !canScreenshotPromptAutogen || screenshotPromptAutogenBusy}
+                                className={`ui-btn-fit inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold border ${
+                                    !isReadOnly && selectedApp && canScreenshotPromptAutogen && !screenshotPromptAutogenBusy
+                                        ? 'border-indigo-300/30 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20'
+                                        : 'border-white/10 text-indigo-200/40'
+                                }`}
+                            >
+                                {screenshotPromptAutogenBusy ? (
+                                    <>
+                                        <Loader2 size={13} className="animate-spin" />
+                                        <span>{text('screenshot_prompt_autogen_loading')}</span>
+                                    </>
+                                ) : (
+                                    text('screenshot_prompt_autogen')
+                                )}
+                            </button>
+                        </div>
+                    )}
 
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
@@ -1012,6 +1075,12 @@ export const AppGenerationSection = ({
                             const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
                             const atLimit = versions.length >= MAX_SCREENSHOT_VERSIONS;
                             const promptRefId = isNoBrandMode ? null : mapping.brandRefId;
+                            const blockedReason = slotGenerateBlockedReasonBySlotIndex[slotIndex];
+                            const template = getSystemPromptTemplateForSlot(slotIndex);
+                            const showReferencePrompt = !isNoBrandMode && template === 'ref_like' && Boolean(promptRefId);
+                            const slotPromptValue = selectedApp ? slotPromptBySlotIndex[slotIndex] ?? '' : '';
+                            const referencePromptValue =
+                                selectedApp && promptRefId ? promptsByRefId[promptRefId] ?? '' : '';
 
                             return (
                                 <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-2.5 space-y-2">
@@ -1027,6 +1096,7 @@ export const AppGenerationSection = ({
                                             <div className="min-w-0">
                                                 <label className="text-[9px] leading-none text-indigo-200/50">{text('brand_reference_label')}</label>
                                                 <select
+                                                    data-testid={`screenshot-slot-brand-${slotIndex}`}
                                                     value={mapping.brandRefId ?? ''}
                                                     onChange={(event) => updateSlotMapping(slotIndex, { brandRefId: event.target.value || null })}
                                                     className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -1045,6 +1115,7 @@ export const AppGenerationSection = ({
                                                 {isNoBrandMode ? text('no_brand_reference_free_label') : text('simulator_shot_label')}
                                             </label>
                                             <select
+                                                data-testid={`screenshot-slot-sim-${slotIndex}`}
                                                 value={mapping.simShotId ?? ''}
                                                 onChange={(event) => updateSlotMapping(slotIndex, { simShotId: event.target.value || null })}
                                                 className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -1062,6 +1133,7 @@ export const AppGenerationSection = ({
                                                 {text('no_brand_style_reference_label')}
                                             </label>
                                             <select
+                                                data-testid={`screenshot-slot-style-${slotIndex}`}
                                                 value={mapping.styleRefAssetId ?? ''}
                                                 onChange={(event) =>
                                                     updateSlotMapping(slotIndex, {
@@ -1080,34 +1152,53 @@ export const AppGenerationSection = ({
                                         </div>
                                     </div>
 
-                                    <textarea
-                                        {...(() => {
-                                            const template = getSystemPromptTemplateForSlot(slotIndex);
-                                            const useBrandPrompt = !isNoBrandMode && template === 'ref_like' && Boolean(promptRefId);
-                                            const value =
-                                                selectedApp
-                                                    ? useBrandPrompt
-                                                        ? promptsByRefId[promptRefId as string] ?? ''
-                                                        : slotPromptBySlotIndex[slotIndex] ?? ''
-                                                    : '';
-                                            return {
-                                                value,
-                                                onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-                                                    if (!selectedApp) return;
-                                                    if (useBrandPrompt) {
-                                                        setPrompt(promptRefId as string, event.target.value);
-                                                    } else {
-                                                        setSlotPrompt(slotIndex, event.target.value);
-                                                    }
-                                                },
-                                            };
-                                        })()}
-                                        onInput={handleAutoGrowInput}
-                                        placeholder={isNoBrandMode ? text('no_brand_screenshot_prompt_placeholder') : text('prompt_placeholder')}
-                                        rows={2}
-                                        disabled={isReadOnly || !selectedApp}
-                                        className="auto-grow w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
-                                    />
+                                    <div className="space-y-1">
+                                        <label className="text-[9px] leading-none text-indigo-200/50">
+                                            {text('screenshot_slot_prompt_label')}
+                                        </label>
+                                        <textarea
+                                            value={slotPromptValue}
+                                            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                                if (!selectedApp) return;
+                                                setSlotPrompt(slotIndex, event.target.value);
+                                            }}
+                                            onInput={handleAutoGrowInput}
+                                            data-testid={`screenshot-slot-prompt-${slotIndex}`}
+                                            data-auto-grow-base="96"
+                                            data-auto-grow-multiplier="8"
+                                            placeholder={
+                                                isNoBrandMode
+                                                    ? text('no_brand_screenshot_prompt_placeholder')
+                                                    : text('screenshot_slot_prompt_placeholder')
+                                            }
+                                            rows={4}
+                                            disabled={isReadOnly || !selectedApp}
+                                            className="auto-grow min-h-[96px] w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-1.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                        />
+                                    </div>
+
+                                    {showReferencePrompt ? (
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] leading-none text-indigo-200/50">
+                                                {text('screenshot_reference_prompt_label')}
+                                            </label>
+                                            <textarea
+                                                value={referencePromptValue}
+                                                onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                                    if (!selectedApp || !promptRefId) return;
+                                                    setPrompt(promptRefId, event.target.value);
+                                                }}
+                                                onInput={handleAutoGrowInput}
+                                                data-testid={`screenshot-slot-reference-prompt-${slotIndex}`}
+                                                data-auto-grow-base="56"
+                                                data-auto-grow-multiplier="6"
+                                                placeholder={text('prompt_placeholder')}
+                                                rows={2}
+                                                disabled={isReadOnly || !selectedApp || !promptRefId}
+                                                className="auto-grow min-h-[56px] w-full rounded-lg border border-indigo-500/15 bg-slate-950/50 px-2 py-1.5 text-[10px] text-indigo-100/90 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 disabled:opacity-60"
+                                            />
+                                        </div>
+                                    ) : null}
 
                                     {(() => {
                                         const sys = getSystemPromptForSlot(slotIndex, 'generate');
@@ -1236,22 +1327,29 @@ export const AppGenerationSection = ({
 
                                     <button
                                         type="button"
+                                        data-testid={`screenshot-slot-generate-${slotIndex}`}
                                         onClick={() => handleGenerateSlot(slotIndex)}
                                         disabled={
                                             isReadOnly ||
-                                            !canGenerateScreenshots ||
+                                            Boolean(blockedReason) ||
                                             screenshotsGenerating ||
                                             slotGenerating === slotIndex ||
                                             atLimit
                                         }
+                                        title={blockedReason || undefined}
                                         className={`ui-btn-fit w-full rounded-full border px-3 py-2 text-[11px] font-semibold ${
-                                            !canGenerateScreenshots || atLimit
+                                            blockedReason || atLimit
                                                 ? 'border-white/10 text-indigo-200/40'
                                                 : 'bg-indigo-500/20 text-indigo-100 border-indigo-400/40 hover:bg-indigo-500/30'
                                         }`}
                                     >
                                         {slotGenerating === slotIndex ? text('generating') : text('generate_screen')}
                                     </button>
+                                    {blockedReason ? (
+                                        <p data-testid={`screenshot-slot-blocked-${slotIndex}`} className="text-[10px] text-amber-100/80">
+                                            {blockedReason}
+                                        </p>
+                                    ) : null}
                                 </div>
                             );
                         })}
@@ -1735,6 +1833,7 @@ export const AppGenerationSection = ({
                                     <div className="flex flex-wrap items-center gap-2">
                                         <button
                                             type="button"
+                                            data-testid={`screenshot-pick-${slotIndex}`}
                                             disabled={!selectedAsset || !activeScreenshotSetId}
                                             onClick={() =>
                                                 selectedAsset &&
