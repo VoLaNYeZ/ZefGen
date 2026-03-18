@@ -5,6 +5,8 @@ import { expect } from './fixtures';
 import { AUTH_FILE, BASE_URL, loadSmokeEnv } from './smoke-env';
 
 export const smokeEnv = loadSmokeEnv();
+export const SMOKE_DEVICE_ID_KEY = 'zefgen.deviceId';
+export const SMOKE_DEVICE_ID = 'smoke-playwright-device';
 
 export const emptyStorageState = { cookies: [], origins: [] };
 
@@ -43,6 +45,15 @@ export const parkAuthenticatedSession = async (page: Page) => {
     await gotoPath(page, smokeEnv.seed.routes.accounts);
     await expect(page.getByTestId('accounts-page-root')).toBeVisible();
     await page.waitForTimeout(500);
+};
+
+export const seedSmokeDeviceId = async (page: Page) => {
+    await page.evaluate(
+        ({ key, value }) => {
+            window.localStorage.setItem(key, value);
+        },
+        { key: SMOKE_DEVICE_ID_KEY, value: SMOKE_DEVICE_ID }
+    );
 };
 
 export const gotoWorkspace = async (page: Page) => {
