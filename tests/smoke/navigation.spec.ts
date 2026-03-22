@@ -1,4 +1,5 @@
 import { expect, test } from './support/fixtures';
+import { deleteBrandCascade } from './support/backend';
 import {
     claimWorkspaceEditLockIfPrompted,
     escapeRegex,
@@ -45,33 +46,40 @@ test('root startup restores the last active workspace the user left open', async
 test('root startup skips an invalid remembered inactive workspace and falls back to the first active brand/app', async ({ page }) => {
     const suffix = `${Date.now()}`.slice(-6);
     const brandName = `Startup Inactive ${suffix}`;
+    let inactiveBrandId: string | null = null;
 
-    await gotoWorkspace(page);
-    await claimWorkspaceEditLockIfPrompted(page);
+    try {
+        await gotoWorkspace(page);
+        await claimWorkspaceEditLockIfPrompted(page);
 
-    const sidebar = page.getByTestId('brand-sidebar');
-    await sidebar.getByRole('button', { name: /^New$/ }).click();
-    await page.getByLabel('Brand name').fill(brandName);
-    await sidebar.getByRole('button', { name: /create brand/i }).click();
+        const sidebar = page.getByTestId('brand-sidebar');
+        await sidebar.getByRole('button', { name: /^New$/ }).click();
+        await page.getByLabel('Brand name').fill(brandName);
+        await sidebar.getByRole('button', { name: /create brand/i }).click();
 
-    const activeBrandRow = page.getByTestId('active-brand-row');
-    await expect(activeBrandRow).toContainText(brandName);
-    const inactiveBrandId = await activeBrandRow.getAttribute('data-brand-id');
-    expect(inactiveBrandId, 'Expected the new brand row to expose a brand id').toBeTruthy();
+        const activeBrandRow = page.getByTestId('active-brand-row');
+        await expect(activeBrandRow).toContainText(brandName);
+        inactiveBrandId = await activeBrandRow.getAttribute('data-brand-id');
+        expect(inactiveBrandId, 'Expected the new brand row to expose a brand id').toBeTruthy();
 
-    await page.getByRole('button', { name: /^Edit brand$/ }).click();
-    await page.getByTestId('brand-inactive-toggle').click();
-    await sidebar.getByRole('button', { name: /update brand/i }).click();
+        await page.getByRole('button', { name: /^Edit brand$/ }).click();
+        await page.getByTestId('brand-inactive-toggle').click();
+        await sidebar.getByRole('button', { name: /update brand/i }).click();
 
-    await seedLastWorkspaceSelection(page, {
-        brandId: String(inactiveBrandId),
-        appId: 'missing-app',
-    });
+        await seedLastWorkspaceSelection(page, {
+            brandId: String(inactiveBrandId),
+            appId: 'missing-app',
+        });
 
-    await gotoPath(page, '/');
-    await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.workspace)}$`));
-    await expect(page.getByTestId('active-brand-row')).toContainText(smokeEnv.seed.brand.name);
-    await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.primaryApp.alias.toUpperCase());
+        await gotoPath(page, '/');
+        await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.workspace)}$`));
+        await expect(page.getByTestId('active-brand-row')).toContainText(smokeEnv.seed.brand.name);
+        await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.primaryApp.alias.toUpperCase());
+    } finally {
+        if (inactiveBrandId) {
+            await deleteBrandCascade(inactiveBrandId);
+        }
+    }
 });
 
 test('explicit workspace URLs still win over remembered startup state', async ({ page }) => {

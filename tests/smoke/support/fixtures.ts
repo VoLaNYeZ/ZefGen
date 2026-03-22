@@ -1,4 +1,5 @@
 import { test as base, expect } from '@playwright/test';
+import { ensureSmokeBackendSanity } from './backend';
 
 const formatPageError = (error: Error) => {
     const stack = error.stack ? `\n${error.stack}` : '';
@@ -7,9 +8,17 @@ const formatPageError = (error: Error) => {
 
 export const test = base.extend<{
     _browserGuards: void;
+    _smokeBackendSanity: void;
     allowedConsoleErrors: RegExp[];
 }>({
     allowedConsoleErrors: [[], { option: true }],
+    _smokeBackendSanity: [
+        async ({}, use) => {
+            await ensureSmokeBackendSanity();
+            await use();
+        },
+        { auto: true },
+    ],
     _browserGuards: [
         async ({ page, allowedConsoleErrors }, use, testInfo) => {
             const failures: string[] = [];

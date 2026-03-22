@@ -79,7 +79,7 @@ export const ConfirmIconButton = (props: {
             {open && !disabled && (
                 <div
                     data-testid={popoverTestId}
-                    className="absolute right-0 bottom-full mb-2 w-[220px] rounded-xl border border-indigo-400/25 bg-slate-950/90 backdrop-blur p-2 shadow-[0_20px_60px_-35px_rgba(0,0,0,0.8)]"
+                    className="absolute right-0 bottom-full z-40 mb-2 w-[220px] rounded-xl border border-indigo-400/25 bg-slate-950/90 backdrop-blur p-2 shadow-[0_20px_60px_-35px_rgba(0,0,0,0.8)]"
                 >
                     <div className="text-[11px] text-indigo-100/90">{question}</div>
                     <div className="mt-2 flex items-center justify-end gap-2">

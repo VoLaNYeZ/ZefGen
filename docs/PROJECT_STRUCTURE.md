@@ -59,7 +59,7 @@ This document focuses on maintained source directories and the product flows the
 ## Top-Level Directories
 
 - `.github/workflows/guardrails.yml` - CI build and smoke guardrails.
-- `.githooks/pre-commit` - local git hook entrypoint installed by `scripts/install-git-hooks.mjs`.
+- `.githooks/pre-commit` and `.githooks/pre-push` - local git hook entrypoints installed through the repo `.githooks/` path.
 - `.agent/` - local connector/agent rules and exec plans; not shipped to app repos.
 - `.codex/` - Codex local environment metadata.
 - `Ideas_example/` - sample idea-generation reference material.
@@ -385,7 +385,8 @@ The authenticated shell is composed through:
 - `scripts/check-declaration-order.mjs` - declaration-order guard.
 - `scripts/check-supabase-migration-filenames.mjs` - migration naming guard.
 - `scripts/dev-restart.mjs` - local dev-server restart helper.
-- `scripts/install-git-hooks.mjs` - installs `.githooks/pre-commit`.
+- `scripts/install-git-hooks.mjs` - installs the repo `.githooks/` path for local hooks.
+- `scripts/run-pre-push-guard.mjs` - local pre-push gate that runs smoke tests when pushed changes touch smoke-relevant code.
 - `scripts/smoke-legal-links.mjs` - legal-links smoke check.
 
 ### Tests

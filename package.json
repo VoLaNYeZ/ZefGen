@@ -25,6 +25,7 @@
     "check:credentials": "node scripts/check-credentials.mjs",
     "check:credentials:staged": "node scripts/check-credentials.mjs --staged",
     "check:smoke:legal-links": "node scripts/smoke-legal-links.mjs",
+    "guard:pre-push": "node scripts/run-pre-push-guard.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "deploy:appstore-review-webhook": "supabase functions deploy appstore-review-webhook --project-ref onzswbbqaikkjpmvzplb --use-api --no-verify-jwt"
   },

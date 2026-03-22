@@ -809,7 +809,12 @@ export function ConnectorRunnerPanel(props: {
                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                     <div className="text-xs font-semibold text-indigo-100">{text('connector_job_inspector')}</div>
                                     {selectedJob?.status ? (
-                                        <span className={badge(String(selectedJob.status))}>{String(selectedJob.status)}</span>
+                                        <span
+                                            data-testid="runner-selected-job-status"
+                                            className={badge(String(selectedJob.status))}
+                                        >
+                                            {String(selectedJob.status)}
+                                        </span>
                                     ) : null}
                                 </div>
 

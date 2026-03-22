@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './support/fixtures';
+import { restoreSeededNoBrandApp } from './support/backend';
 import {
     claimWorkspaceEditLockIfPrompted,
     escapeRegex,
@@ -39,11 +40,12 @@ type ConnectorJobRow = {
 };
 
 const isoAt = (minuteOffset = 0) => new Date(Date.now() + minuteOffset * 60_000).toISOString();
+const smokeJobId = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`;
 
 const buildConnectorJobRow = (overrides: Partial<ConnectorJobRow> = {}): ConnectorJobRow => {
     const now = isoAt();
     return {
-        id: 'job-default',
+        id: smokeJobId(1),
         user_id: 'smoke-user',
         app_id: smokeEnv.seed.primaryApp.id,
         brand_id: smokeEnv.seed.brand.id,
@@ -151,7 +153,7 @@ const installPrimaryWorkspaceRunnerMocks = async (page: Page, initialJobs: Conne
             const payload = Array.isArray(rawBody) ? rawBody[0] ?? {} : rawBody ?? {};
             createCallCount += 1;
             const created = buildConnectorJobRow({
-                id: `job-created-${createCallCount}`,
+                id: smokeJobId(1000 + createCallCount),
                 user_id: String(payload.user_id ?? 'smoke-user'),
                 app_id: String(payload.app_id ?? smokeEnv.seed.primaryApp.id),
                 brand_id: typeof payload.brand_id === 'string' ? payload.brand_id : smokeEnv.seed.brand.id,
@@ -238,7 +240,7 @@ test('seeded workspace renders core panels without runtime errors', async ({ pag
 test('step 5 generate asks for confirmation before re-running after a successful generate', async ({ page }) => {
     const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
         buildConnectorJobRow({
-            id: 'job-success-generate',
+            id: smokeJobId(11),
             kind: 'generate',
             status: 'succeeded',
             result_commit_sha: 'abc123',
@@ -272,7 +274,7 @@ test('step 5 generate asks for confirmation before re-running after a successful
 test('step 5 cancel shows cancel requested and then terminal canceled after refresh', async ({ page }) => {
     const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
         buildConnectorJobRow({
-            id: 'job-running-fix',
+            id: smokeJobId(21),
             kind: 'fix',
             status: 'running',
             created_at: isoAt(-1),
@@ -280,7 +282,7 @@ test('step 5 cancel shows cancel requested and then terminal canceled after refr
             started_at: isoAt(-1),
         }),
         buildConnectorJobRow({
-            id: 'job-success-generate',
+            id: smokeJobId(22),
             kind: 'generate',
             status: 'succeeded',
             result_commit_sha: 'abc123',
@@ -305,7 +307,7 @@ test('step 5 cancel shows cancel requested and then terminal canceled after refr
     await runnerPanel.getByRole('button', { name: /^refresh$/i }).click();
 
     await expect(runnerPanel.getByTestId('runner-cancel-active-button')).toHaveCount(0);
-    await expect(runnerPanel.getByText(/^canceled$/i)).toBeVisible();
+    await expect(runnerPanel.getByTestId('runner-selected-job-status')).toHaveText(/^canceled$/i);
 });
 
 test('deliverables rail stays pinned while scrolling through the screenshot workflow', async ({ page }) => {
@@ -473,12 +475,15 @@ test('client spec changes survive an immediate app switch', async ({ page }) => 
 test('client spec opens in a clean reader window without the removed header copy', async ({ page }) => {
     await gotoWorkspace(page);
 
+    const knownBrief = 'A calm iPhone expense journal';
+    await page.getByTestId('workspace-panel-client-spec').locator('textarea').fill(knownBrief);
+
     const openButton = page.getByTestId('client-spec-reader-open-button');
     await expect(openButton).toBeEnabled();
     const [popup] = await Promise.all([page.waitForEvent('popup'), openButton.click()]);
     await popup.waitForLoadState('domcontentloaded');
 
-    await expect(popup.locator('body')).toContainText('A calm iPhone expense journal');
+    await expect(popup.locator('body')).toContainText(knownBrief);
     await expect(popup.locator('body')).not.toContainText('Read only');
     await expect(popup.locator('body')).not.toContainText('Read-only window for QA, comparison, and longer review sessions.');
     await popup.close();
@@ -537,27 +542,31 @@ test('no-brand move step stays visible when the image workspace is collapsed', a
 });
 
 test('no-brand move transfers the app into a regular brand and keeps the route coherent', async ({ page }) => {
-    await gotoNoBrandCollapsedWorkspace(page);
+    try {
+        await gotoNoBrandCollapsedWorkspace(page);
 
-    const movePanel = page.getByTestId('workspace-panel-no-brand-move');
-    const targetBrandSelect = movePanel.locator('select');
+        const movePanel = page.getByTestId('workspace-panel-no-brand-move');
+        const targetBrandSelect = movePanel.locator('select');
 
-    await expect(movePanel).toBeVisible();
-    await expect(targetBrandSelect).toBeVisible();
-    await expect
-        .poll(async () => targetBrandSelect.locator('option').count(), {
-            message: 'Expected no-brand move target options to load before moving the app',
-        })
-        .toBeGreaterThan(0);
+        await expect(movePanel).toBeVisible();
+        await expect(targetBrandSelect).toBeVisible();
+        await expect
+            .poll(async () => targetBrandSelect.locator('option').count(), {
+                message: 'Expected no-brand move target options to load before moving the app',
+            })
+            .toBeGreaterThan(0);
 
-    await selectOptionContainingText(targetBrandSelect, smokeEnv.seed.brand.name);
-    await movePanel.getByRole('button', { name: /move app/i }).click();
+        await selectOptionContainingText(targetBrandSelect, smokeEnv.seed.brand.name);
+        await movePanel.getByRole('button', { name: /move app/i }).click();
 
-    await expect(
-        page
-    ).toHaveURL(
-        new RegExp(`/${escapeRegex(smokeEnv.seed.brand.slug)}/${escapeRegex(smokeEnv.seed.noBrandCompletedApp.alias)}$`)
-    );
-    await expect(page.getByTestId('active-brand-row')).toContainText(smokeEnv.seed.brand.name);
-    await expect(page.getByTestId('workspace-panel-no-brand-move')).toHaveCount(0);
+        await expect(
+            page
+        ).toHaveURL(
+            new RegExp(`/${escapeRegex(smokeEnv.seed.brand.slug)}/${escapeRegex(smokeEnv.seed.noBrandCompletedApp.alias)}$`)
+        );
+        await expect(page.getByTestId('active-brand-row')).toContainText(smokeEnv.seed.brand.name);
+        await expect(page.getByTestId('workspace-panel-no-brand-move')).toHaveCount(0);
+    } finally {
+        await restoreSeededNoBrandApp();
+    }
 });

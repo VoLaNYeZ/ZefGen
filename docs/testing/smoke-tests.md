@@ -11,9 +11,10 @@ Browser smoke coverage lives in `/Users/faridzeyn/Apps/ZefGen/tests/smoke` and r
 ## Standard Run
 
 ```bash
-npm run smoke:backend
-npm run smoke:test
+npm run smoke
 ```
+
+This is the authoritative regression path. It always reseeds the local smoke backend before Playwright starts.
 
 `npm run smoke:backend` will:
 
@@ -27,6 +28,7 @@ npm run smoke:test
 - start the Vite dev server on `http://127.0.0.1:4173`
 - run the Playwright smoke suite in Chromium
 - fail on unexpected `pageerror`, `console.error`, or failed navigations
+- fail early with a clear dirty-seed error that tells you to rerun `npm run smoke:backend`
 
 ## Debugging
 
@@ -49,6 +51,22 @@ npm run smoke:test:headed:reuse
 ```
 
 Reuse is opt-in because the default smoke path should stay deterministic.
+
+Treat reuse as a debugging shortcut, not as the authoritative regression command.
+
+## Local Push Guard
+
+This repo also supports a local `pre-push` smoke guard through `.githooks/pre-push`.
+
+- It runs `npm run smoke` before `git push` when the pushed changes touch smoke-relevant code such as `components/`, `hooks/`, `data/`, `utils/`, `tests/smoke/`, `supabase/`, `cloudflare/`, or `playwright.config.ts`.
+- It skips the smoke suite automatically for obviously unrelated pushes.
+- You can bypass it once with `SKIP_SMOKE_PREPUSH=1 git push`.
+
+Manual invocation:
+
+```bash
+npm run guard:pre-push
+```
 
 ## Common Failure
 
