@@ -76,16 +76,23 @@ export const seedLastWorkspaceSelection = async (
 export const gotoWorkspace = async (page: Page) => {
     await gotoPath(page, smokeEnv.seed.routes.workspace);
     await expect(page.getByTestId('workspace-page-root')).toBeVisible();
+    await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.primaryApp.alias.toUpperCase());
 };
 
 export const gotoAccountsTargetWorkspace = async (page: Page) => {
     await gotoPath(page, smokeEnv.seed.routes.accountsTargetWorkspace);
     await expect(page.getByTestId('workspace-page-root')).toBeVisible();
+    await expect(page.getByTestId('active-app-pill')).toContainText(
+        smokeEnv.seed.accountsTargetApp.alias.toUpperCase()
+    );
 };
 
 export const gotoNoBrandCollapsedWorkspace = async (page: Page) => {
     await gotoPath(page, smokeEnv.seed.routes.noBrandCollapsedWorkspace);
     await expect(page.getByTestId('workspace-page-root')).toBeVisible();
+    await expect(page.getByTestId('active-app-pill')).toContainText(
+        smokeEnv.seed.noBrandCompletedApp.alias.toUpperCase()
+    );
 };
 
 export const claimWorkspaceEditLockIfPrompted = async (page: Page) => {
