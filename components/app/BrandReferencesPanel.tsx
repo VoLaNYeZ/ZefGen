@@ -44,56 +44,28 @@ export const BrandReferencesPanel = ({
     text,
     isReadOnly = false,
 }: BrandReferencesPanelProps) => {
-    const libraryStorageKey = React.useMemo(() => `zefgen.brandReferenceLibraryCollapsed.${brandId}`, [brandId]);
-    const [libraryCollapsedPref, setLibraryCollapsedPref] = React.useState<'0' | '1' | null>(() => {
-        try {
-            const raw = window.localStorage.getItem(libraryStorageKey);
-            return raw === '1' || raw === '0' ? raw : null;
-        } catch {
-            return null;
-        }
-    });
+    const [libraryCollapsed, setLibraryCollapsed] = React.useState(true);
+    const [renderLibraryBody, setRenderLibraryBody] = React.useState(false);
 
-    // Default behavior:
-    // - if user has an explicit pref: use it
-    // - else: auto-collapse when refs exist
-    const libraryCollapsed =
-        libraryCollapsedPref === '1'
-            ? true
-            : libraryCollapsedPref === '0'
-              ? false
-              : brandScreenshotReferences.length > 0;
-    const isAutoCollapsed = libraryCollapsed && libraryCollapsedPref === null;
+    React.useEffect(() => {
+        setLibraryCollapsed(true);
+        setRenderLibraryBody(false);
+    }, [brandId]);
 
-    const [renderLibraryBody, setRenderLibraryBody] = React.useState(() => !libraryCollapsed);
-
-    // Keep body mounted for a smooth close only when the user explicitly collapsed it.
     React.useEffect(() => {
         if (!libraryCollapsed) {
             setRenderLibraryBody(true);
             return;
         }
 
-        // If we're auto-collapsing (no pref), unmount immediately to avoid eager <img> loads.
-        if (libraryCollapsedPref === null) {
-            setRenderLibraryBody(false);
-            return;
-        }
-
         const timer = window.setTimeout(() => setRenderLibraryBody(false), 220);
         return () => window.clearTimeout(timer);
-    }, [libraryCollapsed, libraryCollapsedPref]);
+    }, [libraryCollapsed]);
 
     const toggleLibraryCollapsed = () => {
         const nextCollapsed = !libraryCollapsed;
-        // Ensure body is present before expanding so the open animation reveals real content.
         if (!nextCollapsed) setRenderLibraryBody(true);
-        setLibraryCollapsedPref(nextCollapsed ? '1' : '0');
-        try {
-            window.localStorage.setItem(libraryStorageKey, nextCollapsed ? '1' : '0');
-        } catch {
-            // ignore
-        }
+        setLibraryCollapsed(nextCollapsed);
     };
 
     const refById = React.useMemo(() => {
@@ -139,7 +111,7 @@ export const BrandReferencesPanel = ({
                     libraryCollapsed ? 'max-h-0 opacity-0 -translate-y-1 pointer-events-none' : 'max-h-[1400px] opacity-100 translate-y-0'
                 }`}
             >
-                {renderLibraryBody && !isAutoCollapsed ? (
+                {renderLibraryBody ? (
                     <div className="mt-4">
                         <div className="rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-4">
                             <div className="flex items-center justify-between">

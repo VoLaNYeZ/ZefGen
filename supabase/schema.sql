@@ -105,6 +105,7 @@ create table if not exists public.appstore_review_webhooks (
     latest_review_state text,
     latest_previous_state text,
     latest_event_at timestamptz,
+    last_snapshot_at timestamptz,
     last_delivery_at timestamptz,
     last_delivery_status text not null default 'idle'
         check (last_delivery_status in ('idle', 'received', 'ignored', 'invalid_signature', 'error')),
@@ -136,7 +137,7 @@ create table if not exists public.appstore_review_events (
     state_to text,
     event_at timestamptz not null default now(),
     delivery_status text not null default 'received'
-        check (delivery_status in ('received', 'ignored', 'error')),
+        check (delivery_status in ('received', 'ignored', 'error', 'snapshot')),
     raw_payload jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now()
 );

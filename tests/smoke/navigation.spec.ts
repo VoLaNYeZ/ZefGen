@@ -35,6 +35,7 @@ test('root startup restores the last active workspace the user left open', async
 
     await page.locator(`[data-app-id="${smokeEnv.seed.accountsTargetApp.id}"]`).click();
     await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.accountsTargetWorkspace)}$`));
+    await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.accountsTargetApp.alias.toUpperCase());
 
     await gotoPath(page, '/');
     await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.accountsTargetWorkspace)}$`));

@@ -3,7 +3,7 @@ import type { TranslationKey } from '../i18n';
 import type { AppItem, Brand } from '../types/zefgen';
 import type { WorkspacePreparationResult } from '../types/workspace-switch';
 import { buildAccountsRoute, buildIdeasRoute, buildRoute, type AppPage } from '../utils/routes';
-import { getPreferredActiveAppForBrand, readLastAppByBrand } from '../utils/workspace-selection';
+import { getPreferredActiveAppForBrand, readLastAppByBrand, writeLastWorkspaceSelection } from '../utils/workspace-selection';
 
 type WorkspaceSelection = {
     brandId: string | null;
@@ -158,6 +158,18 @@ export function useWorkspaceNavigationController({
         [apps, brands, orderedApps, selectedApp]
     );
 
+    const persistResolvedWorkspaceSelection = useCallback(
+        (resolved: { brand: Brand | null; app: AppItem | null }) => {
+            if (!resolved.brand || !resolved.app) return;
+            if (resolved.brand.is_inactive || resolved.app.is_banned) return;
+            writeLastWorkspaceSelection({
+                brandId: resolved.brand.id,
+                appId: resolved.app.id,
+            });
+        },
+        []
+    );
+
     const requestWorkspaceSelection = useCallback(
         async (
             payload: WorkspaceSelection & {
@@ -259,6 +271,7 @@ export function useWorkspaceNavigationController({
                     }
                 }
 
+                persistResolvedWorkspaceSelection(resolved);
                 startWorkspaceCommitTransition(() => {
                     if (shouldEnterWorkspace) {
                         setAccountsFocusAppId(null);
@@ -291,6 +304,7 @@ export function useWorkspaceNavigationController({
                     }
                 }
 
+                persistResolvedWorkspaceSelection(resolved);
                 startWorkspaceCommitTransition(() => {
                     if (shouldEnterWorkspace) {
                         setAccountsFocusAppId(null);
@@ -332,6 +346,7 @@ export function useWorkspaceNavigationController({
             setSelectedBrandId,
             setWorkspaceSwitchState,
             startWorkspaceCommitTransition,
+            persistResolvedWorkspaceSelection,
             text,
             workspaceSnapshotsRef,
             workspaceSwitchSeqRef,

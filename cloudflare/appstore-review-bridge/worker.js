@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
 
 const APPSTORE_REVIEW_EVENT_TYPE = 'APP_STORE_VERSION_APP_VERSION_STATE_UPDATED';
+const APPLE_STATUS_SNAPSHOT_EVENT_TYPE = 'APPLE_STATUS_SNAPSHOT';
 const APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY = 'APPSTORE_CONNECT_PRIVATE_KEY_P8';
 const APPLE_API_ORIGIN = 'https://api.appstoreconnect.apple.com';
 const WEBHOOK_EVENT_TYPES = [APPSTORE_REVIEW_EVENT_TYPE];
@@ -237,6 +238,11 @@ const fetchWebhookBySubdomain = async (env, subdomain) => {
                 'asc_app_name',
                 'asc_bundle_id',
                 'apple_webhook_id',
+                'latest_event_type',
+                'latest_review_state',
+                'latest_previous_state',
+                'latest_event_at',
+                'last_snapshot_at',
                 'last_sync_status',
                 'last_sync_error',
                 'last_sync_at',
@@ -333,6 +339,7 @@ const updateWebhookRow = async (env, payload) => {
                 'latest_review_state',
                 'latest_previous_state',
                 'latest_event_at',
+                'last_snapshot_at',
                 'last_delivery_at',
                 'last_delivery_status',
                 'last_error',
@@ -852,6 +859,98 @@ const getPrivateAppleCredentials = async (env, webhook) => {
     };
 };
 
+const ensureSelectedAppleApp = async (env, payload) => {
+    if (String(payload?.webhook?.asc_app_id || '').trim()) {
+        return payload.webhook;
+    }
+
+    const rawApps = await listAppStoreConnectApps({ token: payload.jwt });
+    const candidates = normalizeAppleAppCandidates(rawApps, payload.bundleId);
+    const autoBoundCandidate = pickAutoBoundAppleApp(candidates, payload.bundleId);
+    if (!autoBoundCandidate) {
+        throw createHttpError(400, 'Select the App Store Connect app first, then sync the webhook.');
+    }
+
+    return updateWebhookRow(env, {
+        userId: payload.userId,
+        appId: payload.webhook.app_id,
+        patch: {
+            asc_app_id: autoBoundCandidate.id,
+            asc_app_name: autoBoundCandidate.name || null,
+            asc_bundle_id: autoBoundCandidate.bundle_id || null,
+            last_sync_status: 'idle',
+            last_sync_error: null,
+        },
+    });
+};
+
+const persistAppleVersionSnapshot = async (env, payload) => {
+    const snapshotAt = new Date().toISOString();
+    const versions = await listAppleAppStoreVersions({
+        token: payload.token,
+        appId: payload.webhook.asc_app_id,
+    });
+    const snapshot = pickBestAppleVersionSnapshot(versions);
+    const nextState = String(snapshot?.state || '').trim().toUpperCase();
+    const previousState = String(payload.webhook?.latest_review_state || '').trim().toUpperCase();
+    const stateChanged = Boolean(nextState) && nextState !== previousState;
+    const patch = {
+        last_snapshot_at: snapshotAt,
+        ...(Boolean(nextState) && (!previousState || stateChanged)
+            ? {
+                  latest_event_type: APPLE_STATUS_SNAPSHOT_EVENT_TYPE,
+                  latest_previous_state: previousState || null,
+                  latest_review_state: nextState,
+                  latest_event_at: snapshotAt,
+              }
+            : {}),
+    };
+
+    const updatedWebhook = await updateWebhookRow(env, {
+        userId: payload.userId,
+        appId: payload.webhook.app_id,
+        patch,
+    });
+
+    if (Boolean(nextState) && (!previousState || stateChanged)) {
+        await insertWebhookEvent(env, {
+            appId: payload.webhook.app_id,
+            userId: payload.userId,
+            eventType: APPLE_STATUS_SNAPSHOT_EVENT_TYPE,
+            payloadType: 'appStoreVersionSnapshot',
+            stateFrom: previousState || null,
+            stateTo: nextState,
+            eventAt: snapshotAt,
+            deliveryStatus: 'snapshot',
+            rawPayload: {
+                selected_version: snapshot
+                    ? {
+                          id: snapshot.id,
+                          versionString: snapshot.versionString,
+                          platform: snapshot.platform,
+                          createdDate: snapshot.createdDate,
+                          state: snapshot.state,
+                      }
+                    : null,
+                versions: normalizeAppleVersionSnapshots(versions).map((item) => ({
+                    id: item.id,
+                    versionString: item.versionString,
+                    platform: item.platform,
+                    createdDate: item.createdDate,
+                    state: item.state,
+                })),
+            },
+        });
+    }
+
+    return {
+        changed: Boolean(nextState) && (!previousState || stateChanged),
+        snapshot,
+        snapshotAt,
+        webhook: updatedWebhook,
+    };
+};
+
 const handleBridgeApps = async (request, env, subdomain) => {
     const { user, webhook, bundleId } = await requireBridgeContext(env, request, subdomain);
     const { jwt } = await getPrivateAppleCredentials(env, webhook);
@@ -887,26 +986,12 @@ const handleBridgeSync = async (request, env, subdomain) => {
 
     try {
         const { jwt } = await getPrivateAppleCredentials(env, webhook);
-
-        if (!String(workingWebhook?.asc_app_id || '').trim()) {
-            const rawApps = await listAppStoreConnectApps({ token: jwt });
-            const candidates = normalizeAppleAppCandidates(rawApps, bundleId);
-            const autoBoundCandidate = pickAutoBoundAppleApp(candidates, bundleId);
-            if (!autoBoundCandidate) {
-                throw createHttpError(400, 'Select the App Store Connect app first, then sync the webhook.');
-            }
-            workingWebhook = await updateWebhookRow(env, {
-                userId: user.id,
-                appId: workingWebhook.app_id,
-                patch: {
-                    asc_app_id: autoBoundCandidate.id,
-                    asc_app_name: autoBoundCandidate.name || null,
-                    asc_bundle_id: autoBoundCandidate.bundle_id || null,
-                    last_sync_status: 'idle',
-                    last_sync_error: null,
-                },
-            });
-        }
+        workingWebhook = await ensureSelectedAppleApp(env, {
+            userId: user.id,
+            webhook: workingWebhook,
+            bundleId,
+            jwt,
+        });
 
         const { effectiveUrl, issue } = buildEffectivePublicWebhookUrl(env, workingWebhook);
         if (!effectiveUrl) {
@@ -981,50 +1066,12 @@ const handleBridgeSync = async (request, env, subdomain) => {
         });
 
         try {
-            const versions = await listAppleAppStoreVersions({
+            const snapshotResult = await persistAppleVersionSnapshot(env, {
+                userId: user.id,
+                webhook: updatedWebhook,
                 token: jwt,
-                appId: workingWebhook.asc_app_id,
             });
-            const snapshot = pickBestAppleVersionSnapshot(versions);
-            if (snapshot?.state) {
-                const snapshotAt = new Date().toISOString();
-                updatedWebhook = await updateWebhookRow(env, {
-                    userId: user.id,
-                    appId: workingWebhook.app_id,
-                    patch: {
-                        latest_event_type: 'APPLE_STATUS_SNAPSHOT',
-                        latest_previous_state: null,
-                        latest_review_state: snapshot.state,
-                        latest_event_at: snapshotAt,
-                    },
-                });
-                await insertWebhookEvent(env, {
-                    appId: workingWebhook.app_id,
-                    userId: user.id,
-                    eventType: 'APPLE_STATUS_SNAPSHOT',
-                    payloadType: 'appStoreVersionSnapshot',
-                    stateFrom: null,
-                    stateTo: snapshot.state,
-                    eventAt: snapshotAt,
-                    deliveryStatus: 'snapshot',
-                    rawPayload: {
-                        selected_version: {
-                            id: snapshot.id,
-                            versionString: snapshot.versionString,
-                            platform: snapshot.platform,
-                            createdDate: snapshot.createdDate,
-                            state: snapshot.state,
-                        },
-                        versions: normalizeAppleVersionSnapshots(versions).map((item) => ({
-                            id: item.id,
-                            versionString: item.versionString,
-                            platform: item.platform,
-                            createdDate: item.createdDate,
-                            state: item.state,
-                        })),
-                    },
-                });
-            }
+            updatedWebhook = snapshotResult.webhook;
         } catch {
             // Do not fail a successful webhook sync just because the current-state snapshot could not be fetched.
         }
@@ -1050,6 +1097,30 @@ const handleBridgeSync = async (request, env, subdomain) => {
         }
         throw error;
     }
+};
+
+const handleBridgeSnapshot = async (request, env, subdomain) => {
+    const { user, webhook, bundleId } = await requireBridgeContext(env, request, subdomain);
+    const { jwt } = await getPrivateAppleCredentials(env, webhook);
+    const workingWebhook = await ensureSelectedAppleApp(env, {
+        userId: user.id,
+        webhook,
+        bundleId,
+        jwt,
+    });
+    const snapshotResult = await persistAppleVersionSnapshot(env, {
+        userId: user.id,
+        webhook: workingWebhook,
+        token: jwt,
+    });
+
+    return json({
+        ok: true,
+        changed: snapshotResult.changed,
+        snapshot_state: String(snapshotResult.snapshot?.state || '').trim() || null,
+        snapshot_at: snapshotResult.snapshotAt,
+        webhook: snapshotResult.webhook,
+    });
 };
 
 const handleBridgePing = async (request, env, subdomain) => {
@@ -1320,6 +1391,8 @@ const handleBridgeRequest = async (request, env, url) => {
             response = await handleBridgeApps(request, env, subdomain);
         } else if (url.pathname === '/_bridge/appstore/sync') {
             response = await handleBridgeSync(request, env, subdomain);
+        } else if (url.pathname === '/_bridge/appstore/snapshot') {
+            response = await handleBridgeSnapshot(request, env, subdomain);
         } else if (url.pathname === '/_bridge/appstore/ping') {
             response = await handleBridgePing(request, env, subdomain);
         } else {

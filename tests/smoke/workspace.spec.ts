@@ -474,6 +474,7 @@ test('client spec opens in a clean reader window without the removed header copy
     await gotoWorkspace(page);
 
     const openButton = page.getByTestId('client-spec-reader-open-button');
+    await expect(openButton).toBeEnabled();
     const [popup] = await Promise.all([page.waitForEvent('popup'), openButton.click()]);
     await popup.waitForLoadState('domcontentloaded');
 

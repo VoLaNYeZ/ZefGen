@@ -178,6 +178,7 @@ export type AppstoreReviewWebhook = {
     latest_review_state?: string | null;
     latest_previous_state?: string | null;
     latest_event_at?: string | null;
+    last_snapshot_at?: string | null;
     last_delivery_at?: string | null;
     last_delivery_status: 'idle' | 'received' | 'ignored' | 'invalid_signature' | 'error';
     last_error?: string | null;
@@ -197,7 +198,7 @@ export type AppstoreReviewEvent = {
     state_from?: string | null;
     state_to?: string | null;
     event_at: string;
-    delivery_status: 'received' | 'ignored' | 'error';
+    delivery_status: 'received' | 'ignored' | 'error' | 'snapshot';
     raw_payload?: Record<string, any> | null;
     created_at?: string;
 };

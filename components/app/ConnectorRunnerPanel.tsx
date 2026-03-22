@@ -356,7 +356,7 @@ export function ConnectorRunnerPanel(props: {
     const qaDisabledMessage = getQaDisabledMessage(connectorJobState.qaDisabledReason, text);
     const screenshotsDisabledMessage = getScreenshotsDisabledMessage(connectorJobState.screenshotsDisabledReason, text);
     const screenshotsModeHint = text('connector_screenshots_ready_hint');
-    const generateButtonDisabled = isReadOnly || generateBlocked || busy || !session || !selectedApp;
+    const generateButtonDisabled = loading || isReadOnly || generateBlocked || busy || !session || !selectedApp;
     const latestActiveJob = connectorJobState.latestActiveJob;
     const latestActiveJobCancelRequested = connectorJobState.activeJobCancelRequested;
     const selectedJobCancelRequested = isCancelRequestedConnectorJob(selectedJob);
@@ -414,7 +414,7 @@ export function ConnectorRunnerPanel(props: {
             .join(' ');
         const content = (
             <>
-                {busy ? <Loader2 className="animate-spin" size={spinnerSize} /> : null}
+                {busy || loading ? <Loader2 className="animate-spin" size={spinnerSize} /> : null}
                 {text('connector_generate')}
             </>
         );

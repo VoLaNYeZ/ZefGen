@@ -225,3 +225,20 @@ export const pingAppstoreReviewWebhook = async (payload: {
         method: 'POST',
         accessTokenHint: payload.accessTokenHint,
     });
+
+export const refreshAppstoreReviewSnapshot = async (payload: {
+    publicSubdomain: string;
+    accessTokenHint?: string;
+}) =>
+    requestBridgeApi<{
+        ok: boolean;
+        changed: boolean;
+        snapshot_state: string | null;
+        snapshot_at: string;
+        webhook: AppstoreReviewWebhook;
+    }>({
+        publicSubdomain: payload.publicSubdomain,
+        path: '/_bridge/appstore/snapshot',
+        method: 'POST',
+        accessTokenHint: payload.accessTokenHint,
+    });

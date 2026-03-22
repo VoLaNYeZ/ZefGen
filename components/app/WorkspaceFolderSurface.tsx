@@ -1,4 +1,4 @@
-import { Suspense, lazy, type ComponentProps, type FormEvent } from 'react';
+import { Suspense, type ComponentProps, type FormEvent } from 'react';
 import type { TranslationKey } from '../../i18n';
 import type { AppItem } from '../../types/zefgen';
 import { AppFolder } from './AppFolder';
@@ -6,16 +6,17 @@ import { WorkspaceAppSelection } from './WorkspaceAppSelection';
 import { WorkspaceCollapsedDeliverables } from './WorkspaceCollapsedDeliverables';
 import { WorkspaceNoAppsEmptyState } from './WorkspaceNoAppsEmptyState';
 import type { UseWorkspaceGenerationViewModelParams } from '../../hooks/use-workspace-generation-view-model';
+import { lazyWithReload } from '../../utils/lazy-with-reload';
 
 type WorkspaceSetupPanelsContentComponent =
     (typeof import('./WorkspaceSetupPanelsContent'))['WorkspaceSetupPanelsContent'];
 
-const LazyWorkspaceSetupPanelsContent = lazy(async () => {
+const LazyWorkspaceSetupPanelsContent = lazyWithReload(async () => {
     const module = await import('./WorkspaceSetupPanelsContent');
     return { default: module.WorkspaceSetupPanelsContent };
 });
 
-const LazyWorkspaceGenerationSectionContent = lazy(async () => {
+const LazyWorkspaceGenerationSectionContent = lazyWithReload(async () => {
     const module = await import('./WorkspaceGenerationSectionContent');
     return { default: module.WorkspaceGenerationSectionContent };
 });

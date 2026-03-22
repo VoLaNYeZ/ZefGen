@@ -1,22 +1,23 @@
-import { Suspense, lazy, type ComponentProps } from 'react';
+import { Suspense, type ComponentProps } from 'react';
 import type { Brand } from '../../types/zefgen';
 import type { AppPage } from '../../utils/routes';
+import { lazyWithReload } from '../../utils/lazy-with-reload';
 
 type AccountsPageComponent = (typeof import('./AccountsPage'))['AccountsPage'];
 type IdeasPageComponent = (typeof import('./IdeasPage'))['IdeasPage'];
 type WorkspacePageComponent = (typeof import('./WorkspacePage'))['WorkspacePage'];
 
-const LazyAccountsPage = lazy(async () => {
+const LazyAccountsPage = lazyWithReload(async () => {
     const module = await import('./AccountsPage');
     return { default: module.AccountsPage };
 });
 
-const LazyIdeasPage = lazy(async () => {
+const LazyIdeasPage = lazyWithReload(async () => {
     const module = await import('./IdeasPage');
     return { default: module.IdeasPage };
 });
 
-const LazyWorkspacePage = lazy(async () => {
+const LazyWorkspacePage = lazyWithReload(async () => {
     const module = await import('./WorkspacePage');
     return { default: module.WorkspacePage };
 });

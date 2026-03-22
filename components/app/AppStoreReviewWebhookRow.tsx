@@ -19,6 +19,7 @@ import { fetchConnectorAppConfig } from '../../data/connector-app-config';
 import { fetchConnectorSecretMetas, upsertConnectorSecret } from '../../data/connector-secrets';
 import {
     fetchAppstoreReviewAppleApps,
+    refreshAppstoreReviewSnapshot,
     fetchAppstoreReviewWebhookStatus,
     pingAppstoreReviewWebhook,
     syncAppstoreReviewWebhook,
@@ -44,6 +45,32 @@ const formatTimestamp = (value: string | null | undefined) => {
     const date = new Date(raw);
     if (Number.isNaN(date.getTime())) return raw;
     return date.toLocaleString();
+};
+
+const parseComparableTimestamp = (value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 0;
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const AUTO_APPLE_SNAPSHOT_INTERVAL_MS = 2 * 60 * 1000;
+const AUTO_APPLE_SNAPSHOT_STALE_MS = 4 * 60 * 1000;
+const APPLE_REVIEW_MONITOR_STATES = new Set([
+    'WAITING_FOR_REVIEW',
+    'IN_REVIEW',
+    'PROCESSING_FOR_APP_STORE',
+    'ACCEPTED',
+    'PENDING_APPLE_RELEASE',
+    'PENDING_DEVELOPER_RELEASE',
+]);
+
+const shouldAutoRefreshAppleSnapshot = (config: AppstoreReviewWebhook | null) => {
+    if (!config) return false;
+    if (String(config.last_sync_status || '').trim().toLowerCase() !== 'connected') return false;
+    if (!String(config.asc_app_id || '').trim()) return false;
+    const reviewState = String(config.latest_review_state || '').trim().toUpperCase();
+    return !reviewState || APPLE_REVIEW_MONITOR_STATES.has(reviewState);
 };
 
 const deliveryKeyForConfig = (config: AppstoreReviewWebhook | null): TranslationKey => {
@@ -263,6 +290,7 @@ export function AppStoreReviewWebhookRow(props: {
     const [selectedAppleAppId, setSelectedAppleAppId] = React.useState('');
     const [hasAppleDraftChanges, setHasAppleDraftChangesState] = React.useState(false);
     const [isPrivateKeyDragActive, setIsPrivateKeyDragActive] = React.useState(false);
+    const [checkingAppleSnapshot, setCheckingAppleSnapshot] = React.useState(false);
     const [serverStatusWarning, setServerStatusWarning] = React.useState<string | null>(null);
     const [appStoreNameHint, setAppStoreNameHint] = React.useState('');
     const [expanded, setExpanded] = React.useState(false);
@@ -270,6 +298,7 @@ export function AppStoreReviewWebhookRow(props: {
     const requestIdRef = React.useRef(0);
     const copiedTimerRef = React.useRef<number | null>(null);
     const pingRefreshTimersRef = React.useRef<number[]>([]);
+    const appleSnapshotRequestInFlightRef = React.useRef(false);
     const activeAppKeyRef = React.useRef('');
     const hydratedAppIdRef = React.useRef('');
     const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -341,6 +370,7 @@ export function AppStoreReviewWebhookRow(props: {
         config?.asc_app_name || config?.asc_bundle_id || selectedAppleAppId || config?.asc_app_id || ''
     ).trim();
     const lastSyncAtLabel = formatTimestamp(config?.last_sync_at);
+    const lastSnapshotAtLabel = formatTimestamp(config?.last_snapshot_at);
     const lastDeliveryAtLabel = formatTimestamp(config?.last_delivery_at);
     const latestEventAtLabel = formatTimestamp(config?.latest_event_at);
     const latestStateSummary = latestStateLabel
@@ -348,6 +378,7 @@ export function AppStoreReviewWebhookRow(props: {
             ? `${latestPrevStateLabel} -> ${latestStateLabel}`
             : latestStateLabel
         : text('appstore_review_webhook_no_state');
+    const autoAppleSnapshotActive = shouldAutoRefreshAppleSnapshot(config);
     const draftGuardReason = React.useMemo(() => {
         if (!hasAppleDraftChanges) return null;
         if (keyModeDraft === 'team') {
@@ -395,6 +426,44 @@ export function AppStoreReviewWebhookRow(props: {
             : config.last_sync_status === 'connected'
               ? 'border-sky-400/30 bg-sky-500/10 text-sky-100'
               : 'border-amber-400/35 bg-amber-500/10 text-amber-100';
+    const receiverSummaryLabel = config
+        ? text('appstore_review_webhook_receiver_ready')
+        : text('appstore_review_webhook_receiver_missing');
+    const receiverSummaryTone = config
+        ? 'border-emerald-400/20 bg-emerald-500/8'
+        : 'border-amber-400/20 bg-amber-500/8';
+    const appleLinkSummary = !config
+        ? text('appstore_review_webhook_sync_idle')
+        : config.last_sync_error
+          ? text('appstore_review_webhook_sync_error')
+          : config.last_sync_status === 'connected'
+            ? text('appstore_review_webhook_sync_connected')
+            : !hasAppleAppSelection
+              ? text('appstore_review_webhook_apple_app_placeholder')
+              : text('appstore_review_webhook_sync_idle');
+    const reviewSummaryLabel = latestStateLabel ? latestStateSummary : lastDeliveryLabel;
+    const reviewSummaryMeta =
+        lastSnapshotAtLabel ||
+        latestEventAtLabel ||
+        lastDeliveryAtLabel ||
+        text('appstore_review_webhook_no_snapshot');
+    const nextActionText = !config
+        ? text('appstore_review_webhook_setup_hint')
+        : config.last_sync_error || config.last_error
+          ? text('appstore_review_webhook_next_fix_error')
+          : !bundleId
+            ? text('appstore_review_webhook_bundle_missing_hint')
+            : credentialIssues.length
+              ? credentialIssues.join(' ')
+              : !hasAppleAppSelection
+                ? text('appstore_review_webhook_next_load_apps')
+                : config.last_sync_status !== 'connected'
+                  ? text('appstore_review_webhook_next_sync')
+                  : !String(config.last_delivery_at || '').trim()
+                    ? text('appstore_review_webhook_next_wait_delivery')
+                    : !latestStateLabel
+                      ? text('appstore_review_webhook_next_wait_state')
+                      : text('appstore_review_webhook_next_live');
     const setupBadges = config ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/35 px-2 py-1 text-[10px] font-semibold text-indigo-100/75">
@@ -417,33 +486,62 @@ export function AppStoreReviewWebhookRow(props: {
         </div>
     ) : null;
     const statusOverview = config ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className={`rounded-2xl border p-3 ${syncSummaryTone(config.last_sync_status)}`}>
-                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                    {text('appstore_review_webhook_sync_title')}
-                </p>
-                <p className="mt-2 text-sm font-semibold text-white">{lastSyncLabel}</p>
-                <p className="mt-1 text-[11px] text-indigo-200/55">
-                    {lastSyncAtLabel || selectedAppleAppSummary || text('appstore_review_webhook_no_sync_yet')}
-                </p>
+        <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+            <div className="grid gap-3 md:grid-cols-3">
+                <div className={`rounded-2xl border p-3 ${receiverSummaryTone}`}>
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                        {text('appstore_review_webhook_step1_title')}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-white">{receiverSummaryLabel}</p>
+                    <p className="mt-1 break-all text-[11px] text-indigo-200/55">
+                        {effectivePublicWebhookUrl || text('appstore_review_webhook_public_url_missing')}
+                    </p>
+                </div>
+                <div className={`rounded-2xl border p-3 ${syncSummaryTone(config.last_sync_status)}`}>
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                        {text('appstore_review_webhook_step4_title')}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-white">{appleLinkSummary}</p>
+                    <p className="mt-1 text-[11px] text-indigo-200/55">
+                        {lastSyncAtLabel || selectedAppleAppSummary || text('appstore_review_webhook_no_sync_yet')}
+                    </p>
+                </div>
+                <div className={`rounded-2xl border p-3 ${stateSummaryTone(config.latest_review_state)}`}>
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                        {text('appstore_review_webhook_latest_state')}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-white">{reviewSummaryLabel}</p>
+                    <p className="mt-1 text-[11px] text-indigo-200/55">{reviewSummaryMeta}</p>
+                </div>
             </div>
-            <div className={`rounded-2xl border p-3 ${deliverySummaryTone(config.last_delivery_status)}`}>
+            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
                 <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                    {text('appstore_review_webhook_last_delivery')}
+                    {text('appstore_review_webhook_now_title')}
                 </p>
-                <p className="mt-2 text-sm font-semibold text-white">{lastDeliveryLabel}</p>
-                <p className="mt-1 text-[11px] text-indigo-200/55">
-                    {lastDeliveryAtLabel || text('appstore_review_webhook_no_events')}
-                </p>
-            </div>
-            <div className={`rounded-2xl border p-3 ${stateSummaryTone(config.latest_review_state)}`}>
-                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                    {text('appstore_review_webhook_latest_state')}
-                </p>
-                <p className="mt-2 text-sm font-semibold text-white">{latestStateSummary}</p>
-                <p className="mt-1 text-[11px] text-indigo-200/55">
-                    {latestEventAtLabel || text('appstore_review_webhook_no_state')}
-                </p>
+                <p className="mt-2 text-sm font-semibold text-white">{nextActionText}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-xl border border-white/8 bg-slate-950/30 px-3 py-2">
+                        <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                            {text('appstore_review_webhook_last_checked')}
+                        </p>
+                        <p className="mt-1 text-[11px] text-indigo-100/85">
+                            {checkingAppleSnapshot
+                                ? text('appstore_review_webhook_checking_apple')
+                                : lastSnapshotAtLabel || text('appstore_review_webhook_no_snapshot')}
+                        </p>
+                    </div>
+                    <div className={`rounded-xl border px-3 py-2 ${deliverySummaryTone(config.last_delivery_status)}`}>
+                        <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                            {text('appstore_review_webhook_last_delivery')}
+                        </p>
+                        <p className="mt-1 text-[11px] text-indigo-100/85">
+                            {lastDeliveryAtLabel ? `${lastDeliveryLabel} · ${lastDeliveryAtLabel}` : lastDeliveryLabel}
+                        </p>
+                    </div>
+                </div>
+                {autoAppleSnapshotActive ? (
+                    <p className="mt-3 text-[11px] text-indigo-200/60">{text('appstore_review_webhook_auto_checking')}</p>
+                ) : null}
             </div>
         </div>
     ) : null;
@@ -542,6 +640,7 @@ export function AppStoreReviewWebhookRow(props: {
             setSelectedAppleAppId('');
             clearAppleDraftDirty();
             setIsPrivateKeyDragActive(false);
+            setCheckingAppleSnapshot(false);
             setServerStatusWarning(null);
             setAppStoreNameHint('');
             return;
@@ -561,6 +660,7 @@ export function AppStoreReviewWebhookRow(props: {
             setAppleCandidatesLoaded(false);
             setCopiedKey(null);
             setIsPrivateKeyDragActive(false);
+            setCheckingAppleSnapshot(false);
             setServerStatusWarning(null);
             setAppStoreNameHint(nextAppStoreNameHint);
             hydrateDraftsFromStatus(matchingHydrationSnapshot.status, true, {
@@ -585,6 +685,7 @@ export function AppStoreReviewWebhookRow(props: {
         setSelectedAppleAppId('');
         clearAppleDraftDirty();
         setIsPrivateKeyDragActive(false);
+        setCheckingAppleSnapshot(false);
         setServerStatusWarning(null);
         setAppStoreNameHint('');
     }, [appId, userId]);
@@ -687,6 +788,54 @@ export function AppStoreReviewWebhookRow(props: {
         }, 15000);
         return () => window.clearInterval(intervalId);
     }, [appId, refresh, userId]);
+
+    const runAppleSnapshotCheck = React.useCallback(
+        async (options?: { reportErrors?: boolean }) => {
+            if (!config || appleSnapshotRequestInFlightRef.current) return;
+            const publicSubdomain =
+                String(config.public_subdomain || '').trim() ||
+                extractManagedAppstoreReviewPublicSubdomain(config.public_webhook_url) ||
+                String(publicSubdomainDraft || '').trim();
+            if (!publicSubdomain) return;
+
+            appleSnapshotRequestInFlightRef.current = true;
+            setCheckingAppleSnapshot(true);
+            try {
+                await refreshAppstoreReviewSnapshot({ publicSubdomain });
+                await refresh({ silent: true, forceDraftHydrate: false, reportErrors: false });
+            } catch (error: any) {
+                if (options?.reportErrors) {
+                    reportError(String(error?.message || text('upload_failed')));
+                }
+            } finally {
+                appleSnapshotRequestInFlightRef.current = false;
+                setCheckingAppleSnapshot(false);
+            }
+        },
+        [config, publicSubdomainDraft, refresh, reportError, text]
+    );
+
+    React.useEffect(() => {
+        if (!appId || !userId || !autoAppleSnapshotActive || busyAction !== null) return undefined;
+
+        const maybeRefreshApple = () => {
+            const lastCheckedTs = parseComparableTimestamp(config?.last_snapshot_at || config?.last_sync_at || '');
+            if (Date.now() - lastCheckedTs < AUTO_APPLE_SNAPSHOT_STALE_MS) return;
+            void runAppleSnapshotCheck();
+        };
+
+        maybeRefreshApple();
+        const intervalId = window.setInterval(maybeRefreshApple, AUTO_APPLE_SNAPSHOT_INTERVAL_MS);
+        return () => window.clearInterval(intervalId);
+    }, [
+        appId,
+        autoAppleSnapshotActive,
+        busyAction,
+        config?.last_snapshot_at,
+        config?.last_sync_at,
+        runAppleSnapshotCheck,
+        userId,
+    ]);
 
     const copyValue = React.useCallback(async (key: 'endpoint' | 'secret', value: string) => {
         if (!value) return;
@@ -1164,7 +1313,11 @@ export function AppStoreReviewWebhookRow(props: {
                                         </div>
                                         <button
                                             type="button"
-                                            onClick={() => void refresh({ forceDraftHydrate: false })}
+                                            onClick={() =>
+                                                void (autoAppleSnapshotActive
+                                                    ? runAppleSnapshotCheck({ reportErrors: true })
+                                                    : refresh({ forceDraftHydrate: false }))
+                                            }
                                             disabled={loading || busyAction !== null}
                                             className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-4 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
                                         >
