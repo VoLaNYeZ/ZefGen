@@ -6,6 +6,7 @@ import type { ConnectorLegalLinksState } from './use-connector-config-form';
 import {
     findLatestSuccessfulIntegrationForBranch,
     getIntegrationReadiness,
+    hasSuccessfulGenerateJob,
 } from '../utils/connector-runner-state.js';
 
 const MAIN_BRANCH = 'main';
@@ -87,7 +88,7 @@ export function useWorkspaceStepReadiness({
         String((variables as any)?.home_screen_name || '').trim().length > 0;
 
     const step5Done = useMemo(
-        () => connectorEnabled && connectorRunnerJobs.some((job) => String(job?.status || '') === 'succeeded'),
+        () => connectorEnabled && hasSuccessfulGenerateJob(connectorRunnerJobs),
         [connectorEnabled, connectorRunnerJobs]
     );
 

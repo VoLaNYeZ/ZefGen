@@ -1,4 +1,5 @@
 const CODE_PRODUCING_JOB_KINDS = new Set(['generate', 'fix', 'integration', 'visual_qa']);
+const ACTIVE_CONNECTOR_JOB_STATUSES = new Set(['queued', 'running', 'waiting_for_user']);
 
 const normalizeList = (value) => (Array.isArray(value) ? value : []);
 
@@ -42,12 +43,28 @@ export const getIntegrationReadiness = ({ variables, legalLinks, secretMetas }) 
 export const findLatestSuccessfulJob = (jobs, predicate) =>
     normalizeList(jobs).find((job) => String(job?.status ?? '') === 'succeeded' && predicate(job)) || null;
 
+export const findLatestSuccessfulGenerateJob = (jobs) =>
+    findLatestSuccessfulJob(jobs, (job) => String(job?.kind ?? '') === 'generate');
+
+export const hasSuccessfulGenerateJob = (jobs) => Boolean(findLatestSuccessfulGenerateJob(jobs));
+
+export const isActiveConnectorJob = (job) =>
+    ACTIVE_CONNECTOR_JOB_STATUSES.has(String(job?.status ?? '').trim());
+
+export const isCancelRequestedConnectorJob = (job) =>
+    isActiveConnectorJob(job) && Boolean(job?.cancel_requested_at);
+
+export const findLatestActiveConnectorJob = (jobs) =>
+    normalizeList(jobs).find((job) => isActiveConnectorJob(job)) || null;
+
 export const deriveConnectorJobState = (jobs) => {
     const list = normalizeList(jobs);
     const latestJob = list[0] || null;
+    const latestSuccessfulGenerateJob = findLatestSuccessfulGenerateJob(list);
     const latestSuccessfulCodeJob = findLatestSuccessfulJob(list, (job) => CODE_PRODUCING_JOB_KINDS.has(String(job?.kind ?? '')));
     const latestSuccessfulQaJob = findLatestSuccessfulJob(list, (job) => String(job?.kind ?? '') === 'visual_qa');
     const latestSuccessfulIntegrationJob = findLatestSuccessfulJob(list, (job) => String(job?.kind ?? '') === 'integration');
+    const latestActiveJob = findLatestActiveConnectorJob(list);
 
     const latestCodeSha = normalizeCommitSha(latestSuccessfulCodeJob?.result_commit_sha);
     const latestQaSha = normalizeCommitSha(latestSuccessfulQaJob?.result_commit_sha);
@@ -65,9 +82,13 @@ export const deriveConnectorJobState = (jobs) => {
 
     return {
         latestJob,
+        latestSuccessfulGenerateJob,
+        hasSuccessfulGenerateJob: Boolean(latestSuccessfulGenerateJob),
         latestSuccessfulCodeJob,
         latestSuccessfulQaJob,
         latestSuccessfulIntegrationJob,
+        latestActiveJob,
+        activeJobCancelRequested: isCancelRequestedConnectorJob(latestActiveJob),
         latestSuccessfulCodeSha: latestCodeSha || null,
         latestSuccessfulQaSha: latestQaSha || null,
         qaSourceJob: qaDisabledReason ? null : latestSuccessfulCodeJob,

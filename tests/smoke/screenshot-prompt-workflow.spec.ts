@@ -40,6 +40,8 @@ type ScreenshotWorkflowStateSnapshot = {
     appId: string;
     brandId: string;
     projectBrief: string;
+    iconPicks: any[];
+    iconAssets: any[];
     screenshotPicks: any[];
     generatedAssets: any[];
     appScreenshots: any[];
@@ -60,7 +62,9 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
 
     const [
         screenshotPicksResult,
+        iconPicksResult,
         generatedAssetsResult,
+        iconAssetsResult,
         appScreenshotsResult,
         screenshotPromptsResult,
         brandReferencesResult,
@@ -68,11 +72,17 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
         exportStatusResult,
     ] = await Promise.all([
         admin.from('app_asset_picks').select('*').eq('app_id', appId).eq('kind', 'screenshot'),
+        admin.from('app_asset_picks').select('*').eq('app_id', appId).eq('kind', 'icon'),
         admin
             .from('app_generated_assets')
             .select('*')
             .eq('app_id', appId)
             .in('kind', ['screenshot', 'screenshot_enhanced']),
+        admin
+            .from('app_generated_assets')
+            .select('*')
+            .eq('app_id', appId)
+            .in('kind', ['icon', 'icon_enhanced']),
         admin.from('app_screenshots').select('*').eq('app_id', appId),
         admin.from('app_screenshot_prompts').select('*').eq('app_id', appId),
         admin.from('brand_references').select('*').eq('brand_id', brandId).eq('kind', 'screenshot'),
@@ -81,7 +91,9 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
     ]);
 
     assertNoError(screenshotPicksResult.error, 'Could not snapshot screenshot picks');
+    assertNoError(iconPicksResult.error, 'Could not snapshot icon picks');
     assertNoError(generatedAssetsResult.error, 'Could not snapshot generated screenshot assets');
+    assertNoError(iconAssetsResult.error, 'Could not snapshot generated icon assets');
     assertNoError(appScreenshotsResult.error, 'Could not snapshot app screenshots');
     assertNoError(screenshotPromptsResult.error, 'Could not snapshot screenshot prompts');
     assertNoError(brandReferencesResult.error, 'Could not snapshot screenshot brand references');
@@ -92,6 +104,8 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
         appId,
         brandId,
         projectBrief: String(connectorConfigResult.data?.project_brief || ''),
+        iconPicks: iconPicksResult.data || [],
+        iconAssets: iconAssetsResult.data || [],
         screenshotPicks: screenshotPicksResult.data || [],
         generatedAssets: generatedAssetsResult.data || [],
         appScreenshots: appScreenshotsResult.data || [],
@@ -111,12 +125,26 @@ const restoreScreenshotWorkflowState = async (snapshot: ScreenshotWorkflowStateS
         .eq('kind', 'screenshot');
     assertNoError(deletePicksError, 'Could not clear screenshot picks before restore');
 
+    const { error: deleteIconPicksError } = await admin
+        .from('app_asset_picks')
+        .delete()
+        .eq('app_id', appId)
+        .eq('kind', 'icon');
+    assertNoError(deleteIconPicksError, 'Could not clear icon picks before restore');
+
     const { error: deleteGeneratedError } = await admin
         .from('app_generated_assets')
         .delete()
         .eq('app_id', appId)
         .in('kind', ['screenshot', 'screenshot_enhanced']);
     assertNoError(deleteGeneratedError, 'Could not clear generated screenshot assets before restore');
+
+    const { error: deleteIconAssetsError } = await admin
+        .from('app_generated_assets')
+        .delete()
+        .eq('app_id', appId)
+        .in('kind', ['icon', 'icon_enhanced']);
+    assertNoError(deleteIconAssetsError, 'Could not clear generated icon assets before restore');
 
     const { error: deleteScreenshotsError } = await admin.from('app_screenshots').delete().eq('app_id', appId);
     assertNoError(deleteScreenshotsError, 'Could not clear app screenshots before restore');
@@ -155,9 +183,19 @@ const restoreScreenshotWorkflowState = async (snapshot: ScreenshotWorkflowStateS
         assertNoError(error, 'Could not restore generated screenshot assets');
     }
 
+    if (snapshot.iconAssets.length) {
+        const { error } = await admin.from('app_generated_assets').insert(snapshot.iconAssets);
+        assertNoError(error, 'Could not restore generated icon assets');
+    }
+
     if (snapshot.screenshotPicks.length) {
         const { error } = await admin.from('app_asset_picks').insert(snapshot.screenshotPicks);
         assertNoError(error, 'Could not restore screenshot picks');
+    }
+
+    if (snapshot.iconPicks.length) {
+        const { error } = await admin.from('app_asset_picks').insert(snapshot.iconPicks);
+        assertNoError(error, 'Could not restore icon picks');
     }
 
     if (snapshot.screenshotPrompts.length) {
@@ -175,10 +213,12 @@ const resetScreenshotWorkflowState = async ({
     appId,
     projectBrief = LONG_CLIENT_SPEC,
     screenshotReferencePrompt,
+    ensurePickedExportIcon = false,
 }: {
     appId: string;
     projectBrief?: string;
     screenshotReferencePrompt?: string | null;
+    ensurePickedExportIcon?: boolean;
 }) => {
     const { data: appRow, error: appError } = await admin
         .from('apps')
@@ -197,12 +237,26 @@ const resetScreenshotWorkflowState = async ({
         .eq('kind', 'screenshot');
     assertNoError(picksError, 'Could not delete screenshot picks');
 
+    const { error: iconPicksError } = await admin
+        .from('app_asset_picks')
+        .delete()
+        .eq('app_id', appId)
+        .eq('kind', 'icon');
+    assertNoError(iconPicksError, 'Could not delete icon picks');
+
     const { error: generatedError } = await admin
         .from('app_generated_assets')
         .delete()
         .eq('app_id', appId)
         .in('kind', ['screenshot', 'screenshot_enhanced']);
     assertNoError(generatedError, 'Could not delete generated screenshots');
+
+    const { error: generatedIconsError } = await admin
+        .from('app_generated_assets')
+        .delete()
+        .eq('app_id', appId)
+        .in('kind', ['icon', 'icon_enhanced']);
+    assertNoError(generatedIconsError, 'Could not delete generated icons');
 
     const { error: screenshotsError } = await admin.from('app_screenshots').delete().eq('app_id', appId);
     assertNoError(screenshotsError, 'Could not delete simulator screenshots');
@@ -252,6 +306,41 @@ const resetScreenshotWorkflowState = async ({
             });
             assertNoError(insertPromptError, 'Could not insert screenshot reference prompt');
         }
+    }
+
+    if (ensurePickedExportIcon) {
+        const { data: insertedAsset, error: insertAssetError } = await admin
+            .from('app_generated_assets')
+            .insert({
+                user_id: userId,
+                brand_id: brandId,
+                app_id: appId,
+                kind: 'icon',
+                slot_index: 1,
+                version_index: 1,
+                image_path: `${userId}/apps/${appId}/generated/icons/slot-1/smoke-picked-export-icon.jpg`,
+                screenshot_set_id: null,
+                size_label: '1024',
+                width: 1024,
+                height: 1024,
+                status: 'ready',
+                edit_state: null,
+            })
+            .select('id')
+            .single();
+        assertNoError(insertAssetError, 'Could not insert picked export icon asset');
+
+        const generatedAssetId = requireData('smoke picked export icon asset id', insertedAsset?.id);
+        const { error: insertPickError } = await admin.from('app_asset_picks').insert({
+            user_id: userId,
+            brand_id: brandId,
+            app_id: appId,
+            kind: 'icon',
+            screenshot_set_id: null,
+            slot_index: null,
+            generated_asset_id: generatedAssetId,
+        });
+        assertNoError(insertPickError, 'Could not insert picked export icon pick');
     }
 };
 
@@ -458,6 +547,93 @@ test('branded autogen keeps slot prompts visible and combines them with referenc
                 message: 'Expected branded screenshot generation to include the autogenerated slot prompt.',
             })
             .toContain('Track every expense clearly');
+    } finally {
+        await restoreScreenshotWorkflowState(snapshot);
+    }
+});
+
+test('slot 1 brand reference can switch between screenshot refs, picked export icon, and style refs without conflicting state', async ({
+    page,
+}) => {
+    const appId = smokeEnv.seed.primaryApp.id;
+    const brandReferencePrompt = 'Keep a calm finance brand aesthetic with soft teal gradients.';
+    const requestBodies: any[] = [];
+    const snapshot = await captureScreenshotWorkflowState(appId);
+
+    try {
+        await resetScreenshotWorkflowState({
+            appId,
+            projectBrief: LONG_CLIENT_SPEC,
+            screenshotReferencePrompt: brandReferencePrompt,
+            ensurePickedExportIcon: true,
+        });
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
+
+        await stubStorageApi(page);
+        await stubGenerateScreenshotApi(page, (body) => {
+            requestBodies.push(body);
+        });
+        await uploadThreeSimulatorShots(page);
+
+        const brandSelect = page.getByTestId('screenshot-slot-brand-1');
+        const styleSelect = page.getByTestId('screenshot-slot-style-1');
+        const slotOneCard = brandSelect.locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
+        const systemPromptToggle = slotOneCard.getByRole('button', { name: /system prompt/i });
+
+        await expect(brandSelect).not.toHaveValue('');
+        await expect(styleSelect).toBeDisabled();
+        await expect
+            .poll(async () => await page.locator('[data-testid="screenshot-slot-brand-1"] option').allTextContents())
+            .toContain('Picked export icon');
+
+        await brandSelect.selectOption('');
+        await expect(styleSelect).toBeEnabled();
+
+        await page.getByTestId('screenshot-slot-prompt-1').fill('Use a clean finance hero layout.');
+        await page.getByTestId('screenshot-slot-generate-1').click();
+        await expect(page.getByTestId('screenshot-pick-1')).toBeEnabled({ timeout: 20_000 });
+        await expect
+            .poll(async () => await page.locator('[data-testid="screenshot-slot-style-1"] option').count())
+            .toBeGreaterThan(1);
+
+        await styleSelect.selectOption({ index: 1 });
+        await expect(brandSelect).toBeDisabled();
+        await expect(brandSelect).toHaveValue('');
+
+        await systemPromptToggle.click();
+        await expect(slotOneCard.getByRole('button', { name: 'samestyle-like' })).toBeVisible();
+        await expect(slotOneCard.getByRole('button', { name: 'empty' })).toBeVisible();
+        await expect(slotOneCard.getByRole('button', { name: 'samestyle-like' })).toHaveCount(1);
+
+        await styleSelect.selectOption('');
+        await expect(brandSelect).toBeEnabled();
+
+        await brandSelect.selectOption('picked_export_icon');
+        await expect(styleSelect).toBeDisabled();
+        await expect(page.getByTestId('screenshot-slot-reference-prompt-1')).toHaveCount(0);
+        await expect(slotOneCard.getByRole('button', { name: 'icon-palette-like' })).toBeVisible();
+
+        await page.getByTestId('screenshot-slot-generate-1').click();
+
+        await expect
+            .poll(() => requestBodies.at(-1), {
+                message: 'Expected screenshot generation request for picked export icon mode.',
+            })
+            .toBeTruthy();
+
+        await expect
+            .poll(() => String(requestBodies.at(-1)?.prompt || ''), {
+                message: 'Expected picked export icon system prompt to be used.',
+            })
+            .toContain('brand icon palette/style reference');
+
+        await expect
+            .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
+                message: 'Expected anchor + picked export icon + simulator image inputs.',
+            })
+            .toBe(3);
     } finally {
         await restoreScreenshotWorkflowState(snapshot);
     }

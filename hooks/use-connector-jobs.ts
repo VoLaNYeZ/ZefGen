@@ -260,10 +260,31 @@ export const useConnectorJobs = (payload: {
     const requestCancel = useCallback(
         async (jobId: string) => {
             if (!session) throw new Error('No session.');
-            const { data, error: e } = await requestCancelConnectorJob({ userId: session.user.id, jobId });
-            if (e) throw e;
-            await refresh();
-            return data;
+            const cancelRequestedAt = new Date().toISOString();
+            let previousJob: any = null;
+            setJobs((prev) =>
+                prev.map((job) => {
+                    if (String(job?.id || '') !== String(jobId)) return job;
+                    previousJob = job;
+                    return {
+                        ...job,
+                        cancel_requested_at: cancelRequestedAt,
+                    };
+                })
+            );
+            try {
+                const { data, error: e } = await requestCancelConnectorJob({ userId: session.user.id, jobId });
+                if (e) throw e;
+                await refresh();
+                return data;
+            } catch (error) {
+                if (previousJob) {
+                    setJobs((prev) =>
+                        prev.map((job) => (String(job?.id || '') === String(jobId) ? previousJob : job))
+                    );
+                }
+                throw error;
+            }
         },
         [session, refresh]
     );

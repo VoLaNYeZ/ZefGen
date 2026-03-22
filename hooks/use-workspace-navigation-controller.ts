@@ -3,6 +3,7 @@ import type { TranslationKey } from '../i18n';
 import type { AppItem, Brand } from '../types/zefgen';
 import type { WorkspacePreparationResult } from '../types/workspace-switch';
 import { buildAccountsRoute, buildIdeasRoute, buildRoute, type AppPage } from '../utils/routes';
+import { getPreferredActiveAppForBrand, readLastAppByBrand } from '../utils/workspace-selection';
 
 type WorkspaceSelection = {
     brandId: string | null;
@@ -139,7 +140,12 @@ export function useWorkspaceNavigationController({
                 knownApp && (knownApp.brand_id === nextBrand.id || knownApp.id === selectedApp?.id)
                     ? ({ ...knownApp, brand_id: nextBrand.id } as AppItem)
                     : null;
-            const fallbackApp = orderedApps.find((app) => app.brand_id === nextBrand.id) || null;
+            const fallbackApp = getPreferredActiveAppForBrand({
+                apps,
+                brandId: nextBrand.id,
+                lastAppByBrand: readLastAppByBrand(),
+                orderedApps,
+            });
             const nextApp = explicitApp || fallbackApp;
 
             return {

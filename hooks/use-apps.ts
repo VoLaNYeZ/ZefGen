@@ -5,38 +5,7 @@ import type { AppFormState, AppItem, Brand } from '../types/zefgen';
 import { MAX_ACTIVE_APPS } from '../constants/zefgen';
 import { createApp, deleteApp, fetchApps, updateApp, updateAppOrder } from '../data/apps';
 import { makeUniqueAlias, slugify } from '../utils/slug';
-
-const LAST_APP_BY_BRAND_STORAGE_KEY = 'zefgen.lastAppByBrand';
-
-const readLastAppByBrand = (): Record<string, string> => {
-    if (typeof window === 'undefined') return {};
-    try {
-        const raw = window.localStorage.getItem(LAST_APP_BY_BRAND_STORAGE_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return {};
-        const result: Record<string, string> = {};
-        Object.entries(parsed as Record<string, unknown>).forEach(([brandId, appId]) => {
-            const normalizedBrandId = String(brandId || '').trim();
-            const normalizedAppId = String(appId || '').trim();
-            if (normalizedBrandId && normalizedAppId) {
-                result[normalizedBrandId] = normalizedAppId;
-            }
-        });
-        return result;
-    } catch {
-        return {};
-    }
-};
-
-const writeLastAppByBrand = (map: Record<string, string>) => {
-    if (typeof window === 'undefined') return;
-    try {
-        window.localStorage.setItem(LAST_APP_BY_BRAND_STORAGE_KEY, JSON.stringify(map));
-    } catch {
-        // ignore write failures
-    }
-};
+import { readLastAppByBrand, writeLastAppByBrand } from '../utils/workspace-selection';
 
 type Params = {
     session: Session | null;

@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect } from './fixtures';
 import { AUTH_FILE, BASE_URL, loadSmokeEnv } from './smoke-env';
+import { LAST_WORKSPACE_SELECTION_STORAGE_KEY } from '../../../utils/workspace-selection.ts';
 
 export const smokeEnv = loadSmokeEnv();
 export const SMOKE_DEVICE_ID_KEY = 'zefgen.deviceId';
@@ -53,6 +54,22 @@ export const seedSmokeDeviceId = async (page: Page) => {
             window.localStorage.setItem(key, value);
         },
         { key: SMOKE_DEVICE_ID_KEY, value: SMOKE_DEVICE_ID }
+    );
+};
+
+export const seedLastWorkspaceSelection = async (
+    page: Page,
+    selection: { brandId: string; appId: string } | null
+) => {
+    await page.evaluate(
+        ({ key, selection: nextSelection }) => {
+            if (!nextSelection) {
+                window.localStorage.removeItem(key);
+                return;
+            }
+            window.localStorage.setItem(key, JSON.stringify(nextSelection));
+        },
+        { key: LAST_WORKSPACE_SELECTION_STORAGE_KEY, selection }
     );
 };
 

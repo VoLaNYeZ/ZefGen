@@ -38,6 +38,44 @@ test('later slots can inherit style from a picked slot 1 screenshot', () => {
     assert.equal(state.usesImplicitSlot1Style, true);
 });
 
+test('slot 1 is not unblocked by export-icon availability alone', () => {
+    const state = getScreenshotSlotGenerationState({
+        slotIndex: 1,
+        isNoBrandMode: false,
+        simShotId: 'sim-1',
+        brandRefId: null,
+        styleRefAssetId: null,
+        slotPrompt: '',
+        brandPrompt: '',
+        slot1PickedAssetId: null,
+        slot1HasGeneratedOutput: false,
+        usesBrandIconColorReference: false,
+    });
+
+    assert.equal(state.ready, false);
+    assert.equal(state.reason, 'missing_guidance');
+    assert.equal(state.usesBrandIconColorReference, false);
+});
+
+test('slot 1 can use the picked export icon as color guidance when explicitly enabled', () => {
+    const state = getScreenshotSlotGenerationState({
+        slotIndex: 1,
+        isNoBrandMode: false,
+        simShotId: 'sim-1',
+        brandRefId: null,
+        styleRefAssetId: null,
+        slotPrompt: '',
+        brandPrompt: '',
+        slot1PickedAssetId: null,
+        slot1HasGeneratedOutput: false,
+        usesBrandIconColorReference: true,
+    });
+
+    assert.equal(state.ready, true);
+    assert.equal(state.reason, null);
+    assert.equal(state.usesBrandIconColorReference, true);
+});
+
 test('later slots are blocked until slot 1 is picked when they have no own guidance', () => {
     const state = getScreenshotSlotGenerationState({
         slotIndex: 2,
@@ -53,6 +91,25 @@ test('later slots are blocked until slot 1 is picked when they have no own guida
 
     assert.equal(state.ready, false);
     assert.equal(state.reason, 'pick_slot_1_first');
+});
+
+test('export-icon guidance is limited to slot 1', () => {
+    const state = getScreenshotSlotGenerationState({
+        slotIndex: 2,
+        isNoBrandMode: false,
+        simShotId: 'sim-2',
+        brandRefId: null,
+        styleRefAssetId: null,
+        slotPrompt: '',
+        brandPrompt: '',
+        slot1PickedAssetId: null,
+        slot1HasGeneratedOutput: false,
+        usesBrandIconColorReference: true,
+    });
+
+    assert.equal(state.ready, false);
+    assert.equal(state.reason, 'missing_guidance');
+    assert.equal(state.usesBrandIconColorReference, false);
 });
 
 test('a later slot prompt is sufficient guidance even before slot 1 is picked', () => {

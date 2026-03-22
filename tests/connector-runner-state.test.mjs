@@ -6,6 +6,7 @@ import {
     deriveConnectorJobState,
     getIntegrationReadiness,
     groupConnectorArtifacts,
+    hasSuccessfulGenerateJob,
 } from '../utils/connector-runner-state.js';
 
 test('deriveConnectorJobState enables QA from the latest successful code-producing SHA', () => {
@@ -22,6 +23,35 @@ test('deriveConnectorJobState enables QA from the latest successful code-produci
     assert.equal(state.qaDisabledReason, '');
     assert.equal(state.qaSourceJob?.id, 'integration-1');
     assert.equal(state.latestSuccessfulCodeSha, 'abc123');
+});
+
+test('step 5 completion only counts successful generate jobs', () => {
+    assert.equal(
+        hasSuccessfulGenerateJob([
+            {
+                id: 'generate-1',
+                kind: 'generate',
+                status: 'succeeded',
+            },
+        ]),
+        true
+    );
+
+    const nonGenerateState = deriveConnectorJobState([
+        {
+            id: 'integration-1',
+            kind: 'integration',
+            status: 'succeeded',
+        },
+        {
+            id: 'qa-1',
+            kind: 'visual_qa',
+            status: 'succeeded',
+        },
+    ]);
+
+    assert.equal(nonGenerateState.hasSuccessfulGenerateJob, false);
+    assert.equal(nonGenerateState.latestSuccessfulGenerateJob, null);
 });
 
 test('deriveConnectorJobState blocks screenshots when the latest QA SHA is stale', () => {
@@ -46,22 +76,43 @@ test('deriveConnectorJobState blocks screenshots when the latest QA SHA is stale
     assert.equal(state.screenshotsSourceJob, null);
 });
 
+test('deriveConnectorJobState exposes cancel-requested active jobs', () => {
+    const state = deriveConnectorJobState([
+        {
+            id: 'fix-1',
+            kind: 'fix',
+            status: 'running',
+            cancel_requested_at: '2026-03-22T08:00:00.000Z',
+        },
+        {
+            id: 'generate-1',
+            kind: 'generate',
+            status: 'succeeded',
+        },
+    ]);
+
+    assert.equal(state.latestActiveJob?.id, 'fix-1');
+    assert.equal(state.activeJobCancelRequested, true);
+});
+
 test('integration readiness uses CRM variables including Apphud and Firebase fields', () => {
     const variables = {
         apphud_api_key: 'apphud-live-key',
         domain: 'https://analytics.example.com',
         bundle_id: 'com.example.release',
-        privacy_policy_url: 'https://example.com/privacy',
-        terms_of_use_url: 'https://example.com/terms',
-        support_form_url: 'https://example.com/support',
         firebase_plist_snippet: '<plist></plist>',
         id_purchases: '',
     };
+    const legalLinks = {
+        privacy_policy_url: 'https://example.com/privacy',
+        terms_of_use_url: 'https://example.com/terms',
+        support_form_url: 'https://example.com/support',
+    };
     const secretMetas = [];
 
-    assert.equal(getIntegrationReadiness({ variables, secretMetas }), true);
+    assert.equal(getIntegrationReadiness({ variables, legalLinks, secretMetas }), true);
 
-    const requirements = buildIntegrationRequirements({ variables, secretMetas });
+    const requirements = buildIntegrationRequirements({ variables, legalLinks, secretMetas });
     assert.equal(requirements.find((item) => item.key === 'id_purchases')?.optional, true);
     assert.equal(requirements.find((item) => item.key === 'apphud_api_key')?.source, 'variable');
     assert.equal(requirements.find((item) => item.key === 'bundle_id')?.ok, true);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 export type SlotMapping = {
+    brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
     brandRefId: string | null;
     simShotId: string | null;
     styleRefAssetId: string | null;

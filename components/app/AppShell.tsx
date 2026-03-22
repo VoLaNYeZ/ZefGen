@@ -54,6 +54,7 @@ import { WorkspaceShellChrome } from './WorkspaceShellChrome';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';
 import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
+import { writeLastWorkspaceSelection } from '../../utils/workspace-selection';
 
 type AppShellProps = {
     session: Session;
@@ -363,15 +364,37 @@ export function AppShell({ session }: AppShellProps) {
         const stored = (
             slotMappings as Record<
                 number,
-                Partial<{ brandRefId: string | null; simShotId: string | null; styleRefAssetId: string | null }>
+                Partial<{
+                    brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
+                    brandRefId: string | null;
+                    simShotId: string | null;
+                    styleRefAssetId: string | null;
+                }>
             >
         )[slotIndex] || {};
+        const hasBrandRefSource = Object.prototype.hasOwnProperty.call(stored, 'brandRefSource');
         const hasBrandRefId = Object.prototype.hasOwnProperty.call(stored, 'brandRefId');
         const hasSimShotId = Object.prototype.hasOwnProperty.call(stored, 'simShotId');
         const hasStyleRefAssetId = Object.prototype.hasOwnProperty.call(stored, 'styleRefAssetId');
-        const resolvedBrandRefId = hasBrandRefId ? (stored.brandRefId ?? null) : brandScreenshotReferences[slotIndex - 1]?.id ?? null;
+        const defaultBrandRefId = brandScreenshotReferences[slotIndex - 1]?.id ?? null;
+        const resolvedBrandRefSource = isNoBrandMode
+            ? null
+            : hasBrandRefSource
+                ? (stored.brandRefSource ?? null)
+                : hasBrandRefId
+                    ? 'screenshot_ref'
+                    : hasStyleRefAssetId && Boolean(stored.styleRefAssetId)
+                        ? null
+                    : defaultBrandRefId
+                        ? 'screenshot_ref'
+                        : null;
+        const resolvedBrandRefId =
+            resolvedBrandRefSource === 'screenshot_ref'
+                ? (hasBrandRefId ? (stored.brandRefId ?? null) : defaultBrandRefId)
+                : null;
         return {
             // Important: allow explicit null (stored value) to persist. Only fallback when the key is missing.
+            brandRefSource: resolvedBrandRefSource,
             brandRefId: isNoBrandMode ? null : resolvedBrandRefId,
             simShotId: hasSimShotId ? (stored.simShotId ?? null) : selectedAppScreenshots[slotIndex - 1]?.id ?? null,
             styleRefAssetId: hasStyleRefAssetId ? (stored.styleRefAssetId ?? null) : null,
@@ -379,12 +402,43 @@ export function AppShell({ session }: AppShellProps) {
     };
     const updateSlotMapping = (
         slotIndex: number,
-        patch: { brandRefId?: string | null; simShotId?: string | null; styleRefAssetId?: string | null }
+        patch: {
+            brandRefSource?: 'screenshot_ref' | 'picked_export_icon' | null;
+            brandRefId?: string | null;
+            simShotId?: string | null;
+            styleRefAssetId?: string | null;
+        }
     ) => {
-        const normalizedPatch = isNoBrandMode ? { ...patch, brandRefId: null } : patch;
+        const normalizedPatch = isNoBrandMode
+            ? { ...patch, brandRefSource: null, brandRefId: null }
+            : patch;
         setSlotMappings((prev) => ({
             ...prev,
-            [slotIndex]: { ...prev[slotIndex], ...normalizedPatch },
+            [slotIndex]: (() => {
+                const current = prev[slotIndex] ?? {};
+                const next = { ...current, ...normalizedPatch };
+
+                if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'brandRefSource') ||
+                    Object.prototype.hasOwnProperty.call(normalizedPatch, 'brandRefId')) {
+                    if (next.brandRefSource === 'screenshot_ref' && !next.brandRefId) {
+                        next.brandRefSource = null;
+                    }
+                    if (next.brandRefSource) {
+                        next.styleRefAssetId = null;
+                    } else {
+                        next.brandRefId = null;
+                    }
+                }
+
+                if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'styleRefAssetId')) {
+                    if (next.styleRefAssetId) {
+                        next.brandRefSource = null;
+                        next.brandRefId = null;
+                    }
+                }
+
+                return next;
+            })(),
         }));
     };
 
@@ -827,6 +881,16 @@ export function AppShell({ session }: AppShellProps) {
             return true;
         },
     });
+
+    useEffect(() => {
+        if (activePage !== 'workspace') return;
+        if (!selectedBrand || !selectedApp) return;
+        if (selectedBrand.is_inactive || selectedApp.is_banned) return;
+        writeLastWorkspaceSelection({
+            brandId: selectedBrand.id,
+            appId: selectedApp.id,
+        });
+    }, [activePage, selectedBrand, selectedApp]);
 
     const { handleStartEditing, isClaimingEditLock } = useWorkspaceLockSideEffects({
         activePage,

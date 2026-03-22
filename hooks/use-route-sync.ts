@@ -2,8 +2,11 @@ import { useEffect, useRef } from 'react';
 import type { AppItem, Brand } from '../types/zefgen';
 import type { AppPage } from '../utils/routes';
 import { buildRoute, parseRoute } from '../utils/routes';
-
-const normalizeAlias = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+import {
+    readLastAppByBrand,
+    readLastWorkspaceSelection,
+    resolveStartupWorkspaceSelection,
+} from '../utils/workspace-selection';
 
 type RouteSyncParams = {
     dataLoading: boolean;
@@ -65,28 +68,16 @@ export const useRouteSync = (params: RouteSyncParams) => {
         }
 
         const { brandSlug, appAlias } = parsed;
-        let nextBrand = brandSlug
-            ? brands.find((brand) => brand.slug === brandSlug) || null
-            : brands[0];
-
-        if (!nextBrand) nextBrand = brands[0];
-
-        if (nextBrand && appAlias) {
-            const targetAlias = normalizeAlias(appAlias);
-            const nextApp = apps.find(
-                (app) => app.brand_id === nextBrand?.id && normalizeAlias(app.alias) === targetAlias
-            );
-            requestWorkspaceSelection({
-                brandId: nextBrand?.id ?? null,
-                appId: nextApp?.id ?? null,
-            });
-        } else {
-            const firstApp = orderedApps.find((app) => app.brand_id === nextBrand?.id);
-            requestWorkspaceSelection({
-                brandId: nextBrand?.id ?? null,
-                appId: firstApp?.id ?? null,
-            });
-        }
+        const nextSelection = resolveStartupWorkspaceSelection({
+            brandSlug,
+            appAlias,
+            brands,
+            apps,
+            orderedApps,
+            lastAppByBrand: readLastAppByBrand(),
+            lastWorkspaceSelection: readLastWorkspaceSelection(),
+        });
+        requestWorkspaceSelection(nextSelection);
 
         setHasParsedRoute(true);
     }, [
@@ -151,20 +142,20 @@ export const useRouteSync = (params: RouteSyncParams) => {
                 return;
             }
             setActivePage(parsed.page);
-            const { brandSlug, appAlias } = parsed;
-            const brandMatch = brands.find((brand) => brand.slug === brandSlug);
-            const targetAlias = normalizeAlias(appAlias);
-            const appMatch = brands.length && brandMatch && appAlias
-                ? apps.find((app) => app.brand_id === brandMatch.id && normalizeAlias(app.alias) === targetAlias)
-                : null;
-
-            requestWorkspaceSelection({
-                brandId: brandMatch?.id ?? null,
-                appId: appMatch?.id ?? null,
+            const nextSelection = resolveStartupWorkspaceSelection({
+                brandSlug: parsed.brandSlug,
+                appAlias: parsed.appAlias,
+                brands,
+                apps,
+                orderedApps,
+                lastAppByBrand: readLastAppByBrand(),
+                lastWorkspaceSelection: readLastWorkspaceSelection(),
             });
+
+            requestWorkspaceSelection(nextSelection);
         };
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [brands, apps, dataLoading, hasParsedRoute, requestWorkspaceSelection, requestPageNavigation, setActivePage, canNavigate]);
+    }, [brands, apps, orderedApps, dataLoading, hasParsedRoute, requestWorkspaceSelection, requestPageNavigation, setActivePage, canNavigate]);
 };

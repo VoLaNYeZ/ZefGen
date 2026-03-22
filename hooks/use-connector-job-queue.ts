@@ -5,6 +5,7 @@ import type { ConnectorJob, ConnectorJobStatus } from '../data/connector-jobs';
 import { fetchConnectorJobsForUser, requestCancelConnectorJob } from '../data/connector-jobs';
 import type { GenerationJob, GenerationJobStatus } from './use-generation-jobs';
 import { isNoBrand } from '../utils/no-brand';
+import { isCancelRequestedConnectorJob } from '../utils/connector-runner-state.js';
 
 const clampPollMs = (ms: number) => Math.max(1200, Math.floor(ms));
 
@@ -233,7 +234,7 @@ export const useConnectorJobQueue = (payload: {
                 const startedAt = toTs(row.started_at || row.created_at);
                 const endedAt = row.ended_at ? toTs(row.ended_at) : undefined;
 
-                const cancelRequested = Boolean(row.cancel_requested_at) && !isTerminal(row.status);
+                const cancelRequested = isCancelRequestedConnectorJob(row);
                 const message = cancelRequested ? 'Cancel requested' : statusMapped.message;
 
                 const title =
@@ -251,6 +252,7 @@ export const useConnectorJobQueue = (payload: {
                     startedAt,
                     endedAt,
                     message,
+                    cancelRequested,
                 } satisfies GenerationJob;
             });
 

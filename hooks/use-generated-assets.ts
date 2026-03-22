@@ -59,6 +59,7 @@ import {
 } from '../utils/screenshot-prompt-workflow';
 
 type SlotMapping = {
+    brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
     brandRefId: string | null;
     simShotId: string | null;
     styleRefAssetId: string | null;
@@ -67,7 +68,7 @@ type SlotMapping = {
 type ScreenshotKind = 'screenshot' | 'screenshot_enhanced';
 type IconKind = 'icon' | 'icon_enhanced';
 type SystemPromptMode = 'generate' | 'enhance';
-type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like' | 'empty';
+type SystemPromptTemplate = 'ref_like' | 'same_style_like' | 'no_ref_like' | 'icon_palette_like' | 'empty';
 type GenerationApiResult = { kind: 'b64'; mimeType: string; b64: string } | { kind: 'url'; outputUrl: string };
 type NoBrandStyleReferenceOption = { assetId: string; label: string };
 
@@ -216,6 +217,10 @@ export const useGeneratedAssets = ({
     const [activeScreenshotSetId, setActiveScreenshotSetId] = useState<string | null>(null);
     const [assetPicks, setAssetPicks] = useState<AssetPick[]>([]);
     const [exportStatus, setExportStatus] = useState<AppExportStatus | null>(null);
+    const pickedIconAssetId = useMemo(
+        () => assetPicks.find((p) => p.kind === 'icon')?.generated_asset_id ?? null,
+        [assetPicks]
+    );
     const setsLoadedForAppRef = useRef<string | null>(null);
     const backfillDoneForAppRef = useRef<Record<string, boolean>>({});
     const primedSnapshotAppIdRef = useRef<string | null>(null);
@@ -575,6 +580,16 @@ export const useGeneratedAssets = ({
     const selectedGeneratedAssets = useMemo(
         () => generatedAssets.filter((asset) => asset.app_id === selectedApp?.id),
         [generatedAssets, selectedApp?.id]
+    );
+
+    const pickedExportIconAsset = useMemo(
+        () =>
+            selectedGeneratedAssets.find(
+                (asset) =>
+                    asset.id === pickedIconAssetId &&
+                    (asset.kind === 'icon' || asset.kind === 'icon_enhanced')
+            ) ?? null,
+        [selectedGeneratedAssets, pickedIconAssetId]
     );
 
     const screenshotStyleAssetIdSet = useMemo(() => {
@@ -1085,7 +1100,13 @@ export const useGeneratedAssets = ({
                 slotIndex,
             });
             const raw = window.localStorage.getItem(lsKey);
-            if (raw === 'ref_like' || raw === 'same_style_like' || raw === 'no_ref_like' || raw === 'empty') {
+            if (
+                raw === 'ref_like' ||
+                raw === 'same_style_like' ||
+                raw === 'no_ref_like' ||
+                raw === 'icon_palette_like' ||
+                raw === 'empty'
+            ) {
                 next[key] = raw;
             }
         }
@@ -1203,6 +1224,18 @@ export const useGeneratedAssets = ({
         ].join(' ');
     }, []);
 
+    const buildIconPaletteGenerateSystemPrompt = useCallback(() => {
+        return [
+            `Image 1 is size anchor only (ratio lock).`,
+            `Image 2 is the brand icon palette/style reference.`,
+            `Image 3 is app UI source of truth.`,
+            `Use colors, gradients, accents, lighting, and finish from image 2.`,
+            `Do not copy the icon itself into the screenshot as a logo, badge, watermark, or UI element.`,
+            `Keep image 3 UI accurate and readable.`,
+            `Output full-bleed at requested aspect ratio and size.`,
+        ].join(' ');
+    }, []);
+
     const buildSameStyleGenerateSystemPrompt = useCallback(() => {
         return [
             `Image 1 is size anchor only (ratio lock).`,
@@ -1222,6 +1255,36 @@ export const useGeneratedAssets = ({
             `Do not replace the emblem with a different concept or symbol.`,
         ].join(' ');
     }, []);
+
+    const canUsePickedExportIconReferenceForSlot = useCallback(
+        (slotIndex: number) =>
+            slotIndex === 1 && Boolean(selectedBrand && !isNoBrand(selectedBrand)) && Boolean(pickedIconAssetId),
+        [selectedBrand, pickedIconAssetId]
+    );
+
+    const getEffectiveBrandReferenceSelection = useCallback(
+        (
+            slotIndex: number,
+            mapping: SlotMapping
+        ): { brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null; brandRefId: string | null } => {
+            if (selectedBrand && isNoBrand(selectedBrand)) {
+                return { brandRefSource: null, brandRefId: null };
+            }
+            if (mapping.brandRefSource === 'picked_export_icon') {
+                return canUsePickedExportIconReferenceForSlot(slotIndex)
+                    ? { brandRefSource: 'picked_export_icon' as const, brandRefId: null }
+                    : { brandRefSource: null, brandRefId: null };
+            }
+            if (mapping.brandRefSource === 'screenshot_ref' && mapping.brandRefId) {
+                return { brandRefSource: 'screenshot_ref' as const, brandRefId: String(mapping.brandRefId) };
+            }
+            if (mapping.brandRefId) {
+                return { brandRefSource: 'screenshot_ref' as const, brandRefId: String(mapping.brandRefId) };
+            }
+            return { brandRefSource: null, brandRefId: null };
+        },
+        [selectedBrand, canUsePickedExportIconReferenceForSlot]
+    );
 
     const getIconSystemPrompt = useCallback(() => {
         const defaultPrompt = buildDefaultIconSystemPrompt();
@@ -1278,46 +1341,42 @@ export const useGeneratedAssets = ({
     const getSystemPromptTemplateForSlot = useCallback(
         (slotIndex: number): SystemPromptTemplate => {
             const mapping = getSlotMapping(slotIndex);
-            const isNoBrandMode = Boolean(selectedBrand && isNoBrand(selectedBrand));
             const setId = activeScreenshotSetId;
             const key = getScreenshotSlotKey(slotIndex, setId);
             const stored = systemPromptTemplateByKey[key];
-            const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
-            const explicitStyleRefAssetId =
+            const { brandRefSource, brandRefId } = getEffectiveBrandReferenceSelection(slotIndex, mapping);
+            const rawExplicitStyleRefAssetId =
                 mapping.styleRefAssetId && screenshotStyleAssetIdSet.has(String(mapping.styleRefAssetId))
                     ? String(mapping.styleRefAssetId)
                     : null;
+            const explicitStyleRefAssetId = brandRefSource ? null : rawExplicitStyleRefAssetId;
             const implicitSlot1StyleAssetId =
                 slotIndex > 1 &&
-                !effectiveBrandRefId &&
+                !brandRefSource &&
                 !explicitStyleRefAssetId &&
                 setId &&
                 screenshotStyleAssetIdSet.has(String(pickedScreenshotAssetIdBySetSlot[`${setId}:1`] || ''))
                     ? String(pickedScreenshotAssetIdBySetSlot[`${setId}:1`])
                     : null;
             const effectiveStyleRefAssetId = explicitStyleRefAssetId || implicitSlot1StyleAssetId;
-
-            const fallback: SystemPromptTemplate = isNoBrandMode
-                ? effectiveStyleRefAssetId
+            const derivedTemplate: SystemPromptTemplate =
+                effectiveStyleRefAssetId
                     ? 'same_style_like'
-                    : 'no_ref_like'
-                : effectiveBrandRefId
-                    ? 'ref_like'
-                    : effectiveStyleRefAssetId
-                        ? 'same_style_like'
-                        : 'no_ref_like';
+                    : brandRefSource === 'picked_export_icon'
+                        ? 'icon_palette_like'
+                        : brandRefId
+                            ? 'ref_like'
+                            : 'no_ref_like';
 
-            const raw = stored || fallback;
-            if (isNoBrandMode && raw === 'ref_like') return 'no_ref_like';
-            return raw;
+            return stored === 'empty' ? 'empty' : derivedTemplate;
         },
         [
             activeScreenshotSetId,
+            getEffectiveBrandReferenceSelection,
             getScreenshotSlotKey,
             getSlotMapping,
             pickedScreenshotAssetIdBySetSlot,
             screenshotStyleAssetIdSet,
-            selectedBrand,
             systemPromptTemplateByKey,
         ]
     );
@@ -1326,7 +1385,15 @@ export const useGeneratedAssets = ({
         (slotIndex: number, template: SystemPromptTemplate) => {
             if (!selectedApp?.id || !activeScreenshotSetId) return;
             const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
-            setSystemPromptTemplateByKey((prev) => ({ ...prev, [key]: template }));
+            setSystemPromptTemplateByKey((prev) => {
+                const next = { ...prev };
+                if (template === 'empty') {
+                    next[key] = 'empty';
+                } else {
+                    delete next[key];
+                }
+                return next;
+            });
 
             const lsKey = getSystemPromptTemplateStorageKey({
                 appId: selectedApp.id,
@@ -1334,7 +1401,11 @@ export const useGeneratedAssets = ({
                 slotIndex,
             });
             if (typeof window !== 'undefined') {
-                window.localStorage.setItem(lsKey, template);
+                if (template === 'empty') {
+                    window.localStorage.setItem(lsKey, template);
+                } else {
+                    window.localStorage.removeItem(lsKey);
+                }
                 const genOverrideKey = getSystemPromptStorageKey({
                     appId: selectedApp.id,
                     screenshotSetId: activeScreenshotSetId,
@@ -1390,6 +1461,8 @@ export const useGeneratedAssets = ({
                     defaultPrompt = buildRefLikeGenerateSystemPrompt();
                 } else if (template === 'same_style_like') {
                     defaultPrompt = buildSameStyleGenerateSystemPrompt();
+                } else if (template === 'icon_palette_like') {
+                    defaultPrompt = buildIconPaletteGenerateSystemPrompt();
                 } else if (template === 'empty') {
                     defaultPrompt = '';
                 } else {
@@ -1413,6 +1486,7 @@ export const useGeneratedAssets = ({
             systemPromptOverridesByKey,
             buildDefaultSystemPrompt,
             buildNoBrandAnchorGenerateSystemPrompt,
+            buildIconPaletteGenerateSystemPrompt,
             buildRefLikeGenerateSystemPrompt,
             buildSameStyleGenerateSystemPrompt,
             getSystemPromptTemplateForSlot,
@@ -2838,6 +2912,10 @@ export const useGeneratedAssets = ({
         const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
         const inputImageUrls: string[] = [anchorImageUrl];
         let userPrompt = slotPrompt;
+        const pickedExportIconReferenceUrl =
+            slotContext.usesBrandIconColorReference && pickedExportIconAsset
+                ? await resolveGeneratedUrl(pickedExportIconAsset).catch(() => null)
+                : null;
 
         const resolveStyleReferenceUrl = async () => {
             if (!selectedStyleRefAssetId) return null;
@@ -2877,6 +2955,11 @@ export const useGeneratedAssets = ({
                 throw new Error(text('select_style_reference'));
             }
             inputImageUrls.push(styleReferenceUrl, simulatorImageUrl);
+        } else if (template === 'icon_palette_like') {
+            if (!pickedExportIconReferenceUrl) {
+                throw new Error(text('generation_failed'));
+            }
+            inputImageUrls.push(pickedExportIconReferenceUrl, simulatorImageUrl);
         } else {
             inputImageUrls.push(simulatorImageUrl);
         }
@@ -3007,7 +3090,8 @@ export const useGeneratedAssets = ({
 
         const mapping = getSlotMapping(slotIndex);
         const isNoBrandMode = isNoBrand(selectedBrand);
-        const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
+        const { brandRefSource: effectiveBrandRefSource, brandRefId: effectiveBrandRefId } =
+            getEffectiveBrandReferenceSelection(slotIndex, mapping);
         const selectedTemplate = getSystemPromptTemplateForSlot(slotIndex);
         const template: SystemPromptTemplate =
             isNoBrandMode && selectedTemplate === 'ref_like' ? 'no_ref_like' : selectedTemplate;
@@ -3032,6 +3116,10 @@ export const useGeneratedAssets = ({
         const baseImageUrl = await resolveGeneratedUrl(baseAsset);
         const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
         const inputImageUrls: string[] = [anchorImageUrl];
+        const pickedExportIconReferenceUrl =
+            template === 'icon_palette_like' && pickedExportIconAsset
+                ? await resolveGeneratedUrl(pickedExportIconAsset).catch(() => null)
+                : null;
 
         const resolveStyleReferenceUrl = async () => {
             const selectedStyleRefAssetId = mapping.styleRefAssetId;
@@ -3068,6 +3156,11 @@ export const useGeneratedAssets = ({
                 throw new Error(text('select_style_reference'));
             }
             inputImageUrls.push(styleReferenceUrl, baseImageUrl);
+        } else if (template === 'icon_palette_like') {
+            if (!pickedExportIconReferenceUrl || effectiveBrandRefSource !== 'picked_export_icon') {
+                throw new Error(text('generation_failed'));
+            }
+            inputImageUrls.push(pickedExportIconReferenceUrl, baseImageUrl);
         } else {
             inputImageUrls.push(baseImageUrl);
         }
@@ -3366,11 +3459,6 @@ export const useGeneratedAssets = ({
         return out;
     }, [slotHeadlinePosBySlotKey, activeScreenshotSetId, targetSlotCount, getScreenshotSlotKey]);
 
-    const pickedIconAssetId = useMemo(
-        () => assetPicks.find((p) => p.kind === 'icon')?.generated_asset_id ?? null,
-        [assetPicks]
-    );
-
     const pickedScreenshotAssetIdBySlotIndex = useMemo(() => {
         const out: Record<number, string | null> = {};
         if (!activeScreenshotSetId) return out;
@@ -3402,11 +3490,14 @@ export const useGeneratedAssets = ({
 
         for (let slotIndex = 1; slotIndex <= targetSlotCount; slotIndex += 1) {
             const mapping = getSlotMapping(slotIndex);
-            const effectiveBrandRefId = selectedBrand && isNoBrand(selectedBrand) ? null : mapping.brandRefId;
-            const explicitStyleRefAssetId =
+            const { brandRefSource: effectiveBrandRefSource, brandRefId: effectiveBrandRefId } =
+                getEffectiveBrandReferenceSelection(slotIndex, mapping);
+            const rawExplicitStyleRefAssetId =
                 mapping.styleRefAssetId && screenshotStyleAssetIdSet.has(String(mapping.styleRefAssetId))
                     ? String(mapping.styleRefAssetId)
                     : null;
+            const explicitStyleRefAssetId = effectiveBrandRefSource ? null : rawExplicitStyleRefAssetId;
+            const template = getSystemPromptTemplateForSlot(slotIndex);
             const promptRefId = effectiveBrandRefId ? String(effectiveBrandRefId) : '';
             const slotPrompt = slotPromptBySlotIndex[slotIndex] ?? '';
             const brandPrompt = promptRefId ? promptsByRefId[promptRefId] ?? '' : '';
@@ -3420,6 +3511,8 @@ export const useGeneratedAssets = ({
                 brandPrompt,
                 slot1PickedAssetId,
                 slot1HasGeneratedOutput,
+                usesBrandIconColorReference:
+                    template === 'icon_palette_like' && effectiveBrandRefSource === 'picked_export_icon',
             });
             out[slotIndex] = getSlotBlockedReasonMessage(state.reason);
         }
@@ -3430,7 +3523,9 @@ export const useGeneratedAssets = ({
         enhancedScreenshotSlots,
         generatedScreenshotSlots,
         getSlotBlockedReasonMessage,
+        getEffectiveBrandReferenceSelection,
         getSlotMapping,
+        getSystemPromptTemplateForSlot,
         pickedScreenshotAssetIdBySetSlot,
         promptsByRefId,
         screenshotStyleAssetIdSet,
@@ -3462,11 +3557,13 @@ export const useGeneratedAssets = ({
     function resolveSlotGenerationContext(slotIndex: number) {
         const mapping = getSlotMapping(slotIndex);
         const isNoBrandMode = Boolean(selectedBrand && isNoBrand(selectedBrand));
-        const effectiveBrandRefId = isNoBrandMode ? null : mapping.brandRefId;
-        const explicitStyleRefAssetId =
+        const { brandRefSource: effectiveBrandRefSource, brandRefId: effectiveBrandRefId } =
+            getEffectiveBrandReferenceSelection(slotIndex, mapping);
+        const rawExplicitStyleRefAssetId =
             mapping.styleRefAssetId && screenshotStyleAssetIdSet.has(String(mapping.styleRefAssetId))
                 ? String(mapping.styleRefAssetId)
                 : null;
+        const explicitStyleRefAssetId = effectiveBrandRefSource ? null : rawExplicitStyleRefAssetId;
         const rawSlot1PickedAssetId = activeScreenshotSetId
             ? pickedScreenshotAssetIdBySetSlot[`${activeScreenshotSetId}:1`] ?? null
             : null;
@@ -3480,6 +3577,7 @@ export const useGeneratedAssets = ({
         );
         const slotPrompt = slotPromptBySlotIndex[slotIndex] ?? '';
         const brandPrompt = effectiveBrandRefId ? promptsByRefId[String(effectiveBrandRefId)] ?? '' : '';
+        const template = getSystemPromptTemplateForSlot(slotIndex);
         const state = getScreenshotSlotGenerationState({
             slotIndex,
             isNoBrandMode,
@@ -3490,26 +3588,15 @@ export const useGeneratedAssets = ({
             brandPrompt,
             slot1PickedAssetId,
             slot1HasGeneratedOutput,
+            usesBrandIconColorReference:
+                template === 'icon_palette_like' && effectiveBrandRefSource === 'picked_export_icon',
         });
-        const key = getScreenshotSlotKey(slotIndex, activeScreenshotSetId);
-        const storedTemplate = systemPromptTemplateByKey[key];
-        const fallbackTemplate: SystemPromptTemplate = isNoBrandMode
-            ? state.effectiveStyleRefAssetId
-                ? 'same_style_like'
-                : 'no_ref_like'
-            : effectiveBrandRefId
-                ? 'ref_like'
-                : state.effectiveStyleRefAssetId
-                    ? 'same_style_like'
-                    : 'no_ref_like';
-        const rawTemplate = storedTemplate || fallbackTemplate;
-        const template: SystemPromptTemplate =
-            isNoBrandMode && rawTemplate === 'ref_like' ? 'no_ref_like' : rawTemplate;
 
         return {
             ...state,
             blockedReason: getSlotBlockedReasonMessage(state.reason),
             brandPrompt,
+            effectiveBrandRefSource,
             effectiveBrandRefId,
             slotPrompt,
             template,

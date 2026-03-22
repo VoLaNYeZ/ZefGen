@@ -138,7 +138,7 @@ The authenticated shell is composed through:
 - `components/app/BrandReleaseInfoPanel.tsx` - brand release planning fields.
 - `components/app/BrandReferencesPanel.tsx` - brand screenshot/icon reference library.
 - `components/app/CountryMultiSelect.tsx` - target-countries selector.
-- `components/app/ConnectorClientSpecPanel.tsx` - client spec plus idea assignment UI.
+- `components/app/ConnectorClientSpecPanel.tsx` - client spec, idea assignment UI, and the external read-only spec window launcher.
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - setup data, secrets, legal-links generation, App Store description, and account assignment.
 - `components/app/ConnectorAutosaveStatus.tsx` - autosave badge for connector config state.
 - `components/app/ConnectorSaveConflictBanner.tsx` - stale-save conflict banner with reload/overwrite actions.
@@ -309,6 +309,7 @@ The authenticated shell is composed through:
 - `utils/dom.ts` - textarea auto-grow helper.
 - `utils/retry.ts` - async retry helper.
 - `utils/no-brand.ts` - No Brand detection and brand option helpers.
+- `utils/workspace-selection.ts` - startup workspace restore rules plus local persistence for last workspace and per-brand last-app selection.
 - `utils/appstore.ts` - App Store URL normalization and helper links.
 - `utils/appstore-review-webhook.ts` - public subdomain and effective review-webhook URL helpers.
 - `utils/accounts-paste.ts` - bulk account paste parser.
@@ -389,8 +390,8 @@ The authenticated shell is composed through:
 
 ### Tests
 
-- `tests/*.test.*` - node-level regression tests for accounts paste, App Store description helpers, review webhooks, capture modes, runner state, integration terminal parsing, and screenshot prompt workflow.
-- `tests/smoke/*.spec.ts` - browser smoke coverage for auth, navigation, workspace CRUD, brand inactive behavior, accounts, ideas, and screenshot prompt workflows.
+- `tests/*.test.*` - node-level regression tests for accounts paste, App Store description helpers, review webhooks, capture modes, runner state, workspace startup selection, integration terminal parsing, and screenshot prompt workflow.
+- `tests/smoke/*.spec.ts` - browser smoke coverage for auth, navigation, workspace CRUD, startup workspace restore, brand inactive behavior, accounts, ideas, spec-reader window behavior, and screenshot prompt workflows.
 - `tests/smoke/auth.setup.ts` - authenticated Playwright setup.
 - `tests/smoke/support/fixtures.ts` - global browser guard layer for smoke tests.
 - `tests/smoke/support/helpers.ts` - shared smoke helpers.

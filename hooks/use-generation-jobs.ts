@@ -24,6 +24,7 @@ export type GenerationJob = {
     title: string;
     kind: GenerationJobKind;
     providerId?: ScreenshotProviderId;
+    cancelRequested?: boolean;
     status: GenerationJobStatus;
     startedAt: number;
     endedAt?: number;

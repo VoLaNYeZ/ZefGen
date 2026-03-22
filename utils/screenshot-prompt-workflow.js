@@ -55,6 +55,7 @@ export const getScreenshotSlotGenerationState = ({
     brandPrompt,
     slot1PickedAssetId,
     slot1HasGeneratedOutput,
+    usesBrandIconColorReference = false,
 }) => {
     const normalizedSlotIndex = Number(slotIndex || 0);
     const hasSimulatorShot = typeof simShotId === 'string' && simShotId.trim().length > 0;
@@ -64,6 +65,8 @@ export const getScreenshotSlotGenerationState = ({
         typeof styleRefAssetId === 'string' && styleRefAssetId.trim().length > 0;
     const hasPrompt =
         String(slotPrompt || '').trim().length > 0 || String(brandPrompt || '').trim().length > 0;
+    const hasIconColorGuidance =
+        Number(normalizedSlotIndex) === 1 && !Boolean(isNoBrandMode) && Boolean(usesBrandIconColorReference);
 
     const canImplicitlyUseSlot1Style =
         normalizedSlotIndex > 1 &&
@@ -86,7 +89,11 @@ export const getScreenshotSlotGenerationState = ({
         Boolean(slot1HasGeneratedOutput) &&
         !(typeof slot1PickedAssetId === 'string' && slot1PickedAssetId.trim().length > 0);
 
-    const hasGuidance = hasExplicitBrandReference || hasPrompt || Boolean(effectiveStyleRefAssetId);
+    const hasGuidance =
+        hasExplicitBrandReference ||
+        hasPrompt ||
+        Boolean(effectiveStyleRefAssetId) ||
+        hasIconColorGuidance;
 
     let reason = null;
     if (!hasSimulatorShot) {
@@ -106,6 +113,7 @@ export const getScreenshotSlotGenerationState = ({
         hasExplicitBrandReference,
         hasExplicitStyleReference,
         effectiveStyleRefAssetId,
+        usesBrandIconColorReference: hasIconColorGuidance,
         usesImplicitSlot1Style: Boolean(canImplicitlyUseSlot1Style && !hasExplicitStyleReference),
     };
 };

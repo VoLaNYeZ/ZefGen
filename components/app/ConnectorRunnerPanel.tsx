@@ -15,8 +15,13 @@ import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { useConnectorJobArtifacts } from '../../hooks/use-connector-job-artifacts';
 import { MatrixTerminal } from './MatrixTerminal';
 import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
+import { ConfirmIconButton } from './ConfirmIconButton';
 import { humanizeStage, parseRunnerLog } from '../../utils/runner-log';
-import { deriveConnectorJobState, groupConnectorArtifacts } from '../../utils/connector-runner-state.js';
+import {
+    deriveConnectorJobState,
+    groupConnectorArtifacts,
+    isCancelRequestedConnectorJob,
+} from '../../utils/connector-runner-state.js';
 
 const SPINNER = ['|', '/', '-', '\\'];
 const PANEL_TRANSITION_EASE = [0.22, 1, 0.36, 1] as const;
@@ -351,6 +356,10 @@ export function ConnectorRunnerPanel(props: {
     const qaDisabledMessage = getQaDisabledMessage(connectorJobState.qaDisabledReason, text);
     const screenshotsDisabledMessage = getScreenshotsDisabledMessage(connectorJobState.screenshotsDisabledReason, text);
     const screenshotsModeHint = text('connector_screenshots_ready_hint');
+    const generateButtonDisabled = isReadOnly || generateBlocked || busy || !session || !selectedApp;
+    const latestActiveJob = connectorJobState.latestActiveJob;
+    const latestActiveJobCancelRequested = connectorJobState.activeJobCancelRequested;
+    const selectedJobCancelRequested = isCancelRequestedConnectorJob(selectedJob);
 
     const runGenerate = async () => {
         if (isReadOnly) return;
@@ -389,6 +398,58 @@ export function ConnectorRunnerPanel(props: {
         } finally {
             setBusy(false);
         }
+    };
+
+    const renderGenerateButton = (variant: 'hero' | 'actions') => {
+        const isHero = variant === 'hero';
+        const spinnerSize = isHero ? 16 : 14;
+        const directButtonClassName = isHero
+            ? 'inline-flex min-w-[220px] items-center justify-center gap-2 rounded-full border border-indigo-300/45 bg-[linear-gradient(135deg,rgba(99,102,241,0.28),rgba(34,197,94,0.18))] px-8 py-3 text-sm font-semibold text-indigo-50 shadow-[0_18px_45px_-28px_rgba(99,102,241,0.8)] hover:border-indigo-200/60 hover:shadow-[0_22px_55px_-28px_rgba(99,102,241,0.95)] disabled:cursor-not-allowed disabled:opacity-55'
+            : 'ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60';
+        const confirmTriggerClassName = [
+            directButtonClassName.replace(' disabled:cursor-not-allowed disabled:opacity-55', '').replace(' disabled:opacity-60', ''),
+            generateButtonDisabled ? 'cursor-not-allowed opacity-55' : '',
+        ]
+            .filter(Boolean)
+            .join(' ');
+        const content = (
+            <>
+                {busy ? <Loader2 className="animate-spin" size={spinnerSize} /> : null}
+                {text('connector_generate')}
+            </>
+        );
+
+        if (!connectorJobState.hasSuccessfulGenerateJob) {
+            return (
+                <button
+                    type="button"
+                    onClick={runGenerate}
+                    disabled={generateButtonDisabled}
+                    data-testid="runner-generate-button"
+                    className={directButtonClassName}
+                >
+                    {content}
+                </button>
+            );
+        }
+
+        return (
+            <ConfirmIconButton
+                label={text('connector_generate')}
+                question={text('connector_generate_confirm_regenerate')}
+                confirmLabel={text('connector_generate_confirm_regenerate_confirm')}
+                cancelLabel={text('cancel')}
+                disabled={generateButtonDisabled}
+                onConfirm={runGenerate}
+                className={isHero ? 'w-full' : undefined}
+                triggerTestId="runner-generate-button"
+                popoverTestId="runner-generate-button-popover"
+                confirmTestId="runner-generate-button-confirm"
+                cancelTestId="runner-generate-button-cancel"
+            >
+                <span className={confirmTriggerClassName}>{content}</span>
+            </ConfirmIconButton>
+        );
     };
 
     const runQa = async () => {
@@ -606,15 +667,7 @@ export function ConnectorRunnerPanel(props: {
 
                     {showHeroGenerate ? (
                         <div className="mt-5 flex flex-col items-center gap-3 rounded-[24px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.18),rgba(2,6,23,0.12)_58%,rgba(2,6,23,0)_100%)] px-5 py-6 text-center">
-                            <button
-                                type="button"
-                                onClick={runGenerate}
-                                disabled={isReadOnly || generateBlocked || busy || !session || !selectedApp}
-                                className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-full border border-indigo-300/45 bg-[linear-gradient(135deg,rgba(99,102,241,0.28),rgba(34,197,94,0.18))] px-8 py-3 text-sm font-semibold text-indigo-50 shadow-[0_18px_45px_-28px_rgba(99,102,241,0.8)] hover:border-indigo-200/60 hover:shadow-[0_22px_55px_-28px_rgba(99,102,241,0.95)] disabled:cursor-not-allowed disabled:opacity-55"
-                            >
-                                {busy ? <Loader2 className="animate-spin" size={16} /> : null}
-                                {text('connector_generate')}
-                            </button>
+                            {renderGenerateButton('hero')}
                             {generateBlocked ? (
                                 <div className="text-[11px] font-semibold text-amber-100/90">{generateBlockedMessage}</div>
                             ) : (
@@ -638,15 +691,25 @@ export function ConnectorRunnerPanel(props: {
                                 </div>
 
                                 <div className="mt-3 flex flex-wrap gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={runGenerate}
-                                        disabled={isReadOnly || generateBlocked || busy || !session || !selectedApp}
-                                        className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
-                                    >
-                                        {busy ? <Loader2 className="animate-spin" size={14} /> : null}
-                                        {text('connector_generate')}
-                                    </button>
+                                    {renderGenerateButton('actions')}
+                                    {latestActiveJob ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => cancel(String(latestActiveJob.id))}
+                                            disabled={isReadOnly || busy || latestActiveJobCancelRequested}
+                                            data-testid="runner-cancel-active-button"
+                                            className={`ui-btn-fit inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold disabled:opacity-70 ${
+                                                latestActiveJobCancelRequested
+                                                    ? 'border-amber-400/30 bg-amber-500/10 text-amber-100/90'
+                                                    : 'border-white/10 bg-slate-950/20 text-indigo-200/70 hover:border-rose-400/40 hover:text-white'
+                                            }`}
+                                        >
+                                            {busy && !latestActiveJobCancelRequested ? <Loader2 className="animate-spin" size={14} /> : null}
+                                            {latestActiveJobCancelRequested
+                                                ? text('connector_cancel_requested')
+                                                : text('connector_cancel_active_job')}
+                                        </button>
+                                    ) : null}
                                     {canContinue ? (
                                         <button
                                             type="button"
@@ -699,6 +762,18 @@ export function ConnectorRunnerPanel(props: {
                                     <div>{text('connector_runner_generate_hint')}</div>
                                     {generateBlocked ? (
                                         <div className="font-semibold text-amber-100/90">{generateBlockedMessage}</div>
+                                    ) : null}
+                                    {connectorJobState.hasSuccessfulGenerateJob ? (
+                                        <div className="text-indigo-200/45">{text('connector_generate_confirm_regenerate')}</div>
+                                    ) : null}
+                                    {latestActiveJob ? (
+                                        <div>
+                                            {text('connector_latest_job')}{' '}
+                                            <span className="font-semibold text-indigo-100">{String(latestActiveJob.kind)}</span>
+                                            {latestActiveJobCancelRequested ? (
+                                                <span className="text-amber-100/90"> · {text('connector_cancel_requested')}</span>
+                                            ) : null}
+                                        </div>
                                     ) : null}
                                     {canContinue ? (
                                         <div className="text-indigo-200/45">{text('connector_continue_hint')}</div>
@@ -770,10 +845,17 @@ export function ConnectorRunnerPanel(props: {
                                                 <button
                                                     type="button"
                                                     onClick={() => cancel(String(selectedJob.id))}
-                                                    disabled={isReadOnly || busy}
-                                                    className="ui-btn-fit ui-btn-fit-dense inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-200/70 hover:border-rose-400/40 hover:text-white disabled:opacity-60"
+                                                    disabled={isReadOnly || busy || selectedJobCancelRequested}
+                                                    data-testid="runner-selected-job-cancel-button"
+                                                    className={`ui-btn-fit ui-btn-fit-dense inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-semibold disabled:opacity-70 ${
+                                                        selectedJobCancelRequested
+                                                            ? 'border-amber-400/30 bg-amber-500/10 text-amber-100/90'
+                                                            : 'border-white/10 bg-slate-950/20 text-indigo-200/70 hover:border-rose-400/40 hover:text-white'
+                                                    }`}
                                                 >
-                                                    {text('cancel')}
+                                                    {selectedJobCancelRequested
+                                                        ? text('connector_cancel_requested')
+                                                        : text('cancel')}
                                                 </button>
                                             </div>
                                         )}

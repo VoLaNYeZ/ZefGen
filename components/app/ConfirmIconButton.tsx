@@ -9,6 +9,10 @@ export const ConfirmIconButton = (props: {
     onConfirm: () => void | Promise<void>;
     children: React.ReactNode;
     className?: string;
+    triggerTestId?: string;
+    popoverTestId?: string;
+    confirmTestId?: string;
+    cancelTestId?: string;
 }) => {
     const {
         label,
@@ -19,6 +23,10 @@ export const ConfirmIconButton = (props: {
         onConfirm,
         children,
         className,
+        triggerTestId,
+        popoverTestId,
+        confirmTestId,
+        cancelTestId,
     } = props;
 
     const [open, setOpen] = React.useState(false);
@@ -62,18 +70,23 @@ export const ConfirmIconButton = (props: {
                 disabled={disabled || busy}
                 onClick={() => setOpen((v) => !v)}
                 aria-label={label}
+                data-testid={triggerTestId}
                 className="inline-flex items-center justify-center"
             >
                 {children}
             </button>
 
             {open && !disabled && (
-                <div className="absolute right-0 bottom-full mb-2 w-[220px] rounded-xl border border-indigo-400/25 bg-slate-950/90 backdrop-blur p-2 shadow-[0_20px_60px_-35px_rgba(0,0,0,0.8)]">
+                <div
+                    data-testid={popoverTestId}
+                    className="absolute right-0 bottom-full mb-2 w-[220px] rounded-xl border border-indigo-400/25 bg-slate-950/90 backdrop-blur p-2 shadow-[0_20px_60px_-35px_rgba(0,0,0,0.8)]"
+                >
                     <div className="text-[11px] text-indigo-100/90">{question}</div>
                     <div className="mt-2 flex items-center justify-end gap-2">
                         <button
                             type="button"
                             onClick={() => setOpen(false)}
+                            data-testid={cancelTestId}
                             className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white"
                         >
                             {cancelLabel}
@@ -82,6 +95,7 @@ export const ConfirmIconButton = (props: {
                             type="button"
                             onClick={handleConfirm}
                             disabled={busy}
+                            data-testid={confirmTestId}
                             className="rounded-full border border-rose-400/35 bg-rose-500/10 px-2.5 py-1 text-[10px] font-semibold text-rose-100 hover:bg-rose-500/20"
                         >
                             {busy ? '…' : confirmLabel}
@@ -92,4 +106,3 @@ export const ConfirmIconButton = (props: {
         </div>
     );
 };
-

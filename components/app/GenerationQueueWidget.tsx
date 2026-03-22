@@ -234,6 +234,7 @@ export const GenerationQueueWidget = (props: {
                                         <XCircle className="text-indigo-200/40" size={14} />
                                     );
 
+                                const isActiveJob = job.status === 'running' || job.status === 'queued';
                                 return (
                                     <div key={job.id} className="rounded-xl border border-white/10 bg-slate-900/30 p-2.5">
                                         <div className="flex items-start justify-between gap-2">
@@ -248,7 +249,12 @@ export const GenerationQueueWidget = (props: {
                                                     {job.message && <span className="truncate">{job.message}</span>}
                                                 </div>
                                             </div>
-                                            {job.status === 'running' || job.status === 'queued' ? (
+                                            {isActiveJob ? (
+                                                job.cancelRequested ? (
+                                                    <span className="shrink-0 inline-flex items-center justify-center rounded-full border border-amber-400/35 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-100/90">
+                                                        Cancel requested
+                                                    </span>
+                                                ) : (
                                                 <button
                                                     type="button"
                                                     onClick={() => onCancelJob?.(job.id)}
@@ -263,6 +269,7 @@ export const GenerationQueueWidget = (props: {
                                                 >
                                                     <X size={12} />
                                                 </button>
+                                                )
                                             ) : (
                                                 <button
                                                     type="button"

@@ -1,4 +1,5 @@
 import React from 'react';
+import { FileText } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppIdea, AppIdeaCategory, Brand, IdeaAppAssignment } from '../../types/zefgen';
@@ -25,6 +26,95 @@ const deriveHomeScreenName = (title: string) => {
     return prefix || normalized;
 };
 
+const buildSpecReaderDocument = () => `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Client spec</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4efe6;
+        --bg-accent: #ece5d8;
+        --panel: rgba(255, 252, 247, 0.94);
+        --text: #1f2937;
+        --border: rgba(148, 163, 184, 0.24);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at top, rgba(255, 255, 255, 0.7), transparent 42%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-accent) 100%);
+        color: var(--text);
+        font-family: "SF Pro Text", "Segoe UI", Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+
+      .shell {
+        min-height: 100vh;
+      }
+
+      .content {
+        width: min(100%, 1040px);
+        margin: 0 auto;
+        padding-inline: 24px;
+      }
+
+      .content {
+        padding-top: 32px;
+        padding-bottom: 40px;
+      }
+
+      .paper {
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        background: var(--panel);
+        box-shadow: 0 22px 60px -40px rgba(15, 23, 42, 0.35);
+        padding: 32px;
+      }
+
+      .spec {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: inherit;
+        font-size: 15px;
+        line-height: 1.85;
+      }
+
+      @media (max-width: 720px) {
+        .content {
+          padding-inline: 16px;
+        }
+
+        .paper {
+          border-radius: 22px;
+          padding: 22px 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <main class="content">
+        <article class="paper">
+          <pre class="spec" id="spec-reader-content"></pre>
+        </article>
+      </main>
+    </div>
+  </body>
+</html>`;
+
 export function ConnectorClientSpecPanel(props: {
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     isEnabled: boolean;
@@ -46,6 +136,9 @@ export function ConnectorClientSpecPanel(props: {
     const [selectedCategoryId, setSelectedCategoryId] = React.useState('');
     const [selectedIdeaId, setSelectedIdeaId] = React.useState('');
     const [ideaApplyBusy, setIdeaApplyBusy] = React.useState(false);
+    const projectBrief = String(connectorForm.projectBrief || '');
+    const hasProjectBrief = normalize(projectBrief).length > 0;
+    const specReaderWindowRef = React.useRef<Window | null>(null);
 
     const ideasById = React.useMemo(() => new Map(ideaList.map((idea) => [idea.id, idea])), [ideaList]);
     const canonicalBrandIdById = React.useMemo(() => buildCanonicalBrandIdMap(brandList), [brandList]);
@@ -126,6 +219,59 @@ export function ConnectorClientSpecPanel(props: {
         if (!selectedCategoryId) return [];
         return availableIdeas.filter((idea) => idea.category_id === selectedCategoryId);
     }, [availableIdeas, selectedCategoryId]);
+
+    const syncSpecReaderWindow = React.useCallback(
+        (targetWindow: Window | null) => {
+            if (!targetWindow || targetWindow.closed) return;
+            const doc = targetWindow.document;
+            if (!doc.getElementById('spec-reader-content')) {
+                doc.open();
+                doc.write(buildSpecReaderDocument());
+                doc.close();
+            }
+
+            targetWindow.document.title = text('connector_project_brief');
+            const contentNode = doc.getElementById('spec-reader-content');
+
+            if (contentNode) {
+                contentNode.textContent = projectBrief;
+            }
+        },
+        [projectBrief, text]
+    );
+
+    React.useEffect(() => {
+        const targetWindow = specReaderWindowRef.current;
+        if (!targetWindow || targetWindow.closed) return;
+        syncSpecReaderWindow(targetWindow);
+    }, [syncSpecReaderWindow]);
+
+    React.useEffect(() => {
+        return () => {
+            const targetWindow = specReaderWindowRef.current;
+            if (targetWindow && !targetWindow.closed) targetWindow.close();
+        };
+    }, []);
+
+    const openSpecReaderWindow = React.useCallback(() => {
+        if (!hasProjectBrief) return;
+        const existingWindow = specReaderWindowRef.current;
+        if (existingWindow && !existingWindow.closed) {
+            syncSpecReaderWindow(existingWindow);
+            existingWindow.focus();
+            return;
+        }
+
+        const nextWindow = window.open(
+            '',
+            'zefgen-client-spec-reader',
+            'popup=yes,width=980,height=860,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes'
+        );
+        if (!nextWindow) return;
+        specReaderWindowRef.current = nextWindow;
+        syncSpecReaderWindow(nextWindow);
+        nextWindow.focus();
+    }, [hasProjectBrief, syncSpecReaderWindow]);
 
     React.useEffect(() => {
         if (!selectedCategoryId) return;
@@ -281,6 +427,16 @@ export function ConnectorClientSpecPanel(props: {
                         <p className="mt-2 text-sm text-indigo-200/60">{text('connector_project_brief_hint')}</p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={openSpecReaderWindow}
+                            disabled={!hasProjectBrief}
+                            data-testid="client-spec-reader-open-button"
+                            className="inline-flex items-center gap-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-3 py-1.5 text-[11px] font-semibold text-indigo-100 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-950/20 disabled:text-indigo-200/35"
+                        >
+                            <FileText size={13} />
+                            {text('connector_project_brief_reader_open')}
+                        </button>
                         <span className="rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-200/70">
                             iOS
                         </span>
@@ -297,7 +453,7 @@ export function ConnectorClientSpecPanel(props: {
 
                 <div className="mt-4">
                     <textarea
-                        value={connectorForm.projectBrief}
+                        value={projectBrief}
                         onChange={(e) => connectorForm.setProjectBrief(e.target.value)}
                         rows={10}
                         disabled={!isEnabled}

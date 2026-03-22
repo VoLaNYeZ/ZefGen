@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './support/fixtures';
 import {
     claimWorkspaceEditLockIfPrompted,
@@ -7,6 +8,209 @@ import {
     selectOptionContainingText,
     smokeEnv,
 } from './support/helpers';
+
+type ConnectorJobRow = {
+    id: string;
+    user_id: string;
+    app_id: string | null;
+    brand_id: string | null;
+    kind: string;
+    status: string;
+    requested_by: string | null;
+    input: Record<string, unknown>;
+    repo_full_name: string;
+    base_branch: string;
+    work_branch: string | null;
+    result_commit_sha: string | null;
+    pr_url: string | null;
+    pr_number: number | null;
+    verify_status: 'pass' | 'fail' | 'skipped' | null;
+    verify_tail: string | null;
+    summary: string | null;
+    claimed_by: string | null;
+    claimed_at: string | null;
+    started_at: string | null;
+    heartbeat_at: string | null;
+    ended_at: string | null;
+    cancel_requested_at: string | null;
+    error: string | null;
+    updated_at: string;
+    created_at: string;
+};
+
+const isoAt = (minuteOffset = 0) => new Date(Date.now() + minuteOffset * 60_000).toISOString();
+
+const buildConnectorJobRow = (overrides: Partial<ConnectorJobRow> = {}): ConnectorJobRow => {
+    const now = isoAt();
+    return {
+        id: 'job-default',
+        user_id: 'smoke-user',
+        app_id: smokeEnv.seed.primaryApp.id,
+        brand_id: smokeEnv.seed.brand.id,
+        kind: 'generate',
+        status: 'queued',
+        requested_by: null,
+        input: {},
+        repo_full_name: 'example/smoke-primary',
+        base_branch: 'main',
+        work_branch: null,
+        result_commit_sha: null,
+        pr_url: null,
+        pr_number: null,
+        verify_status: null,
+        verify_tail: null,
+        summary: null,
+        claimed_by: null,
+        claimed_at: null,
+        started_at: now,
+        heartbeat_at: now,
+        ended_at: null,
+        cancel_requested_at: null,
+        error: null,
+        updated_at: now,
+        created_at: now,
+        ...overrides,
+    };
+};
+
+const readRequestJson = (pageRequest: { postDataJSON(): unknown }) => {
+    try {
+        return pageRequest.postDataJSON();
+    } catch {
+        return null;
+    }
+};
+
+const installPrimaryWorkspaceRunnerMocks = async (page: Page, initialJobs: ConnectorJobRow[]) => {
+    let rows = [...initialJobs];
+    let createCallCount = 0;
+    let finishCanceled = false;
+
+    await page.addInitScript(
+        ({ appId, repoUrl }) => {
+            window.localStorage.setItem(`zefgen.githubRepoUrl.${appId}`, repoUrl);
+        },
+        {
+            appId: smokeEnv.seed.primaryApp.id,
+            repoUrl: 'https://github.com/example/smoke-primary',
+        }
+    );
+
+    await page.route('**/rest/v1/app_asset_picks*', async (route) => {
+        if (route.request().method() !== 'GET') {
+            await route.continue();
+            return;
+        }
+
+        const now = isoAt();
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+                {
+                    id: 'pick-icon-1',
+                    user_id: 'smoke-user',
+                    brand_id: smokeEnv.seed.brand.id,
+                    app_id: smokeEnv.seed.primaryApp.id,
+                    kind: 'icon',
+                    screenshot_set_id: null,
+                    slot_index: null,
+                    generated_asset_id: 'picked-icon-asset-1',
+                    created_at: now,
+                    updated_at: now,
+                },
+            ]),
+        });
+    });
+
+    await page.route('**/rest/v1/connector_jobs*', async (route) => {
+        const method = route.request().method();
+        const now = isoAt();
+
+        if (method === 'GET') {
+            const body = rows.map((row) =>
+                finishCanceled && row.cancel_requested_at && ['queued', 'running', 'waiting_for_user'].includes(row.status)
+                    ? {
+                          ...row,
+                          status: 'canceled',
+                          ended_at: now,
+                          updated_at: now,
+                      }
+                    : row
+            );
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(body),
+            });
+            return;
+        }
+
+        if (method === 'POST') {
+            const rawBody = readRequestJson(route.request()) as Record<string, unknown> | Record<string, unknown>[] | null;
+            const payload = Array.isArray(rawBody) ? rawBody[0] ?? {} : rawBody ?? {};
+            createCallCount += 1;
+            const created = buildConnectorJobRow({
+                id: `job-created-${createCallCount}`,
+                user_id: String(payload.user_id ?? 'smoke-user'),
+                app_id: String(payload.app_id ?? smokeEnv.seed.primaryApp.id),
+                brand_id: typeof payload.brand_id === 'string' ? payload.brand_id : smokeEnv.seed.brand.id,
+                kind: String(payload.kind ?? 'generate'),
+                input:
+                    payload.input && typeof payload.input === 'object' && !Array.isArray(payload.input)
+                        ? (payload.input as Record<string, unknown>)
+                        : {},
+                repo_full_name: String(payload.repo_full_name ?? 'example/smoke-primary'),
+                base_branch: String(payload.base_branch ?? 'main'),
+                started_at: null,
+                heartbeat_at: null,
+                created_at: now,
+                updated_at: now,
+            });
+            rows = [created, ...rows];
+            await route.fulfill({
+                status: 201,
+                contentType: 'application/json',
+                body: JSON.stringify(created),
+            });
+            return;
+        }
+
+        if (method === 'PATCH') {
+            const rawBody = readRequestJson(route.request()) as Record<string, unknown> | null;
+            const payload = rawBody && typeof rawBody === 'object' ? rawBody : {};
+            const requestUrl = new URL(route.request().url());
+            const jobId = String(requestUrl.searchParams.get('id') || '').replace(/^eq\./, '');
+
+            rows = rows.map((row) =>
+                row.id === jobId
+                    ? {
+                          ...row,
+                          ...payload,
+                          updated_at: now,
+                      }
+                    : row
+            );
+
+            const updated = rows.find((row) => row.id === jobId) ?? null;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(updated),
+            });
+            return;
+        }
+
+        await route.continue();
+    });
+
+    return {
+        getCreateCallCount: () => createCallCount,
+        setFinishCanceled: (next: boolean) => {
+            finishCanceled = next;
+        },
+    };
+};
 
 test('seeded workspace renders core panels without runtime errors', async ({ page }) => {
     await gotoWorkspace(page);
@@ -29,6 +233,79 @@ test('seeded workspace renders core panels without runtime errors', async ({ pag
     ]) {
         await expect(page.getByTestId(testId)).toBeVisible();
     }
+});
+
+test('step 5 generate asks for confirmation before re-running after a successful generate', async ({ page }) => {
+    const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
+        buildConnectorJobRow({
+            id: 'job-success-generate',
+            kind: 'generate',
+            status: 'succeeded',
+            result_commit_sha: 'abc123',
+            created_at: isoAt(-10),
+            updated_at: isoAt(-9),
+            started_at: isoAt(-10),
+            ended_at: isoAt(-9),
+        }),
+    ]);
+
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const runnerPanel = page.getByTestId('workspace-panel-runner');
+    const generateButton = runnerPanel.getByTestId('runner-generate-button');
+
+    await expect(generateButton).toBeEnabled();
+    await generateButton.click();
+    await expect(runnerPanel.getByTestId('runner-generate-button-popover')).toBeVisible();
+    expect(runnerMock.getCreateCallCount()).toBe(0);
+
+    await runnerPanel.getByTestId('runner-generate-button-cancel').click();
+    await expect(runnerPanel.getByTestId('runner-generate-button-popover')).toHaveCount(0);
+    expect(runnerMock.getCreateCallCount()).toBe(0);
+
+    await generateButton.click();
+    await runnerPanel.getByTestId('runner-generate-button-confirm').click();
+    await expect.poll(() => runnerMock.getCreateCallCount()).toBe(1);
+});
+
+test('step 5 cancel shows cancel requested and then terminal canceled after refresh', async ({ page }) => {
+    const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
+        buildConnectorJobRow({
+            id: 'job-running-fix',
+            kind: 'fix',
+            status: 'running',
+            created_at: isoAt(-1),
+            updated_at: isoAt(-1),
+            started_at: isoAt(-1),
+        }),
+        buildConnectorJobRow({
+            id: 'job-success-generate',
+            kind: 'generate',
+            status: 'succeeded',
+            result_commit_sha: 'abc123',
+            created_at: isoAt(-10),
+            updated_at: isoAt(-9),
+            started_at: isoAt(-10),
+            ended_at: isoAt(-9),
+        }),
+    ]);
+
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const runnerPanel = page.getByTestId('workspace-panel-runner');
+    const activeCancelButton = runnerPanel.getByTestId('runner-cancel-active-button');
+
+    await expect(activeCancelButton).toBeVisible();
+    await activeCancelButton.click();
+    await expect(activeCancelButton).toContainText(/cancel requested/i);
+
+    runnerMock.setFinishCanceled(true);
+    await runnerPanel.getByRole('button', { name: /^refresh$/i }).click();
+
+    await expect(runnerPanel.getByTestId('runner-cancel-active-button')).toHaveCount(0);
+    await expect(runnerPanel.getByText(/^canceled$/i)).toBeVisible();
 });
 
 test('deliverables rail stays pinned while scrolling through the screenshot workflow', async ({ page }) => {
@@ -191,6 +468,19 @@ test('client spec changes survive an immediate app switch', async ({ page }) => 
     await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.workspace)}$`));
     await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.primaryApp.alias.toUpperCase());
     await expect(page.getByTestId('workspace-panel-client-spec').locator('textarea')).toHaveValue(nextValue);
+});
+
+test('client spec opens in a clean reader window without the removed header copy', async ({ page }) => {
+    await gotoWorkspace(page);
+
+    const openButton = page.getByTestId('client-spec-reader-open-button');
+    const [popup] = await Promise.all([page.waitForEvent('popup'), openButton.click()]);
+    await popup.waitForLoadState('domcontentloaded');
+
+    await expect(popup.locator('body')).toContainText('A calm iPhone expense journal');
+    await expect(popup.locator('body')).not.toContainText('Read only');
+    await expect(popup.locator('body')).not.toContainText('Read-only window for QA, comparison, and longer review sessions.');
+    await popup.close();
 });
 
 test('read-only workspace can claim editing lock and re-enable writes', async ({ page }) => {
