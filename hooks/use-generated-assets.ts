@@ -3736,6 +3736,10 @@ export const useGeneratedAssets = ({
 
     const handleCreateGithubRepo = useCallback(async () => {
         if (!session || !selectedBrand || !selectedApp) return;
+        if (String(selectedApp.name || '').trim().length === 0) {
+            reportError(text('github_repo_app_name_required'));
+            return;
+        }
 
         const jobId = createJob({
             title: 'Create GitHub repo',
@@ -3818,7 +3822,7 @@ export const useGeneratedAssets = ({
         } finally {
             delete abortByJobIdRef.current[jobId];
         }
-    }, [session, selectedBrand, selectedApp, createJob, setJobProgress, setJobMessage, finishJob, reportError]);
+    }, [session, selectedBrand, selectedApp, createJob, setJobProgress, setJobMessage, finishJob, reportError, text]);
 
     const handleDeleteGithubRepo = useCallback(async () => {
         if (!session || !selectedApp) return;

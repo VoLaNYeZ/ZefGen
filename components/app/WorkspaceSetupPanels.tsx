@@ -49,6 +49,7 @@ type WorkspaceSetupPanelsProps = {
     onNotImplementedAutoRelease: () => void;
     onOpenAccountsForApp: () => void;
     onOpenIdeas: () => void;
+    onPatchApp: (appId: string, patch: Partial<AppItem>) => Promise<AppItem | null>;
     onPickAccount: (modeOrId: 'auto' | null | string) => Promise<void>;
     onRefreshIntegrationJobs?: () => Promise<void>;
     onReportError: (msg: string) => void;
@@ -95,6 +96,7 @@ export function WorkspaceSetupPanels({
     onNotImplementedAutoRelease,
     onOpenAccountsForApp,
     onOpenIdeas,
+    onPatchApp,
     onPickAccount,
     onRefreshIntegrationJobs,
     onReportError,
@@ -124,7 +126,9 @@ export function WorkspaceSetupPanels({
                 selectedAppId={selectedApp?.id || null}
                 selectedBrandId={selectedBrand?.id || null}
                 brands={brands}
+                onPatchApp={onPatchApp}
                 onOpenIdeas={onOpenIdeas}
+                reportError={onReportError}
                 text={text}
             />
         </div>

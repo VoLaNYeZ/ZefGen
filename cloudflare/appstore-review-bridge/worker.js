@@ -1,11 +1,14 @@
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { shouldBackgroundRefreshAppstoreReviewState } from '../../lib/appstore-review-state.shared.js';
 
 const APPSTORE_REVIEW_EVENT_TYPE = 'APP_STORE_VERSION_APP_VERSION_STATE_UPDATED';
 const APPLE_STATUS_SNAPSHOT_EVENT_TYPE = 'APPLE_STATUS_SNAPSHOT';
 const APPSTORE_CONNECT_PRIVATE_KEY_SECRET_KEY = 'APPSTORE_CONNECT_PRIVATE_KEY_P8';
 const APPLE_API_ORIGIN = 'https://api.appstoreconnect.apple.com';
 const WEBHOOK_EVENT_TYPES = [APPSTORE_REVIEW_EVENT_TYPE];
+const SCHEDULED_SNAPSHOT_INTERVAL_MS = 60 * 60 * 1000;
+const SCHEDULED_SNAPSHOT_BATCH_SIZE = 100;
 
 const json = (payload, init = {}) =>
     new Response(JSON.stringify(payload, null, 2), {
@@ -359,11 +362,37 @@ const updateWebhookRow = async (env, payload) => {
     return Array.isArray(response) ? response[0] || null : response;
 };
 
+const fetchScheduledSnapshotWebhookBatch = async (env, offset = 0, limit = SCHEDULED_SNAPSHOT_BATCH_SIZE) => {
+    const payload = await supabaseTableRequest(env, {
+        table: 'appstore_review_webhooks',
+        params: {
+            select: SCHEDULED_WEBHOOK_SELECT,
+            last_sync_status: 'eq.connected',
+            asc_app_id: 'not.is.null',
+            order: 'app_id.asc',
+            limit: String(limit),
+            offset: String(Math.max(0, Number(offset || 0))),
+        },
+    });
+    return Array.isArray(payload) ? payload : [];
+};
+
 const parseComparableTimestamp = (value) => {
     const raw = String(value || '').trim();
     if (!raw) return 0;
     const ts = Date.parse(raw);
     return Number.isFinite(ts) ? ts : 0;
+};
+
+export const shouldRunScheduledSnapshotForWebhook = (webhook, nowMs = Date.now()) => {
+    if (!webhook) return false;
+    if (String(webhook.last_sync_status || '').trim().toLowerCase() !== 'connected') return false;
+    if (!String(webhook.asc_app_id || '').trim()) return false;
+    if (!shouldBackgroundRefreshAppstoreReviewState(webhook.latest_review_state)) return false;
+
+    const lastSnapshotTs = parseComparableTimestamp(webhook.last_snapshot_at || webhook.last_sync_at || '');
+    if (!lastSnapshotTs) return true;
+    return nowMs - lastSnapshotTs >= SCHEDULED_SNAPSHOT_INTERVAL_MS;
 };
 
 const APPLE_VERSION_STATE_PRIORITY = {
@@ -383,6 +412,21 @@ const APPLE_VERSION_STATE_PRIORITY = {
     REMOVED_FROM_SALE: 490,
     PREPARE_FOR_SUBMISSION: 100,
 };
+
+const SCHEDULED_WEBHOOK_SELECT = [
+    'app_id',
+    'user_id',
+    'key_mode',
+    'key_id',
+    'issuer_id',
+    'asc_app_id',
+    'asc_app_name',
+    'asc_bundle_id',
+    'latest_review_state',
+    'last_snapshot_at',
+    'last_sync_status',
+    'last_sync_at',
+].join(',');
 
 const normalizeAppleVersionSnapshots = (items) =>
     (Array.isArray(items) ? items : [])
@@ -896,6 +940,7 @@ const persistAppleVersionSnapshot = async (env, payload) => {
     const stateChanged = Boolean(nextState) && nextState !== previousState;
     const patch = {
         last_snapshot_at: snapshotAt,
+        last_error: null,
         ...(Boolean(nextState) && (!previousState || stateChanged)
             ? {
                   latest_event_type: APPLE_STATUS_SNAPSHOT_EVENT_TYPE,
@@ -1121,6 +1166,69 @@ const handleBridgeSnapshot = async (request, env, subdomain) => {
         snapshot_at: snapshotResult.snapshotAt,
         webhook: snapshotResult.webhook,
     });
+};
+
+const runScheduledSnapshotForWebhook = async (env, webhook) => {
+    const { jwt } = await getPrivateAppleCredentials(env, webhook);
+    return persistAppleVersionSnapshot(env, {
+        userId: webhook.user_id,
+        webhook,
+        token: jwt,
+    });
+};
+
+export const runScheduledAppleSnapshotSweep = async (env) => {
+    const summary = {
+        scanned: 0,
+        attempted: 0,
+        refreshed: 0,
+        changed: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (let offset = 0; ; offset += SCHEDULED_SNAPSHOT_BATCH_SIZE) {
+        const batch = await fetchScheduledSnapshotWebhookBatch(env, offset);
+        if (!batch.length) break;
+        summary.scanned += batch.length;
+
+        for (const webhook of batch) {
+            if (!shouldRunScheduledSnapshotForWebhook(webhook)) {
+                summary.skipped += 1;
+                continue;
+            }
+
+            summary.attempted += 1;
+            try {
+                const result = await runScheduledSnapshotForWebhook(env, webhook);
+                summary.refreshed += 1;
+                if (result.changed) summary.changed += 1;
+            } catch (error) {
+                summary.failed += 1;
+                try {
+                    await updateWebhookRow(env, {
+                        userId: webhook.user_id,
+                        appId: webhook.app_id,
+                        patch: {
+                            last_error: String(error?.message || 'Apple status refresh failed.').slice(0, 1000),
+                        },
+                    });
+                } catch {
+                    // Ignore secondary persistence failures.
+                }
+                console.error('Scheduled Apple snapshot failed', {
+                    appId: webhook.app_id,
+                    userId: webhook.user_id,
+                    message: String(error?.message || error || 'Apple status refresh failed.').slice(0, 1000),
+                });
+            }
+        }
+
+        if (batch.length < SCHEDULED_SNAPSHOT_BATCH_SIZE) break;
+    }
+
+    console.log('Scheduled Apple snapshot sweep completed', summary);
+    return summary;
 };
 
 const handleBridgePing = async (request, env, subdomain) => {
@@ -1487,5 +1595,9 @@ export default {
         }
 
         return publicTextResponse('Not found.', { status: 404 });
+    },
+    async scheduled(controller, env, ctx) {
+        void controller;
+        ctx.waitUntil(runScheduledAppleSnapshotSweep(env));
     },
 };

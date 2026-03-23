@@ -9,6 +9,7 @@ import {
     X,
     Users,
     Lightbulb,
+    BookOpen,
     GripVertical,
 } from 'lucide-react';
 import { TranslationKey } from '../../i18n';
@@ -32,6 +33,7 @@ type SidebarProps = {
     setIsSidebarOpen: (value: boolean) => void;
     activePage: AppPage;
     onSelectAccounts: () => void;
+    onSelectHelp: () => void;
     onSelectIdeas: () => void;
     logoContainerRef: React.RefObject<HTMLDivElement>;
     logoVariantIndex: number;
@@ -88,6 +90,7 @@ export const Sidebar = ({
     setIsSidebarOpen,
     activePage,
     onSelectAccounts,
+    onSelectHelp,
     onSelectIdeas,
     logoContainerRef,
     logoVariantIndex,
@@ -271,6 +274,7 @@ export const Sidebar = ({
         [inactiveBrands, selectedBrandId, editingBrandId]
     );
     const isAccountsActive = activePage === 'accounts';
+    const isHelpActive = activePage === 'help';
     const isIdeasActive = activePage === 'ideas';
     const tooltipCountries = React.useMemo(() => {
         if (activeSessionCountries.length > 0) {
@@ -737,12 +741,12 @@ export const Sidebar = ({
                 </div>
             ) : null}
 
-            <div className="bg-slate-900 border-t border-slate-800/60 px-5 py-3">
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <div className="bg-slate-900 border-t border-slate-800/60 px-4 py-3">
+                <div className="flex items-center gap-1">
                     <button
                         type="button"
                         onClick={() => onSelectAccounts()}
-                        className={`justify-self-start inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                        className={`inline-flex h-8 w-[100px] shrink-0 items-center justify-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold ${
                             isAccountsActive
                                 ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
                                 : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
@@ -750,8 +754,8 @@ export const Sidebar = ({
                         aria-label={text('accounts')}
                         title={text('accounts')}
                     >
-                        <Users size={13} className="text-indigo-200/70" />
-                        <span>{text('accounts')}</span>
+                        <Users size={11} className="shrink-0 text-indigo-200/70" />
+                        <span className="truncate">{text('accounts')}</span>
                     </button>
                     <InstantTooltip
                         content={
@@ -772,20 +776,35 @@ export const Sidebar = ({
                         }
                     >
                         <span
-                            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/25 px-2.5 text-indigo-100/80"
+                            className="inline-flex h-8 w-[34px] shrink-0 items-center justify-center gap-1 rounded-full border border-white/10 bg-slate-950/25 px-1.5 text-indigo-100/80"
                             aria-label={`${Math.max(0, Math.floor(Number(activeSessionCount) || 0))} ${text('active_sessions_tooltip_title')}`}
                             title={`${Math.max(0, Math.floor(Number(activeSessionCount) || 0))} ${text('active_sessions_tooltip_title')}`}
                         >
-                            <Users size={13} className="text-indigo-200/80" />
-                            <span className="text-xs font-semibold tabular-nums">
+                            <Users size={11} className="shrink-0 text-indigo-200/80" />
+                            <span className="text-[10px] font-semibold tabular-nums">
                                 {Math.max(0, Math.floor(Number(activeSessionCount) || 0))}
                             </span>
                         </span>
                     </InstantTooltip>
+                    <InstantTooltip content={<span className="font-semibold text-indigo-100">{text('help')}</span>}>
+                        <button
+                            type="button"
+                            onClick={() => onSelectHelp()}
+                            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                                isHelpActive
+                                    ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
+                                    : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
+                            }`}
+                            aria-label={text('help')}
+                            title={text('help')}
+                        >
+                            <BookOpen size={12} className="text-indigo-200/80" />
+                        </button>
+                    </InstantTooltip>
                     <button
                         type="button"
                         onClick={() => onSelectIdeas()}
-                        className={`justify-self-end inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                        className={`inline-flex h-8 w-[74px] shrink-0 items-center justify-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold ${
                             isIdeasActive
                                 ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100 shadow-[0_18px_40px_-30px_rgba(99,102,241,0.75)]'
                                 : 'border-white/10 bg-slate-950/20 text-indigo-100/80 hover:border-indigo-400/35 hover:bg-slate-950/30'
@@ -793,8 +812,8 @@ export const Sidebar = ({
                         aria-label={text('ideas')}
                         title={text('ideas')}
                     >
-                        <Lightbulb size={13} className="text-indigo-200/70" />
-                        <span>{text('ideas')}</span>
+                        <Lightbulb size={11} className="shrink-0 text-indigo-200/70" />
+                        <span className="truncate">{text('ideas')}</span>
                     </button>
                 </div>
             </div>

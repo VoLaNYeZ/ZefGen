@@ -42,6 +42,7 @@ export const AppFormCard = ({
     text,
 }: AppFormCardProps) => {
     if (!appFormOpen) return null;
+    const isEditing = Boolean(editingAppId);
 
     const appNamePlaceholder = React.useMemo(() => {
         const raw = String(selectedBrandName || '').trim();
@@ -60,19 +61,21 @@ export const AppFormCard = ({
             className="mt-4 rounded-2xl bg-slate-900/30 ring-1 ring-white/5 p-4 space-y-3 animate-shelf"
         >
             <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">
-                {editingAppId ? text('update_app') : text('create_app')}
+                {isEditing ? text('update_app') : text('create_app')}
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                    <label htmlFor="app-form-name" className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_name')}</label>
-                    <input
-                        id="app-form-name"
-                        value={appForm.name}
-                        onChange={(event) => setAppForm((prev) => ({ ...prev, name: event.target.value }))}
-                        className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:italic placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                        placeholder={appNamePlaceholder}
-                    />
-                </div>
+            <div className={`grid gap-3 ${isEditing ? 'sm:grid-cols-2' : ''}`}>
+                {isEditing ? (
+                    <div>
+                        <label htmlFor="app-form-name" className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('app_name')}</label>
+                        <input
+                            id="app-form-name"
+                            value={appForm.name}
+                            onChange={(event) => setAppForm((prev) => ({ ...prev, name: event.target.value }))}
+                            className="mt-2 w-full rounded-xl border border-indigo-500/20 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:italic placeholder:text-indigo-200/35 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                            placeholder={appNamePlaceholder}
+                        />
+                    </div>
+                ) : null}
                 <div>
                     <label htmlFor="app-form-alias" className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('alias')}</label>
                     <input
@@ -96,17 +99,18 @@ export const AppFormCard = ({
                     disabled={appFormLoading}
                     className="flex-1 rounded-xl bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 border border-indigo-400/40 hover:bg-indigo-500/30"
                 >
-                    {appFormLoading ? text('saving') : editingAppId ? text('update_app') : text('create_app')}
+                    {appFormLoading ? text('saving') : isEditing ? text('update_app') : text('create_app')}
                 </button>
-                {editingAppId && (
+                {isEditing && (
                     <button
                         type="button"
                         onClick={() => {
+                            if (!editingAppId) return;
                             if (isEditingBanned) {
                                 onUnban(editingAppId);
-                            } else {
-                                onBan(editingAppId);
+                                return;
                             }
+                            onBan(editingAppId);
                         }}
                         className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
                             isEditingBanned
@@ -117,7 +121,7 @@ export const AppFormCard = ({
                         {isEditingBanned ? text('unban_app') : text('ban_app')}
                     </button>
                 )}
-                {editingAppId && (
+                {isEditing && (
                     <button
                         type="button"
                         onClick={onDelete}

@@ -2,6 +2,7 @@ export const translations = {
     en: {
         workspace: 'Workspace',
         accounts: 'Accounts',
+        help: 'Help',
         ideas: 'Ideas',
         brands: 'Brands',
         select_or_create: 'Select or create',
@@ -167,6 +168,7 @@ export const translations = {
         ready: 'Ready',
         app_name: 'App name',
         app_name_required: 'App name is required.',
+        github_repo_app_name_required: 'Pick an idea or set App name first, then create the GitHub repo.',
         alias_auto_applied: 'Alias "{from}" is busy. Applied "{to}".',
         finish_editing_brand_first: 'Finish editing this brand first (Save or Cancel).',
         finish_creating_brand_first: 'Save or cancel the new brand first.',
@@ -438,7 +440,7 @@ export const translations = {
         appstore_review_webhook_internal_url: 'Internal receiver URL',
         appstore_review_webhook_quick_setup_title: 'Quick setup',
         appstore_review_webhook_quick_setup_hint:
-            'Fill the key info, drop the .p8, load the Apple app, then sync the webhook.',
+            'Fill the key info, drop the .p8, load the Apple app, then use Advanced to sync the webhook once.',
         appstore_review_webhook_advanced: 'Advanced',
         appstore_review_webhook_bundle_missing_hint:
             'Set the app bundle ID in Setup data first, otherwise ZefGen cannot auto-match the Apple app.',
@@ -449,10 +451,12 @@ export const translations = {
         appstore_review_webhook_connected_waiting: 'Connected, waiting for first delivery',
         appstore_review_webhook_receiver_ready: 'Receiver ready',
         appstore_review_webhook_receiver_missing: 'Receiver not created',
-        appstore_review_webhook_last_checked: 'Last Apple check',
-        appstore_review_webhook_no_snapshot: 'No direct Apple check yet.',
+        appstore_review_webhook_last_checked: 'Last Apple status refresh',
+        appstore_review_webhook_no_snapshot: 'No Apple status refresh yet.',
         appstore_review_webhook_auto_checking:
-            'If Apple skips a webhook, ZefGen also checks Apple directly while this app stays open.',
+            'appshelp checks Apple in the background every hour while this app is still in a non-final review state.',
+        appstore_review_webhook_auto_checking_stopped:
+            'This app reached a final review state, so the hourly background Apple checks have stopped.',
         appstore_review_webhook_checking_apple: 'Checking Apple now...',
         appstore_review_webhook_now_title: 'What happens now',
         appstore_review_webhook_no_sync_yet: 'No sync has run yet.',
@@ -460,11 +464,13 @@ export const translations = {
         appstore_review_webhook_next_load_apps: 'Load Apple apps and choose the matching App Store Connect app.',
         appstore_review_webhook_next_sync: 'Credentials are ready. Sync the Apple webhook to finish setup.',
         appstore_review_webhook_next_wait_delivery:
-            'Webhook is connected. Send a test ping or wait for the first delivery from Apple.',
+            'Webhook is connected. Send a test ping or wait for the first delivery from Apple. appshelp also refreshes Apple status every hour in the background.',
         appstore_review_webhook_next_wait_state:
-            'Webhook is receiving deliveries. Waiting for a real App Review state change.',
+            'Webhook is receiving deliveries. appshelp keeps checking Apple every hour until a final review state is reached.',
         appstore_review_webhook_next_live:
-            'Webhook is live. New App Review state changes will appear here automatically.',
+            'Review tracking is live. appshelp keeps checking Apple every hour until the app reaches a final state.',
+        appstore_review_webhook_next_terminal:
+            'A final App Review state is stored. Automatic hourly Apple checks have stopped.',
         appstore_review_webhook_process_title: 'How this works',
         appstore_review_webhook_process_subtitle:
             'Apple sends review-state changes here, and this panel can create the Apple webhook for you.',
@@ -515,8 +521,10 @@ export const translations = {
         appstore_review_webhook_load_apps: 'Load Apple apps',
         appstore_review_webhook_no_apps_found: 'No accessible App Store Connect apps found for these credentials.',
         appstore_review_webhook_save_apple: 'Save Apple config',
+        appstore_review_webhook_check_apple_button: 'Check Apple now',
         appstore_review_webhook_sync_button: 'Sync Apple webhook',
         appstore_review_webhook_send_test: 'Send test',
+        appstore_review_webhook_checked_apple: 'Apple status refreshed.',
         appstore_review_webhook_synced: 'Apple webhook synced.',
         appstore_review_webhook_ping_sent: 'Test ping requested.',
         appstore_review_webhook_apple_saved: 'Apple webhook config saved.',
@@ -763,6 +771,7 @@ export const translations = {
     ru: {
         workspace: 'Workspace',
         accounts: 'Аккаунты',
+        help: 'Помощь',
         ideas: 'Идеи',
         brands: 'Бренды',
         select_or_create: 'Выберите или создай',
@@ -882,6 +891,7 @@ export const translations = {
         ready: 'Готово',
         app_name: 'Название приложения',
         app_name_required: 'Название приложения обязательно.',
+        github_repo_app_name_required: 'Сначала выберите идею или задайте название приложения, затем создавайте GitHub-репозиторий.',
         alias_auto_applied: 'Алиас "{from}" занят. Применён "{to}".',
         finish_editing_brand_first: 'Сначала завершите редактирование бренда (Сохранить или Отмена).',
         finish_creating_brand_first: 'Сначала сохраните или отмените новый бренд.',
@@ -1153,7 +1163,7 @@ export const translations = {
         appstore_review_webhook_internal_url: 'Внутренний receiver URL',
         appstore_review_webhook_quick_setup_title: 'Быстрый сетап',
         appstore_review_webhook_quick_setup_hint:
-            'Заполни key info, дропни .p8, загрузи Apple app и потом синкни webhook.',
+            'Заполни key info, дропни .p8, загрузи Apple app и потом один раз синкни webhook через Advanced.',
         appstore_review_webhook_advanced: 'Advanced',
         appstore_review_webhook_bundle_missing_hint:
             'Сначала задай bundle ID в Setup data, иначе ZefGen не сможет автоматически сматчить Apple app.',
@@ -1164,10 +1174,12 @@ export const translations = {
         appstore_review_webhook_connected_waiting: 'Подключено, ждем первую доставку',
         appstore_review_webhook_receiver_ready: 'Receiver готов',
         appstore_review_webhook_receiver_missing: 'Receiver еще не создан',
-        appstore_review_webhook_last_checked: 'Последняя проверка Apple',
-        appstore_review_webhook_no_snapshot: 'Прямой проверки Apple еще не было.',
+        appstore_review_webhook_last_checked: 'Последнее обновление статуса у Apple',
+        appstore_review_webhook_no_snapshot: 'Обновления статуса у Apple еще не было.',
         appstore_review_webhook_auto_checking:
-            'Если Apple пропустит webhook, ZefGen будет дополнительно перепроверять статус напрямую, пока этот app открыт.',
+            'appshelp проверяет Apple в фоне каждый час, пока у этого app не появился финальный review state.',
+        appstore_review_webhook_auto_checking_stopped:
+            'У этого app уже финальный review state, поэтому фоновые hourly-проверки Apple остановлены.',
         appstore_review_webhook_checking_apple: 'Проверяю Apple сейчас...',
         appstore_review_webhook_now_title: 'Что происходит сейчас',
         appstore_review_webhook_no_sync_yet: 'Синк еще не запускался.',
@@ -1175,11 +1187,13 @@ export const translations = {
         appstore_review_webhook_next_load_apps: 'Загрузи Apple apps и выбери подходящий App Store Connect app.',
         appstore_review_webhook_next_sync: 'Credentials готовы. Синкни Apple webhook, чтобы закончить setup.',
         appstore_review_webhook_next_wait_delivery:
-            'Webhook уже подключен. Отправь тестовый ping или дождись первой доставки от Apple.',
+            'Webhook уже подключен. Отправь тестовый ping или дождись первой доставки от Apple. appshelp также проверяет Apple в фоне каждый час.',
         appstore_review_webhook_next_wait_state:
-            'Webhook уже получает доставки. Ждем реальное изменение App Review state.',
+            'Webhook уже получает доставки. appshelp продолжит проверять Apple каждый час, пока не появится финальный review state.',
         appstore_review_webhook_next_live:
-            'Webhook уже live. Новые изменения App Review state будут появляться здесь автоматически.',
+            'Трекинг review state уже live. appshelp продолжит проверять Apple каждый час, пока app не дойдет до финального состояния.',
+        appstore_review_webhook_next_terminal:
+            'Финальный App Review state уже сохранен. Автоматические hourly-проверки Apple остановлены.',
         appstore_review_webhook_process_title: 'Как это работает',
         appstore_review_webhook_process_subtitle:
             'Apple шлет сюда изменения review state, а эта панель умеет сама создать webhook у Apple.',
@@ -1230,8 +1244,10 @@ export const translations = {
         appstore_review_webhook_load_apps: 'Загрузить Apple apps',
         appstore_review_webhook_no_apps_found: 'Для этих credentials не найдено доступных App Store Connect apps.',
         appstore_review_webhook_save_apple: 'Сохранить Apple config',
+        appstore_review_webhook_check_apple_button: 'Проверить Apple сейчас',
         appstore_review_webhook_sync_button: 'Синкнуть Apple webhook',
         appstore_review_webhook_send_test: 'Отправить тест',
+        appstore_review_webhook_checked_apple: 'Статус у Apple обновлен.',
         appstore_review_webhook_synced: 'Apple webhook синкнут.',
         appstore_review_webhook_ping_sent: 'Тестовый ping запрошен.',
         appstore_review_webhook_apple_saved: 'Apple webhook config сохранен.',

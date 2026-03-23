@@ -125,3 +125,19 @@ export const formatAppstoreReviewState = (value: string | null | undefined) => {
         .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
         .join(' ');
 };
+
+export const buildAppstoreReviewWebhookReceiverPreview = (value: string | null | undefined) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    try {
+        const parsed = new URL(raw);
+        const normalizedPath = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.replace(/\/+$/g, '') : '';
+        return `${parsed.host}${normalizedPath}`;
+    } catch {
+        return raw
+            .replace(/^https?:\/\//i, '')
+            .replace(/[?#].*$/g, '')
+            .replace(/\/+$/g, '');
+    }
+};

@@ -79,6 +79,17 @@ export const gotoWorkspace = async (page: Page) => {
     await expect(page.getByTestId('active-app-pill')).toContainText(smokeEnv.seed.primaryApp.alias.toUpperCase());
 };
 
+const ensureSidebarShellReady = async (page: Page) => {
+    const sidebar = page.getByTestId('brand-sidebar');
+    const sidebarVisible = await sidebar.isVisible().catch(() => false);
+    if (sidebarVisible) return sidebar;
+
+    await gotoWorkspace(page);
+    await waitForShell(page);
+    await expect(sidebar).toBeVisible();
+    return sidebar;
+};
+
 export const gotoAccountsTargetWorkspace = async (page: Page) => {
     await gotoPath(page, smokeEnv.seed.routes.accountsTargetWorkspace);
     await expect(page.getByTestId('workspace-page-root')).toBeVisible();
@@ -122,18 +133,28 @@ export const claimWorkspaceEditLockIfPrompted = async (page: Page) => {
 };
 
 export const openAccounts = async (page: Page) => {
-    await page.getByTestId('brand-sidebar').getByRole('button', { name: /^Accounts$/ }).click();
+    const sidebar = await ensureSidebarShellReady(page);
+    await sidebar.getByRole('button', { name: /^Accounts$/ }).click();
     await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.accounts)}$`));
     await expect(page.getByTestId('accounts-page-root')).toBeVisible();
 };
 
+export const openHelp = async (page: Page) => {
+    const sidebar = await ensureSidebarShellReady(page);
+    await sidebar.getByRole('button', { name: /^Help$/ }).click();
+    await expect(page).toHaveURL(/\/help(?:#.*)?$/);
+    await expect(page.getByTestId('help-page-root')).toBeVisible();
+};
+
 export const openIdeas = async (page: Page) => {
-    await page.getByTestId('brand-sidebar').getByRole('button', { name: /^Ideas$/ }).click();
+    const sidebar = await ensureSidebarShellReady(page);
+    await sidebar.getByRole('button', { name: /^Ideas$/ }).click();
     await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.ideas)}$`));
     await expect(page.getByTestId('ideas-page-root')).toBeVisible();
 };
 
 export const openWorkspaceFromSidebar = async (page: Page) => {
+    await ensureSidebarShellReady(page);
     await page.getByTestId('active-brand-row').click();
     await expect(page).toHaveURL(new RegExp(`${escapeRegex(smokeEnv.seed.routes.workspace)}$`));
     await expect(page.getByTestId('workspace-page-root')).toBeVisible();

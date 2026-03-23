@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 import {
     buildEffectivePublicWebhookUrl,
@@ -7,6 +8,8 @@ import {
     pickBestAppleVersionSnapshot,
     publicTextResponse,
     redirectTo,
+    runScheduledAppleSnapshotSweep,
+    shouldRunScheduledSnapshotForWebhook,
     validateExplicitPublicWebhookUrl,
     withPublicHeaders,
 } from '../cloudflare/appstore-review-bridge/worker.js';
@@ -136,4 +139,158 @@ test('pickBestAppleVersionSnapshot falls back to the live version when the only 
 
     assert.equal(snapshot?.id, 'live-version');
     assert.equal(snapshot?.state, 'READY_FOR_SALE');
+});
+
+test('scheduled snapshot sweep skips terminal or recently refreshed apps', () => {
+    const now = Date.now();
+
+    assert.equal(
+        shouldRunScheduledSnapshotForWebhook({
+            last_sync_status: 'connected',
+            asc_app_id: 'apple-app',
+            latest_review_state: 'WAITING_FOR_REVIEW',
+            last_snapshot_at: new Date(now - 61 * 60 * 1000).toISOString(),
+        }, now),
+        true
+    );
+    assert.equal(
+        shouldRunScheduledSnapshotForWebhook({
+            last_sync_status: 'connected',
+            asc_app_id: 'apple-app',
+            latest_review_state: 'READY_FOR_SALE',
+            last_snapshot_at: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+        }, now),
+        false
+    );
+    assert.equal(
+        shouldRunScheduledSnapshotForWebhook({
+            last_sync_status: 'connected',
+            asc_app_id: 'apple-app',
+            latest_review_state: 'IN_REVIEW',
+            last_snapshot_at: new Date(now - 10 * 60 * 1000).toISOString(),
+        }, now),
+        false
+    );
+});
+
+test('scheduled snapshot sweep refreshes only eligible apps and never recreates the webhook', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    const requestedUrls = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = async (input, init = {}) => {
+        const url = new URL(typeof input === 'string' ? input : input.url);
+        requestedUrls.push(`${init.method || 'GET'} ${url.toString()}`);
+
+        if (url.pathname === '/rest/v1/appstore_review_webhooks' && (init.method || 'GET') === 'GET') {
+            return new Response(
+                JSON.stringify([
+                    {
+                        app_id: 'app-1',
+                        user_id: 'user-1',
+                        key_mode: 'team',
+                        key_id: '2X9R4HXF34',
+                        issuer_id: '57246542-96fe-1a63-e053-0824d011072a',
+                        asc_app_id: 'apple-app-1',
+                        asc_app_name: 'Demo',
+                        asc_bundle_id: 'com.demo.app',
+                        latest_review_state: 'WAITING_FOR_REVIEW',
+                        last_snapshot_at: '2026-03-23T08:00:00.000Z',
+                        last_sync_status: 'connected',
+                        last_sync_at: '2026-03-22T08:00:00.000Z',
+                    },
+                    {
+                        app_id: 'app-2',
+                        user_id: 'user-2',
+                        key_mode: 'team',
+                        key_id: '2X9R4HXF35',
+                        issuer_id: '57246542-96fe-1a63-e053-0824d011072b',
+                        asc_app_id: 'apple-app-2',
+                        asc_app_name: 'Live',
+                        asc_bundle_id: 'com.demo.live',
+                        latest_review_state: 'READY_FOR_SALE',
+                        last_snapshot_at: '2026-03-23T07:00:00.000Z',
+                        last_sync_status: 'connected',
+                        last_sync_at: '2026-03-22T07:00:00.000Z',
+                    },
+                ]),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            );
+        }
+
+        if (url.pathname === '/rest/v1/connector_app_secrets') {
+            assert.equal(url.searchParams.get('app_id'), 'eq.app-1');
+            return new Response(JSON.stringify([{ value: privateKeyPem }]), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        }
+
+        if (url.pathname === '/v1/apps/apple-app-1/appStoreVersions') {
+            return new Response(
+                JSON.stringify({
+                    data: [
+                        {
+                            id: 'version-1',
+                            attributes: {
+                                versionString: '1.2.3',
+                                appStoreState: 'IN_REVIEW',
+                                platform: 'IOS',
+                                createdDate: '2026-03-23T09:00:00.000Z',
+                            },
+                        },
+                    ],
+                    links: {},
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            );
+        }
+
+        if (url.pathname === '/rest/v1/appstore_review_webhooks' && (init.method || 'GET') === 'PATCH') {
+            return new Response(
+                JSON.stringify([
+                    {
+                        app_id: 'app-1',
+                        user_id: 'user-1',
+                        latest_review_state: 'IN_REVIEW',
+                        latest_previous_state: 'WAITING_FOR_REVIEW',
+                        latest_event_type: 'APPLE_STATUS_SNAPSHOT',
+                        latest_event_at: '2026-03-23T10:00:00.000Z',
+                        last_snapshot_at: '2026-03-23T10:00:00.000Z',
+                        last_error: null,
+                        last_sync_status: 'connected',
+                    },
+                ]),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            );
+        }
+
+        if (url.pathname === '/rest/v1/appstore_review_events' && (init.method || 'GET') === 'POST') {
+            return new Response('', { status: 201 });
+        }
+
+        throw new Error(`Unexpected fetch: ${(init.method || 'GET')} ${url.toString()}`);
+    };
+
+    try {
+        const summary = await runScheduledAppleSnapshotSweep({
+            SUPABASE_URL: 'https://supabase.test',
+            SUPABASE_SERVICE_ROLE_KEY: 'service-key',
+            PUBLIC_ROOT_DOMAIN: 'appshelp.cc',
+        });
+
+        assert.deepEqual(summary, {
+            scanned: 2,
+            attempted: 1,
+            refreshed: 1,
+            changed: 1,
+            skipped: 1,
+            failed: 0,
+        });
+        assert.equal(requestedUrls.some((entry) => entry.includes('/v1/webhooks')), false);
+        assert.equal(requestedUrls.some((entry) => entry.includes('/v1/apps/apple-app-2/appStoreVersions')), false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });

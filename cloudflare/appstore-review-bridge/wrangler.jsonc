@@ -11,6 +11,11 @@
       "zone_name": "appshelp.cc"
     }
   ],
+  "triggers": {
+    "crons": [
+      "0 * * * *"
+    ]
+  },
   "vars": {
     "PUBLIC_ROOT_DOMAIN": "appshelp.cc"
   }

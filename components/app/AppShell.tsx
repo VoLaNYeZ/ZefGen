@@ -713,7 +713,7 @@ export function AppShell({ session }: AppShellProps) {
         tryClaimBrand,
     });
 
-    const { openAccounts, openIdeas, openWorkspaceForApp, selectBrandFromSidebar } = useWorkspaceNavigationActions({
+    const { openAccounts, openHelp, openIdeas, openWorkspaceForApp, selectBrandFromSidebar } = useWorkspaceNavigationActions({
         activePage,
         accountsHasUnsavedChanges,
         apps,
@@ -1315,6 +1315,7 @@ export function AppShell({ session }: AppShellProps) {
         setIsSidebarOpen,
         activePage,
         onSelectAccounts: () => openAccounts(),
+        onSelectHelp: () => openHelp(),
         onSelectIdeas: () => openIdeas(),
         logoContainerRef,
         logoVariantIndex,
@@ -1422,6 +1423,11 @@ export function AppShell({ session }: AppShellProps) {
         unpickedCount,
     };
 
+    const helpContent = {
+        lang,
+        mainScrollContainerRef: mainScrollRef,
+    };
+
     const accountsContent = {
         accounts: appstoreAccounts,
         loading: appstoreAccountsLoading,
@@ -1462,6 +1468,7 @@ export function AppShell({ session }: AppShellProps) {
         activePage,
         workspace: workspaceContent,
         accounts: accountsContent,
+        help: helpContent,
         ideas: ideasContent,
         loadingLabel: text('loading'),
     };

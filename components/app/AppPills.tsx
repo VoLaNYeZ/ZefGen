@@ -95,8 +95,9 @@ export const AppPills = ({
                         const isFirst = index === 0;
                         const isDragTarget = dragOverAppId === app.id && draggingAppId !== app.id;
                         const isSelectionLocked = Boolean(lockedAppId && app.id !== lockedAppId);
+                        const normalizedName = String(app.name || '').trim();
                         const displayName =
-                            app.name.length > 10 ? `${app.name.slice(0, 10).trimEnd()}…` : app.name;
+                            normalizedName.length > 10 ? `${normalizedName.slice(0, 10).trimEnd()}…` : normalizedName;
                         const firstShiftClass = isFirst ? '-translate-x-3' : '';
                         const firstGapClass = isFirst ? '-mr-3' : '';
                         return (
@@ -162,7 +163,11 @@ export const AppPills = ({
                                         {app.alias.toUpperCase()}
                                     </span>
                                 </div>
-                                <div className={`w-full text-center text-sm font-semibold text-white leading-none ${firstShiftClass}`}>{displayName}</div>
+                                {displayName ? (
+                                    <div className={`w-full text-center text-sm font-semibold text-white leading-none ${firstShiftClass}`}>
+                                        {displayName}
+                                    </div>
+                                ) : null}
                                 {isAppReorderMode && (
                                     <span className="absolute right-1 top-1 text-indigo-200/50">
                                         <GripVertical size={12} />

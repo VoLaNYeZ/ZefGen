@@ -45,7 +45,7 @@ test('accounts support single-row paste, persist saves, and block navigation whi
 
         await accountsPage.getByRole('button', { name: /^Edit$/ }).click();
         await accountsPage.getByRole('button', { name: /new account/i }).click();
-        await page.getByTestId('brand-sidebar').getByRole('button', { name: /^Ideas$/ }).click();
+        await page.getByTestId('brand-sidebar').getByRole('button', { name: /^Help$/ }).click();
 
         await expect(page).toHaveURL(/\/accounts$/);
         await expect(page.getByTestId('app-shell-action-error')).toContainText(/unsaved/i);

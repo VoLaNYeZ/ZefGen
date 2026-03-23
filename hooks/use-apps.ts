@@ -243,17 +243,17 @@ export const useApps = ({
         if (!session || !selectedBrand) return false;
 
         const name = normalizedAppName;
-        if (!name) {
-            setAppFormError(text('app_name_required'));
-            return false;
-        }
 
         if (!editingAppId && activeApps.length >= MAX_ACTIVE_APPS) {
             setAppFormError(text('max_active_apps'));
             return false;
         }
 
-        const baseAlias = slugify(appForm.alias || name);
+        const baseAlias = slugify(
+            String(appForm.alias || '').trim() ||
+                name ||
+                (editingAppId ? String(editingApp?.alias || '').trim() : '')
+        );
         const existingAliases = apps
             .filter((app) => app.id !== editingAppId)
             .map((app) => slugify(String(app.alias || '').trim()))
@@ -324,10 +324,7 @@ export const useApps = ({
     const getAppSwitchBlockReason = useCallback(() => {
         if (!appFormOpen) return null;
         if (appFormLoading) return text('finish_editing_app_first');
-        if (editingAppId) {
-            if (!normalizedAppName) return text('app_name_required');
-            return null;
-        }
+        if (editingAppId) return null;
         if (hasMeaningfulNewAppDraft) return text('finish_creating_app_first');
         return null;
     }, [
@@ -335,7 +332,6 @@ export const useApps = ({
         appFormOpen,
         editingAppId,
         hasMeaningfulNewAppDraft,
-        normalizedAppName,
         text,
     ]);
 
@@ -444,12 +440,19 @@ export const useApps = ({
                         : app
                 )
             );
+            if (appFormOpen && editingAppId === appId) {
+                setAppForm((prev) => ({
+                    ...prev,
+                    ...(patch.name !== undefined ? { name: String(data.name || '') } : {}),
+                    ...(patch.alias !== undefined ? { alias: String(data.alias || '') } : {}),
+                }));
+            }
             return {
                 ...data,
                 is_banned: data.is_banned ?? false,
             };
         },
-        [onDataError, session]
+        [appFormOpen, editingAppId, onDataError, session]
     );
 
     const reorderBrandApps = async (sourceId: string, targetId: string) => {

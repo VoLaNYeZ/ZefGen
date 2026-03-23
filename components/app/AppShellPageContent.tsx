@@ -1,9 +1,11 @@
-import { Suspense, type ComponentProps } from 'react';
+import { Suspense, type ComponentProps, type RefObject } from 'react';
+import type { Language } from '../../i18n';
 import type { Brand } from '../../types/zefgen';
 import type { AppPage } from '../../utils/routes';
 import { lazyWithReload } from '../../utils/lazy-with-reload';
 
 type AccountsPageComponent = (typeof import('./AccountsPage'))['AccountsPage'];
+type HelpCenterPageComponent = (typeof import('./HelpCenterPage'))['HelpCenterPage'];
 type IdeasPageComponent = (typeof import('./IdeasPage'))['IdeasPage'];
 type WorkspacePageComponent = (typeof import('./WorkspacePage'))['WorkspacePage'];
 
@@ -17,10 +19,20 @@ const LazyIdeasPage = lazyWithReload(async () => {
     return { default: module.IdeasPage };
 });
 
+const LazyHelpCenterPage = lazyWithReload(async () => {
+    const module = await import('./HelpCenterPage');
+    return { default: module.HelpCenterPage };
+});
+
 const LazyWorkspacePage = lazyWithReload(async () => {
     const module = await import('./WorkspacePage');
     return { default: module.WorkspacePage };
 });
+
+type HelpContentProps = ComponentProps<HelpCenterPageComponent> & {
+    lang: Language;
+    mainScrollContainerRef: RefObject<HTMLDivElement | null>;
+};
 
 type WorkspaceContentProps = Omit<ComponentProps<WorkspacePageComponent>, 'selectedBrand'> & {
     selectedBrand: Brand | null;
@@ -29,6 +41,7 @@ type WorkspaceContentProps = Omit<ComponentProps<WorkspacePageComponent>, 'selec
 export type AppShellPageContentProps = {
     accounts: ComponentProps<AccountsPageComponent>;
     activePage: AppPage;
+    help: HelpContentProps;
     ideas: ComponentProps<IdeasPageComponent>;
     loadingLabel: string;
     workspace: WorkspaceContentProps;
@@ -46,6 +59,7 @@ function PageContentFallback({ label }: { label: string }) {
 export function AppShellPageContent({
     accounts,
     activePage,
+    help,
     ideas,
     loadingLabel,
     workspace,
@@ -68,6 +82,14 @@ export function AppShellPageContent({
         return (
             <Suspense fallback={<PageContentFallback label={loadingLabel} />}>
                 <LazyAccountsPage {...accounts} />
+            </Suspense>
+        );
+    }
+
+    if (activePage === 'help') {
+        return (
+            <Suspense fallback={<PageContentFallback label={loadingLabel} />}>
+                <LazyHelpCenterPage key={help.lang} {...help} />
             </Suspense>
         );
     }

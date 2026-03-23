@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import {
+    buildWebhookReceiverPreview,
     buildManagedPublicPageUrl,
     buildManagedPublicWebhookUrl,
     createAppStoreConnectJwt,
@@ -16,6 +17,10 @@ import {
     validateExplicitPublicWebhookUrl,
     withSubdomainSuffix,
 } from '../lib/server/appstore-review-webhook.shared.js';
+import {
+    isTerminalAppstoreReviewState,
+    shouldBackgroundRefreshAppstoreReviewState,
+} from '../lib/appstore-review-state.shared.js';
 
 const decodeBase64UrlJson = (input) => {
     const normalized = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -188,6 +193,35 @@ test('managed webhook URL helpers use clean subdomains without token suffixes', 
         }),
         'https://holdlist-in-due-time.appshelp.cc/'
     );
+    assert.equal(
+        buildWebhookReceiverPreview(managedUrl),
+        'holdlist-in-due-time.appshelp.cc/appstore-review'
+    );
+});
+
+test('receiver preview strips token/query noise from managed and legacy public URLs', () => {
+    assert.equal(
+        buildWebhookReceiverPreview(
+            'https://replymints-smooth-replies.appshelp.cc/appstore-review?token=2526a655667e310ac445472d3bfb9d19'
+        ),
+        'replymints-smooth-replies.appshelp.cc/appstore-review'
+    );
+    assert.equal(
+        buildWebhookReceiverPreview('https://hooks.client-a.example.com/appstore-review?token=abc123&mode=test'),
+        'hooks.client-a.example.com/appstore-review'
+    );
+});
+
+test('background refresh stops only on terminal review states', () => {
+    assert.equal(isTerminalAppstoreReviewState('READY_FOR_SALE'), true);
+    assert.equal(isTerminalAppstoreReviewState('rejected'), true);
+    assert.equal(isTerminalAppstoreReviewState('REMOVED_FROM_SALE'), true);
+    assert.equal(isTerminalAppstoreReviewState('WAITING_FOR_REVIEW'), false);
+    assert.equal(isTerminalAppstoreReviewState(''), false);
+
+    assert.equal(shouldBackgroundRefreshAppstoreReviewState('IN_REVIEW'), true);
+    assert.equal(shouldBackgroundRefreshAppstoreReviewState('READY_FOR_SALE'), false);
+    assert.equal(shouldBackgroundRefreshAppstoreReviewState(null), true);
 });
 
 test('getAppleCredentialIssues reflects missing fields for team keys', () => {

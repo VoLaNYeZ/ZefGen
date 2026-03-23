@@ -2,7 +2,7 @@ import React from 'react';
 import { FileText } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
-import type { AppIdea, AppIdeaCategory, Brand, IdeaAppAssignment } from '../../types/zefgen';
+import type { AppIdea, AppIdeaCategory, AppItem, Brand, IdeaAppAssignment } from '../../types/zefgen';
 import { buildCanonicalBrandIdMap } from '../../utils/no-brand';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
@@ -124,10 +124,25 @@ export function ConnectorClientSpecPanel(props: {
     selectedAppId: string | null;
     selectedBrandId: string | null;
     brands: Brand[];
+    onPatchApp?: (appId: string, patch: Partial<AppItem>) => Promise<AppItem | null>;
     onOpenIdeas?: () => void;
+    reportError?: (message: string) => void;
     text: (key: TranslationKey) => string;
 }) {
-    const { connectorForm, isEnabled, ideas, ideaCategories, ideaAssignments, selectedAppId, selectedBrandId, brands, onOpenIdeas, text } = props;
+    const {
+        connectorForm,
+        isEnabled,
+        ideas,
+        ideaCategories,
+        ideaAssignments,
+        selectedAppId,
+        selectedBrandId,
+        brands,
+        onPatchApp,
+        onOpenIdeas,
+        reportError,
+        text,
+    } = props;
     const ideaList = React.useMemo(() => (Array.isArray(ideas) ? ideas : []), [ideas]);
     const ideaCategoryList = React.useMemo(() => (Array.isArray(ideaCategories) ? ideaCategories : []), [ideaCategories]);
     const ideaAssignmentList = React.useMemo(() => (Array.isArray(ideaAssignments) ? ideaAssignments : []), [ideaAssignments]);
@@ -320,11 +335,20 @@ export function ConnectorClientSpecPanel(props: {
         connectorForm.setProjectBrief(ideaDescription);
         connectorForm.setIdeaId(idea.id);
         try {
-            await connectorForm.savePatch({
+            const saved = await connectorForm.savePatch({
                 project_brief: ideaDescription,
                 idea_id: idea.id,
                 ...(ideaTitle ? { variables: nextVariables } : {}),
             });
+            if (!saved) return;
+            if (ideaTitle && selectedAppId && onPatchApp) {
+                const patched = await onPatchApp(selectedAppId, { name: ideaTitle });
+                if (!patched) {
+                    reportError?.(text('upload_failed'));
+                }
+            }
+        } catch (error: any) {
+            reportError?.(String(error?.message || text('upload_failed')));
         } finally {
             setIdeaApplyBusy(false);
         }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetS
 import type { TranslationKey } from '../i18n';
 import type { AppItem, Brand } from '../types/zefgen';
 import type { WorkspacePreparationResult } from '../types/workspace-switch';
-import { buildAccountsRoute, buildIdeasRoute, buildRoute, type AppPage } from '../utils/routes';
+import { buildNonWorkspaceRoute, buildRoute, type AppPage, type NonWorkspacePage } from '../utils/routes';
 import { getPreferredActiveAppForBrand, readLastAppByBrand, writeLastWorkspaceSelection } from '../utils/workspace-selection';
 
 type WorkspaceSelection = {
@@ -16,6 +16,12 @@ type WorkspaceSwitchState = {
 
 type WorkspaceSnapshotLike = {
     brandId: string;
+};
+
+const NON_WORKSPACE_LABEL_KEY_BY_PAGE: Record<NonWorkspacePage, TranslationKey> = {
+    accounts: 'accounts',
+    help: 'help',
+    ideas: 'ideas',
 };
 
 type UseWorkspaceNavigationControllerParams = {
@@ -91,8 +97,7 @@ export function useWorkspaceNavigationController({
     workspaceSwitchSeqRef,
 }: UseWorkspaceNavigationControllerParams) {
     const buildPageRoute = useCallback((page: AppPage, brand: Brand | null, app: AppItem | null) => {
-        if (page === 'accounts') return buildAccountsRoute();
-        if (page === 'ideas') return buildIdeasRoute();
+        if (page !== 'workspace') return buildNonWorkspaceRoute(page);
         return buildRoute(brand, app);
     }, []);
 
@@ -392,7 +397,7 @@ export function useWorkspaceNavigationController({
                 const token = workspaceSwitchSeqRef.current + 1;
                 workspaceSwitchSeqRef.current = token;
                 setWorkspaceSwitchState({
-                    label: text(page === 'accounts' ? 'accounts' : 'ideas'),
+                    label: text(NON_WORKSPACE_LABEL_KEY_BY_PAGE[page]),
                 });
 
                 const preparation = await prepareWorkspaceForSwitch(
@@ -423,7 +428,7 @@ export function useWorkspaceNavigationController({
             setAccountsFocusAppId(page === 'accounts' ? options?.focusAppId || null : null);
             setActivePage(page);
 
-            const targetRoute = page === 'accounts' ? buildAccountsRoute() : buildIdeasRoute();
+            const targetRoute = buildNonWorkspaceRoute(page);
             if (options?.historyMode === 'push' && window.location.pathname !== targetRoute) {
                 window.history.pushState({}, '', targetRoute);
             } else if (options?.historyMode === 'replace' && window.location.pathname !== targetRoute) {

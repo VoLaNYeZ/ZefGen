@@ -6,6 +6,7 @@ import {
     gotoPath,
     gotoWorkspace,
     openAccounts,
+    openHelp,
     openIdeas,
     openWorkspaceFromSidebar,
     seedLastWorkspaceSelection,
@@ -15,6 +16,7 @@ import {
 test('sidebar navigation and browser history preserve page transitions', async ({ page }) => {
     await gotoWorkspace(page);
     await openAccounts(page);
+    await openHelp(page);
     await openIdeas(page);
     await openWorkspaceFromSidebar(page);
 
@@ -22,7 +24,13 @@ test('sidebar navigation and browser history preserve page transitions', async (
     await expect(page.getByTestId('ideas-page-root')).toBeVisible();
 
     await page.goBack();
+    await expect(page.getByTestId('help-page-root')).toBeVisible();
+
+    await page.goBack();
     await expect(page.getByTestId('accounts-page-root')).toBeVisible();
+
+    await page.goForward();
+    await expect(page.getByTestId('help-page-root')).toBeVisible();
 
     await page.goForward();
     await expect(page.getByTestId('ideas-page-root')).toBeVisible();

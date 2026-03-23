@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
 import type { TranslationKey } from '../i18n';
 import type { AppItem, Brand } from '../types/zefgen';
+import type { AppPage, NonWorkspacePage } from '../utils/routes';
 
 type RequestPageNavigation = (
-    page: 'accounts' | 'ideas',
+    page: NonWorkspacePage,
     options?: {
         historyMode?: 'push' | 'replace' | 'none';
         closeSidebar?: boolean;
@@ -21,7 +22,7 @@ type RequestWorkspaceSelection = (payload: {
 }) => Promise<boolean> | void;
 
 type Params = {
-    activePage: 'workspace' | 'accounts' | 'ideas';
+    activePage: AppPage;
     accountsHasUnsavedChanges: boolean;
     apps: AppItem[];
     brands: Brand[];
@@ -54,6 +55,13 @@ export function useWorkspaceNavigationActions({
 
     const openIdeas = useCallback(() => {
         void requestPageNavigation('ideas', {
+            historyMode: 'push',
+            closeSidebar: true,
+        });
+    }, [requestPageNavigation]);
+
+    const openHelp = useCallback(() => {
+        void requestPageNavigation('help', {
             historyMode: 'push',
             closeSidebar: true,
         });
@@ -117,6 +125,7 @@ export function useWorkspaceNavigationActions({
 
     return {
         openAccounts,
+        openHelp,
         openIdeas,
         openWorkspaceForApp,
         selectBrandFromSidebar,

@@ -30,6 +30,7 @@ import {
     buildAppstoreReviewWebhookUrl,
     buildManagedAppstoreReviewPublicPageUrl,
     buildManagedAppstoreReviewWebhookUrl,
+    buildAppstoreReviewWebhookReceiverPreview,
     buildSuggestedAppstoreReviewPublicSubdomain,
     extractManagedAppstoreReviewPublicSubdomain,
     formatAppstoreReviewState,
@@ -37,6 +38,10 @@ import {
     generateAppstoreReviewWebhookToken,
     isManagedAppstoreReviewWebhookUrl,
 } from '../../utils/appstore-review-webhook';
+import {
+    isTerminalAppstoreReviewState,
+    shouldBackgroundRefreshAppstoreReviewState,
+} from '../../lib/appstore-review-state.shared.js';
 import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
 
 const formatTimestamp = (value: string | null | undefined) => {
@@ -47,30 +52,13 @@ const formatTimestamp = (value: string | null | undefined) => {
     return date.toLocaleString();
 };
 
-const parseComparableTimestamp = (value: string | null | undefined) => {
-    const raw = String(value || '').trim();
-    if (!raw) return 0;
-    const parsed = Date.parse(raw);
-    return Number.isFinite(parsed) ? parsed : 0;
-};
+const STATUS_POLL_INTERVAL_MS = 3 * 60 * 1000;
 
-const AUTO_APPLE_SNAPSHOT_INTERVAL_MS = 2 * 60 * 1000;
-const AUTO_APPLE_SNAPSHOT_STALE_MS = 4 * 60 * 1000;
-const APPLE_REVIEW_MONITOR_STATES = new Set([
-    'WAITING_FOR_REVIEW',
-    'IN_REVIEW',
-    'PROCESSING_FOR_APP_STORE',
-    'ACCEPTED',
-    'PENDING_APPLE_RELEASE',
-    'PENDING_DEVELOPER_RELEASE',
-]);
-
-const shouldAutoRefreshAppleSnapshot = (config: AppstoreReviewWebhook | null) => {
+const supportsBackgroundAppleRefresh = (config: AppstoreReviewWebhook | null) => {
     if (!config) return false;
     if (String(config.last_sync_status || '').trim().toLowerCase() !== 'connected') return false;
     if (!String(config.asc_app_id || '').trim()) return false;
-    const reviewState = String(config.latest_review_state || '').trim().toUpperCase();
-    return !reviewState || APPLE_REVIEW_MONITOR_STATES.has(reviewState);
+    return true;
 };
 
 const deliveryKeyForConfig = (config: AppstoreReviewWebhook | null): TranslationKey => {
@@ -107,7 +95,7 @@ const stateTone = (value: string | null | undefined) => {
     if (['READY_FOR_SALE', 'ACCEPTED', 'PENDING_APPLE_RELEASE', 'PENDING_DEVELOPER_RELEASE'].includes(raw)) {
         return 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100';
     }
-    if (['REJECTED', 'METADATA_REJECTED', 'DEVELOPER_REJECTED', 'INVALID_BINARY'].includes(raw)) {
+    if (['REJECTED', 'METADATA_REJECTED', 'DEVELOPER_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REMOVED_FROM_SALE', 'REMOVED_FROM_SALE'].includes(raw)) {
         return 'border-rose-400/35 bg-rose-500/10 text-rose-100';
     }
     if (['IN_REVIEW', 'WAITING_FOR_REVIEW'].includes(raw)) {
@@ -137,7 +125,7 @@ const stateSummaryTone = (value: string | null | undefined) => {
     if (['READY_FOR_SALE', 'ACCEPTED', 'PENDING_APPLE_RELEASE', 'PENDING_DEVELOPER_RELEASE'].includes(raw)) {
         return 'border-emerald-400/20 bg-emerald-500/8';
     }
-    if (['REJECTED', 'METADATA_REJECTED', 'DEVELOPER_REJECTED', 'INVALID_BINARY'].includes(raw)) {
+    if (['REJECTED', 'METADATA_REJECTED', 'DEVELOPER_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REMOVED_FROM_SALE', 'REMOVED_FROM_SALE'].includes(raw)) {
         return 'border-rose-400/25 bg-rose-500/8';
     }
     if (['IN_REVIEW', 'WAITING_FOR_REVIEW'].includes(raw)) {
@@ -180,7 +168,7 @@ const buildLocalCredentialIssues = (payload: {
     return issues;
 };
 
-type BusyAction = 'create' | 'rotate' | 'save' | 'apps' | 'sync' | 'ping' | null;
+type BusyAction = 'create' | 'rotate' | 'save' | 'apps' | 'check' | 'sync' | 'ping' | null;
 
 export type AppStoreReviewPanelSnapshot = {
     appId: string;
@@ -378,7 +366,12 @@ export function AppStoreReviewWebhookRow(props: {
             ? `${latestPrevStateLabel} -> ${latestStateLabel}`
             : latestStateLabel
         : text('appstore_review_webhook_no_state');
-    const autoAppleSnapshotActive = shouldAutoRefreshAppleSnapshot(config);
+    const backgroundAppleRefreshConfigured = supportsBackgroundAppleRefresh(config);
+    const backgroundAppleRefreshActive =
+        backgroundAppleRefreshConfigured && shouldBackgroundRefreshAppstoreReviewState(config?.latest_review_state);
+    const backgroundAppleRefreshStopped =
+        backgroundAppleRefreshConfigured && isTerminalAppstoreReviewState(config?.latest_review_state);
+    const canCheckAppleNow = backgroundAppleRefreshConfigured && !credentialIssues.length;
     const draftGuardReason = React.useMemo(() => {
         if (!hasAppleDraftChanges) return null;
         if (keyModeDraft === 'team') {
@@ -447,6 +440,14 @@ export function AppStoreReviewWebhookRow(props: {
         latestEventAtLabel ||
         lastDeliveryAtLabel ||
         text('appstore_review_webhook_no_snapshot');
+    const receiverPreviewLabel =
+        buildAppstoreReviewWebhookReceiverPreview(effectivePublicWebhookUrl) ||
+        text('appstore_review_webhook_public_url_missing');
+    const lastStatusRefreshSummary = checkingAppleSnapshot
+        ? text('appstore_review_webhook_checking_apple')
+        : lastSnapshotAtLabel
+          ? `${latestStateLabel || lastSyncLabel} · ${lastSnapshotAtLabel}`
+          : text('appstore_review_webhook_no_snapshot');
     const nextActionText = !config
         ? text('appstore_review_webhook_setup_hint')
         : config.last_sync_error || config.last_error
@@ -459,6 +460,8 @@ export function AppStoreReviewWebhookRow(props: {
                 ? text('appstore_review_webhook_next_load_apps')
                 : config.last_sync_status !== 'connected'
                   ? text('appstore_review_webhook_next_sync')
+                  : backgroundAppleRefreshStopped
+                    ? text('appstore_review_webhook_next_terminal')
                   : !String(config.last_delivery_at || '').trim()
                     ? text('appstore_review_webhook_next_wait_delivery')
                     : !latestStateLabel
@@ -486,63 +489,68 @@ export function AppStoreReviewWebhookRow(props: {
         </div>
     ) : null;
     const statusOverview = config ? (
-        <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <div className="grid gap-3 md:grid-cols-3">
-                <div className={`rounded-2xl border p-3 ${receiverSummaryTone}`}>
-                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                        {text('appstore_review_webhook_step1_title')}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">{receiverSummaryLabel}</p>
-                    <p className="mt-1 break-all text-[11px] text-indigo-200/55">
-                        {effectivePublicWebhookUrl || text('appstore_review_webhook_public_url_missing')}
-                    </p>
-                </div>
-                <div className={`rounded-2xl border p-3 ${syncSummaryTone(config.last_sync_status)}`}>
-                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                        {text('appstore_review_webhook_step4_title')}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">{appleLinkSummary}</p>
-                    <p className="mt-1 text-[11px] text-indigo-200/55">
-                        {lastSyncAtLabel || selectedAppleAppSummary || text('appstore_review_webhook_no_sync_yet')}
-                    </p>
-                </div>
-                <div className={`rounded-2xl border p-3 ${stateSummaryTone(config.latest_review_state)}`}>
-                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                        {text('appstore_review_webhook_latest_state')}
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">{reviewSummaryLabel}</p>
-                    <p className="mt-1 text-[11px] text-indigo-200/55">{reviewSummaryMeta}</p>
-                </div>
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className={`rounded-2xl border p-3 ${receiverSummaryTone}`}>
                 <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                    {text('appstore_review_webhook_now_title')}
+                    {text('appstore_review_webhook_step1_title')}
                 </p>
-                <p className="mt-2 text-sm font-semibold text-white">{nextActionText}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-xl border border-white/8 bg-slate-950/30 px-3 py-2">
-                        <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                            {text('appstore_review_webhook_last_checked')}
-                        </p>
-                        <p className="mt-1 text-[11px] text-indigo-100/85">
-                            {checkingAppleSnapshot
-                                ? text('appstore_review_webhook_checking_apple')
-                                : lastSnapshotAtLabel || text('appstore_review_webhook_no_snapshot')}
-                        </p>
-                    </div>
-                    <div className={`rounded-xl border px-3 py-2 ${deliverySummaryTone(config.last_delivery_status)}`}>
-                        <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
-                            {text('appstore_review_webhook_last_delivery')}
-                        </p>
-                        <p className="mt-1 text-[11px] text-indigo-100/85">
-                            {lastDeliveryAtLabel ? `${lastDeliveryLabel} · ${lastDeliveryAtLabel}` : lastDeliveryLabel}
-                        </p>
-                    </div>
-                </div>
-                {autoAppleSnapshotActive ? (
-                    <p className="mt-3 text-[11px] text-indigo-200/60">{text('appstore_review_webhook_auto_checking')}</p>
-                ) : null}
+                <p className="mt-2 text-sm font-semibold text-white">{receiverSummaryLabel}</p>
+                <p
+                    className="mt-1 truncate text-[11px] text-indigo-200/55"
+                    title={effectivePublicWebhookUrl || receiverPreviewLabel}
+                >
+                    {receiverPreviewLabel}
+                </p>
             </div>
+            <div className={`rounded-2xl border p-3 ${syncSummaryTone(config.last_sync_status)}`}>
+                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                    {text('appstore_review_webhook_step4_title')}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">{appleLinkSummary}</p>
+                <p className="mt-1 text-[11px] text-indigo-200/55">
+                    {lastSyncAtLabel || selectedAppleAppSummary || text('appstore_review_webhook_no_sync_yet')}
+                </p>
+            </div>
+            <div className={`rounded-2xl border p-3 ${stateSummaryTone(config.latest_review_state)}`}>
+                <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                    {text('appstore_review_webhook_latest_state')}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">{reviewSummaryLabel}</p>
+                <p className="mt-1 text-[11px] text-indigo-200/55">{reviewSummaryMeta}</p>
+            </div>
+        </div>
+    ) : null;
+    const workflowOverview = config ? (
+        <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/25 p-3">
+            <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                {text('appstore_review_webhook_now_title')}
+            </p>
+            <p className="mt-2 text-sm font-semibold text-white">{nextActionText}</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-white/8 bg-slate-950/30 px-3 py-2">
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                        {text('appstore_review_webhook_last_checked')}
+                    </p>
+                    <p className="mt-1 text-[11px] text-indigo-100/85">{lastStatusRefreshSummary}</p>
+                </div>
+                <div className={`rounded-xl border px-3 py-2 ${deliverySummaryTone(config.last_delivery_status)}`}>
+                    <p className="text-[10px] font-semibold tracking-[0.08em] text-indigo-200/55">
+                        {text('appstore_review_webhook_last_delivery')}
+                    </p>
+                    <p className="mt-1 text-[11px] text-indigo-100/85">
+                        {lastDeliveryAtLabel ? `${lastDeliveryLabel} · ${lastDeliveryAtLabel}` : lastDeliveryLabel}
+                    </p>
+                </div>
+            </div>
+            {backgroundAppleRefreshConfigured ? (
+                <p className="mt-3 text-[11px] text-indigo-200/60">
+                    {text(
+                        backgroundAppleRefreshActive
+                            ? 'appstore_review_webhook_auto_checking'
+                            : 'appstore_review_webhook_auto_checking_stopped'
+                    )}
+                </p>
+            ) : null}
         </div>
     ) : null;
 
@@ -785,7 +793,7 @@ export function AppStoreReviewWebhookRow(props: {
         if (!appId || !userId) return undefined;
         const intervalId = window.setInterval(() => {
             void refresh({ silent: true, reportErrors: false });
-        }, 15000);
+        }, STATUS_POLL_INTERVAL_MS);
         return () => window.clearInterval(intervalId);
     }, [appId, refresh, userId]);
 
@@ -814,28 +822,6 @@ export function AppStoreReviewWebhookRow(props: {
         },
         [config, publicSubdomainDraft, refresh, reportError, text]
     );
-
-    React.useEffect(() => {
-        if (!appId || !userId || !autoAppleSnapshotActive || busyAction !== null) return undefined;
-
-        const maybeRefreshApple = () => {
-            const lastCheckedTs = parseComparableTimestamp(config?.last_snapshot_at || config?.last_sync_at || '');
-            if (Date.now() - lastCheckedTs < AUTO_APPLE_SNAPSHOT_STALE_MS) return;
-            void runAppleSnapshotCheck();
-        };
-
-        maybeRefreshApple();
-        const intervalId = window.setInterval(maybeRefreshApple, AUTO_APPLE_SNAPSHOT_INTERVAL_MS);
-        return () => window.clearInterval(intervalId);
-    }, [
-        appId,
-        autoAppleSnapshotActive,
-        busyAction,
-        config?.last_snapshot_at,
-        config?.last_sync_at,
-        runAppleSnapshotCheck,
-        userId,
-    ]);
 
     const copyValue = React.useCallback(async (key: 'endpoint' | 'secret', value: string) => {
         if (!value) return;
@@ -1161,6 +1147,18 @@ export function AppStoreReviewWebhookRow(props: {
         }
     };
 
+    const handleCheckAppleNow = async () => {
+        if (!appId || !userId || isReadOnly || !canCheckAppleNow) return;
+        setBusyAction('check');
+        setNotice(null);
+        try {
+            await runAppleSnapshotCheck({ reportErrors: true });
+            setNotice(text('appstore_review_webhook_checked_apple'));
+        } finally {
+            setBusyAction(null);
+        }
+    };
+
     const handleSync = async () => {
         if (!appId || !userId || isReadOnly) return;
         setBusyAction('sync');
@@ -1313,16 +1311,14 @@ export function AppStoreReviewWebhookRow(props: {
                                         </div>
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                void (autoAppleSnapshotActive
-                                                    ? runAppleSnapshotCheck({ reportErrors: true })
-                                                    : refresh({ forceDraftHydrate: false }))
-                                            }
-                                            disabled={loading || busyAction !== null}
+                                            onClick={() => void handleCheckAppleNow()}
+                                            disabled={loading || busyAction !== null || !canCheckAppleNow}
                                             className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-4 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
                                         >
                                             <RefreshCcw size={13} />
-                                            {text('refresh')}
+                                            {busyAction === 'check'
+                                                ? text('loading')
+                                                : text('appstore_review_webhook_check_apple_button')}
                                         </button>
                                     </div>
 
@@ -1577,8 +1573,8 @@ export function AppStoreReviewWebhookRow(props: {
                                         </div>
                                     )}
 
-                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                        {showQuickSetupEditor ? (
+                                    {showQuickSetupEditor ? (
+                                        <div className="mt-3 flex flex-wrap items-center gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => void handleSaveAppleConfig()}
@@ -1590,7 +1586,15 @@ export function AppStoreReviewWebhookRow(props: {
                                                     ? text('saving')
                                                     : text('appstore_review_webhook_save_apple')}
                                             </button>
-                                        ) : null}
+                                        </div>
+                                    ) : null}
+                                </div>
+
+                                <details className="mt-3 rounded-2xl border border-white/8 bg-slate-950/20 p-3">
+                                    <summary className="cursor-pointer list-none text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
+                                        {text('appstore_review_webhook_advanced')}
+                                    </summary>
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => void handleSync()}
@@ -1614,12 +1618,6 @@ export function AppStoreReviewWebhookRow(props: {
                                                 : text('appstore_review_webhook_send_test')}
                                         </button>
                                     </div>
-                                </div>
-
-                                <details className="mt-3 rounded-2xl border border-white/8 bg-slate-950/20 p-3">
-                                    <summary className="cursor-pointer list-none text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
-                                        {text('appstore_review_webhook_advanced')}
-                                    </summary>
                                     <div className="mt-3 grid gap-3 md:grid-cols-2">
                                         <label className="block">
                                             <span className="text-[11px] font-semibold tracking-[0.08em] text-indigo-200/70">
@@ -1720,6 +1718,8 @@ export function AppStoreReviewWebhookRow(props: {
                                             <code className="mt-2 block break-all text-[11px] text-indigo-100/90">{config.secret}</code>
                                         </div>
                                     </div>
+
+                                    {workflowOverview}
 
                                     <div className="mt-3 rounded-2xl border border-white/8 bg-slate-950/30 p-3">
                                         <div className="grid gap-3 sm:grid-cols-3">

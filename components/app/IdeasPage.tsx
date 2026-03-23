@@ -255,7 +255,7 @@ export function IdeasPage(props: {
     const [newError, setNewError] = React.useState<string | null>(null);
     const [newRowScrollNonce, setNewRowScrollNonce] = React.useState(0);
     const [generatorBrandId, setGeneratorBrandId] = React.useState('');
-    const [requestedCount, setRequestedCount] = React.useState('10');
+    const [requestedCount, setRequestedCount] = React.useState('3');
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<string[]>([]);
     const [tableScopeBrandId, setTableScopeBrandId] = React.useState<string>(TABLE_SCOPE_ALL);
     const [prefsHydrated, setPrefsHydrated] = React.useState(false);
@@ -822,7 +822,7 @@ export function IdeasPage(props: {
             reportError?.(message);
             return;
         }
-        const count = Math.max(1, Math.min(20, Number.parseInt(requestedCount, 10) || 10));
+        const count = Math.max(1, Math.min(20, Number.parseInt(requestedCount, 10) || 3));
         const confirmedCategoryIds = safeSelectedCategoryIds.filter((categoryId) =>
             categoryList.some((category) => category.id === categoryId)
         );

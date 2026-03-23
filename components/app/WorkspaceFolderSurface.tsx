@@ -254,6 +254,7 @@ export function WorkspaceFolderSurface({
                     onNotImplementedAutoRelease: () => setup.onReportActionError(setup.text('coming_soon')),
                     onOpenAccountsForApp: () => setup.onOpenAccounts(setup.selectedApp?.id || null),
                     onOpenIdeas: setup.onOpenIdeas,
+                    onPatchApp: setup.onPatchApp,
                     onPickAccount: setup.onPickAccount,
                     onRefreshIntegrationJobs: setup.onRefreshIntegrationJobs,
                     onReportError: setup.onReportActionError,

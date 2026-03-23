@@ -32,6 +32,14 @@ export function DevFilesPanel(props: {
     const { selectedApp, githubRepoUrl, isCreatingRepo, isDeletingRepo, onCreateRepo, onDeleteRepo, text, isReadOnly = false } = props;
     const [cloneCopied, setCloneCopied] = React.useState(false);
     const copiedTimerRef = React.useRef<number | null>(null);
+    const hasAppName = React.useMemo(
+        () => String(selectedApp?.name || '').trim().length > 0,
+        [selectedApp?.name]
+    );
+    const createRepoBlockedReason = React.useMemo(() => {
+        if (!selectedApp || hasAppName) return '';
+        return text('github_repo_app_name_required');
+    }, [hasAppName, selectedApp, text]);
 
     const repoNamePreview = React.useMemo(() => {
         if (!selectedApp) return '';
@@ -137,15 +145,23 @@ export function DevFilesPanel(props: {
 
                 {!githubRepoUrl && (
                     <div className="mt-5 flex items-center justify-end">
-                        <button
-                            type="button"
-                            onClick={onCreateRepo}
-                            disabled={!selectedApp || isCreatingRepo || isReadOnly}
-                            className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
-                        >
-                            {isCreatingRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
-                            {text('create_github_repo')}
-                        </button>
+                        <div className="grid justify-items-end gap-2">
+                            {createRepoBlockedReason ? (
+                                <p className="max-w-[280px] text-right text-[11px] text-amber-200/80">
+                                    {createRepoBlockedReason}
+                                </p>
+                            ) : null}
+                            <button
+                                type="button"
+                                onClick={onCreateRepo}
+                                disabled={!selectedApp || !hasAppName || isCreatingRepo || isReadOnly}
+                                title={createRepoBlockedReason || undefined}
+                                className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
+                            >
+                                {isCreatingRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
+                                {text('create_github_repo')}
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

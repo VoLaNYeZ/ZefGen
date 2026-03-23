@@ -10,6 +10,14 @@ test('login page renders for anonymous users', async ({ page }) => {
     await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
 });
 
+test('anonymous users hitting /help still see the login gate', async ({ page }) => {
+    await page.goto('/help');
+    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByTestId('app-shell-root')).toHaveCount(0);
+    await expect(page.getByTestId('help-page-root')).toHaveCount(0);
+});
+
 test.describe('invalid credentials', () => {
     test.use({
         allowedConsoleErrors: [/Failed to load resource: the server responded with a status of 400 \(Bad Request\)/],
