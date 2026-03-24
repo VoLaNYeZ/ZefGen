@@ -1,6 +1,6 @@
 import React from 'react';
 import type { RefObject } from 'react';
-import { ArrowUpRight, CheckCircle2, Image, Layers3, Target } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Target } from 'lucide-react';
 import type { Language } from '../../i18n';
 import { buildHelpRoute } from '../../utils/routes';
 import { getHelpCenterCopy, type HelpSection, type HelpSectionId } from './help-center-content';
@@ -226,54 +226,34 @@ export function HelpCenterPage({ lang, mainScrollContainerRef }: HelpCenterPageP
                                 }`}
                                 style={{ scrollMarginTop: 120 }}
                             >
-                                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
-                                    <div className="space-y-4">
-                                        <div className="space-y-1.5">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-100/70">{section.eyebrow}</p>
-                                            <h2 className="text-[22px] font-semibold tracking-tight text-white">{section.title}</h2>
-                                        </div>
-
-                                        <p className="text-sm leading-6 text-slate-200/78">{section.summary}</p>
-
-                                        <div className="space-y-2.5">
-                                            {section.points.map((point) => (
-                                                <div
-                                                    key={point}
-                                                    className="flex items-start gap-3 rounded-[18px] border border-white/6 bg-slate-950/22 px-3.5 py-3 text-sm leading-6 text-slate-100/82"
-                                                >
-                                                    <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-sky-300/90" />
-                                                    <p>{point}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {section.callout ? (
-                                            <div className="rounded-[20px] border border-sky-300/14 bg-sky-400/8 px-4 py-3.5">
-                                                <div className="flex items-start gap-3">
-                                                    <Target size={16} className="mt-0.5 shrink-0 text-sky-200/90" />
-                                                    <p className="text-sm leading-6 text-slate-100/74">{section.callout}</p>
-                                                </div>
-                                            </div>
-                                        ) : null}
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-100/70">{section.eyebrow}</p>
+                                        <h2 className="text-[22px] font-semibold tracking-tight text-white">{section.title}</h2>
                                     </div>
 
-                                    <aside className="rounded-[22px] border border-dashed border-sky-300/20 bg-[linear-gradient(180deg,rgba(8,47,73,0.34)_0%,rgba(15,23,42,0.72)_100%)] p-4 text-center">
-                                        <div className="flex h-full flex-col justify-between gap-6">
-                                            <div className="inline-flex items-center gap-2 self-center rounded-full border border-white/10 bg-slate-950/25 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-100/72">
-                                                <Image size={13} />
-                                                <span>{content.mediaPlaceholderLabel}</span>
+                                    <p className="text-sm leading-6 text-slate-200/78">{section.summary}</p>
+
+                                    <div className="space-y-2.5">
+                                        {section.points.map((point) => (
+                                            <div
+                                                key={point}
+                                                className="flex items-start gap-3 rounded-[18px] border border-white/6 bg-slate-950/22 px-3.5 py-3 text-sm leading-6 text-slate-100/82"
+                                            >
+                                                <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-sky-300/90" />
+                                                <p>{point}</p>
                                             </div>
-                                            <div className="space-y-3">
-                                                <div className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-[22px] border border-white/10 bg-slate-950/28 text-sky-100/82">
-                                                    <Layers3 size={28} />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <p className="text-base font-semibold text-white">{section.mediaLabel}</p>
-                                                    <p className="text-sm leading-6 text-slate-100/68">{section.mediaHint}</p>
-                                                </div>
+                                        ))}
+                                    </div>
+
+                                    {section.callout ? (
+                                        <div className="rounded-[20px] border border-sky-300/14 bg-sky-400/8 px-4 py-3.5">
+                                            <div className="flex items-start gap-3">
+                                                <Target size={16} className="mt-0.5 shrink-0 text-sky-200/90" />
+                                                <p className="text-sm leading-6 text-slate-100/74">{section.callout}</p>
                                             </div>
                                         </div>
-                                    </aside>
+                                    ) : null}
                                 </div>
                             </section>
                         );

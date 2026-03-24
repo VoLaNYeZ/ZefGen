@@ -4,6 +4,7 @@ import type { TranslationKey } from '../../i18n';
 import type { Brand, BrandReference } from '../../types/zefgen';
 import type { BrandAppSummary } from '../../hooks/use-brand-app-summaries';
 import type { AppPage } from '../../utils/routes';
+import { EMPTY_BRAND_APP_SUMMARY } from '../../utils/brand-app-summary';
 import { ConfirmIconButton } from './ConfirmIconButton';
 
 type WorkspaceShellChromeProps = {
@@ -19,9 +20,9 @@ type WorkspaceShellChromeProps = {
     dataError: string | null;
     dataLoading: boolean;
     editingBrandId: string | null;
-    isClaimingEditLock: boolean;
     isCurrentBrandReadOnly: boolean;
     isNoBrandMode: boolean;
+    isTakingOverEditLock: boolean;
     onBrandIconUpload: React.ChangeEventHandler<HTMLInputElement>;
     onCloseBrandForm: () => void;
     onCreateBrand: () => void;
@@ -30,9 +31,10 @@ type WorkspaceShellChromeProps = {
     onOpenLightbox: (url: string, title: string) => void;
     onRetry: () => void;
     onSaveBrand: () => void | Promise<void>;
-    onStartEditing: () => void;
+    onTakeOverEditing: () => void;
     selectedBrand: Brand | null;
     stickyHeaderRef: React.RefObject<HTMLDivElement | null>;
+    takeOverEditLockError: string | null;
     text: (key: TranslationKey) => string;
 };
 
@@ -49,9 +51,9 @@ export function WorkspaceShellChrome({
     dataError,
     dataLoading,
     editingBrandId,
-    isClaimingEditLock,
     isCurrentBrandReadOnly,
     isNoBrandMode,
+    isTakingOverEditLock,
     onBrandIconUpload,
     onCloseBrandForm,
     onCreateBrand,
@@ -60,9 +62,10 @@ export function WorkspaceShellChrome({
     onOpenLightbox,
     onRetry,
     onSaveBrand,
-    onStartEditing,
+    onTakeOverEditing,
     selectedBrand,
     stickyHeaderRef,
+    takeOverEditLockError,
     text,
 }: WorkspaceShellChromeProps) {
     const isWorkspacePage = activePage === 'workspace';
@@ -72,7 +75,7 @@ export function WorkspaceShellChrome({
             brandFormOpen &&
             editingBrandId === selectedBrand.id
     );
-    const selectedBrandSummary = selectedBrand ? brandAppSummaryByBrandId[selectedBrand.id] : null;
+    const selectedBrandSummary = selectedBrand ? brandAppSummaryByBrandId[selectedBrand.id] || EMPTY_BRAND_APP_SUMMARY : null;
     const brandIconUrl = brandIconReference ? brandRefUrls[brandIconReference.id] || null : null;
     const hasBrandIcon = Boolean(!isNoBrandMode && brandIconUrl);
     const brandSummaryRows = [
@@ -80,21 +83,28 @@ export function WorkspaceShellChrome({
             key: 'active',
             label: text('active_apps'),
             count: selectedBrandSummary?.active ?? 0,
+            warningCount: 0,
             dotClassName: 'bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.35)]',
         },
         {
-            key: 'ready',
-            label: text('ready'),
-            count: selectedBrandSummary?.yellow ?? 0,
+            key: 'in-progress',
+            label: text('in_progress'),
+            count: selectedBrandSummary?.inProgress ?? 0,
+            warningCount: selectedBrandSummary?.inProgressAttentionCount ?? 0,
             dotClassName: 'bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.30)]',
         },
         {
             key: 'banned',
             label: text('banned_apps'),
-            count: selectedBrandSummary?.red ?? 0,
+            count: selectedBrandSummary?.banned ?? 0,
+            warningCount: 0,
             dotClassName: 'bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.30)]',
         },
     ] as const;
+    const inProgressAttentionLabel = String(text('in_progress_attention_tooltip') || '').replace(
+        '{count}',
+        String(Math.max(0, selectedBrandSummary?.inProgressAttentionCount ?? 0))
+    );
 
     const handleOpenBrandIconPreview = (event?: React.MouseEvent<HTMLImageElement>) => {
         event?.preventDefault();
@@ -215,16 +225,35 @@ export function WorkspaceShellChrome({
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
                         {selectedBrand ? (
-                            <div className="hidden shrink-0 flex-col gap-1 rounded-2xl border border-white/10 bg-slate-950/20 px-3 py-2 lg:flex">
+                            <div
+                                data-testid="workspace-brand-status-summary"
+                                className="hidden shrink-0 flex-col gap-1 rounded-2xl border border-white/10 bg-slate-950/20 px-3 py-2 md:flex"
+                            >
                                 {brandSummaryRows.map((row) => (
-                                    <div key={row.key} className="flex items-center justify-between gap-4 text-[11px] leading-none">
+                                    <div
+                                        key={row.key}
+                                        data-testid={`workspace-brand-status-${row.key}`}
+                                        className="flex items-center justify-between gap-4 text-[11px] leading-none"
+                                    >
                                         <span className="inline-flex items-center gap-2 whitespace-nowrap text-indigo-200/80">
                                             <span className={`h-1.5 w-1.5 rounded-full ${row.dotClassName}`} />
                                             {row.label}
                                         </span>
-                                        <span className="tabular-nums font-semibold text-white/90">{row.count}</span>
+                                        <span className="inline-flex items-center gap-1 tabular-nums font-semibold text-white/90">
+                                            <span>{row.count}</span>
+                                            {row.key === 'in-progress' && row.warningCount ? (
+                                                <span
+                                                    data-testid="workspace-brand-status-in-progress-warning"
+                                                    className="text-amber-200/85"
+                                                    title={inProgressAttentionLabel}
+                                                    aria-label={inProgressAttentionLabel}
+                                                >
+                                                    <AlertTriangle size={12} />
+                                                </span>
+                                            ) : null}
+                                        </span>
                                     </div>
                                 ))}
                             </div>
@@ -310,15 +339,24 @@ export function WorkspaceShellChrome({
                         <div>
                             <p className="font-semibold">{text('action_error_title')}</p>
                             <p className="text-xs text-amber-100/70">{text('brand_under_work_readonly')}</p>
+                            <p className="mt-1 text-xs text-amber-100/60">{text('brand_take_over_hint')}</p>
+                            {takeOverEditLockError ? (
+                                <p
+                                    data-testid="workspace-readonly-banner-error"
+                                    className="mt-2 text-xs font-medium text-rose-200"
+                                >
+                                    {takeOverEditLockError}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
                     <button
                         type="button"
-                        onClick={onStartEditing}
-                        disabled={isClaimingEditLock}
+                        onClick={onTakeOverEditing}
+                        disabled={isTakingOverEditLock}
                         className="inline-flex shrink-0 items-center gap-2 rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-50 hover:bg-amber-500/20 disabled:opacity-60"
                     >
-                        {isClaimingEditLock ? text('saving') : text('brand_start_editing')}
+                        {isTakingOverEditLock ? text('saving') : text('brand_start_editing')}
                     </button>
                 </div>
             ) : null}

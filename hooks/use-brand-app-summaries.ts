@@ -1,25 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { fetchAllExportStatuses, fetchAllScreenshotSetCounts } from '../data/app-indicators';
+import { fetchAllAppstoreReviewStates } from '../data/app-indicators';
 import type { AppItem, Brand } from '../types/zefgen';
+import {
+    EMPTY_BRAND_APP_SUMMARY,
+    summarizeBrandApps,
+    type BrandAppSummary,
+} from '../utils/brand-app-summary';
 
-export type BrandAppSummary = {
-    total: number;
-    active: number;
-    green: number;
-    yellow: number;
-    red: number;
-};
+export type { BrandAppSummary } from '../utils/brand-app-summary';
 
 type Params = {
     apps: AppItem[];
     brands: Brand[];
     session: Session | null;
+    reviewStateOverridesByAppId?: Record<string, string | null | undefined>;
 };
 
-export function useBrandAppSummaries({ apps, brands, session }: Params) {
-    const [appScreenshotSetCountByAppId, setAppScreenshotSetCountByAppId] = useState<Record<string, number>>({});
-    const [appCompletedByAppId, setAppCompletedByAppId] = useState<Record<string, boolean>>({});
+export function useBrandAppSummaries({ apps, brands, session, reviewStateOverridesByAppId = {} }: Params) {
+    const [appLatestReviewStateByAppId, setAppLatestReviewStateByAppId] = useState<Record<string, string | null>>({});
 
     const brandAppSummaryByBrandId = useMemo(() => {
         const byBrand: Record<string, BrandAppSummary> = {};
@@ -36,75 +35,40 @@ export function useBrandAppSummaries({ apps, brands, session }: Params) {
                     return at - bt;
                 });
 
-            let green = 0;
-            let yellow = 0;
-            let red = 0;
-            for (const app of brandApps) {
-                if (app.is_banned) {
-                    red += 1;
-                    continue;
-                }
-                const setCount = appScreenshotSetCountByAppId[app.id] || 0;
-                if (setCount > 1) {
-                    green += 1;
-                    continue;
-                }
-                if (appCompletedByAppId[app.id]) {
-                    yellow += 1;
-                }
-            }
-
-            byBrand[brand.id] = {
-                total: brandApps.length,
-                active: Math.max(0, brandApps.length - red),
-                green,
-                yellow,
-                red,
-            };
+            byBrand[brand.id] = summarizeBrandApps({
+                apps: brandApps,
+                reviewStateByAppId: appLatestReviewStateByAppId,
+                reviewStateOverridesByAppId,
+            });
         }
 
         return byBrand;
-    }, [appCompletedByAppId, appScreenshotSetCountByAppId, apps, brands]);
+    }, [appLatestReviewStateByAppId, apps, brands, reviewStateOverridesByAppId]);
 
     useEffect(() => {
         if (!session) {
-            setAppScreenshotSetCountByAppId({});
-            setAppCompletedByAppId({});
+            setAppLatestReviewStateByAppId({});
             return;
         }
         if (!apps.length) {
-            setAppScreenshotSetCountByAppId({});
-            setAppCompletedByAppId({});
+            setAppLatestReviewStateByAppId({});
             return;
         }
 
         let active = true;
         (async () => {
-            const [setsResp, statusResp] = await Promise.all([
-                fetchAllScreenshotSetCounts(session.user.id),
-                fetchAllExportStatuses(session.user.id),
-            ]);
+            const reviewStateResp = await fetchAllAppstoreReviewStates(session.user.id);
 
             if (!active) return;
 
-            if (!setsResp.error) {
-                const counts: Record<string, number> = {};
-                for (const row of setsResp.data || []) {
+            if (!reviewStateResp.error) {
+                const nextStateByAppId: Record<string, string | null> = {};
+                for (const row of reviewStateResp.data || []) {
                     const appId = String((row as any).app_id || '');
                     if (!appId) continue;
-                    counts[appId] = (counts[appId] || 0) + 1;
+                    nextStateByAppId[appId] = String((row as any).latest_review_state || '').trim() || null;
                 }
-                setAppScreenshotSetCountByAppId(counts);
-            }
-
-            if (!statusResp.error) {
-                const completed: Record<string, boolean> = {};
-                for (const row of statusResp.data || []) {
-                    const appId = String((row as any).app_id || '');
-                    if (!appId) continue;
-                    completed[appId] = Boolean((row as any).is_completed);
-                }
-                setAppCompletedByAppId(completed);
+                setAppLatestReviewStateByAppId(nextStateByAppId);
             }
         })();
 
@@ -115,5 +79,6 @@ export function useBrandAppSummaries({ apps, brands, session }: Params) {
 
     return {
         brandAppSummaryByBrandId,
+        emptyBrandAppSummary: EMPTY_BRAND_APP_SUMMARY,
     };
 }

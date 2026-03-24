@@ -179,7 +179,7 @@ export const GenerationQueueWidget = (props: {
     if (!jobs.length) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 z-[60] w-[340px] max-w-[92vw]">
+        <div data-testid="generation-queue-widget" className="fixed bottom-4 right-4 z-[60] w-[340px] max-w-[92vw]">
             <div className="rounded-2xl border border-indigo-400/25 bg-slate-950/80 backdrop-blur-md shadow-[0_18px_55px_-40px_rgba(99,102,241,0.8)] overflow-hidden">
                 <button
                     type="button"

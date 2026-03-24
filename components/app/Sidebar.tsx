@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+    AlertTriangle,
     DoorOpen,
     Plus,
     ArrowUpRight,
@@ -27,6 +28,7 @@ import {
 import { InstantTooltip } from '../ui/InstantTooltip';
 import type { Brand, BrandFormState } from '../../types/zefgen';
 import { isNoBrand } from '../../utils/no-brand';
+import { EMPTY_BRAND_APP_SUMMARY, type BrandAppSummary } from '../../utils/brand-app-summary';
 
 type SidebarProps = {
     isSidebarOpen: boolean;
@@ -46,13 +48,7 @@ type SidebarProps = {
     brands: Brand[];
     brandAppSummaryByBrandId: Record<
         string,
-        {
-            total: number;
-            active: number;
-            green: number;
-            yellow: number;
-            red: number;
-        }
+        BrandAppSummary
     >;
     selectedBrandId: string | null;
     activeSessionCount: number;
@@ -134,19 +130,19 @@ export const Sidebar = ({
         return String(v);
     };
 
-    const dotClass = (kind: 'green' | 'yellow' | 'red', value: number) => {
+    const dotClass = (kind: 'active' | 'inProgress' | 'banned', value: number) => {
         const isZero = !(Number(value) > 0);
         const dim = isZero ? 'opacity-35' : 'opacity-95';
-        if (kind === 'green') return `h-1.5 w-1.5 rounded-full ${dim} bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.40)]`;
-        if (kind === 'yellow') return `h-1.5 w-1.5 rounded-full ${dim} bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.35)]`;
+        if (kind === 'active') return `h-1.5 w-1.5 rounded-full ${dim} bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.40)]`;
+        if (kind === 'inProgress') return `h-1.5 w-1.5 rounded-full ${dim} bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.35)]`;
         return `h-1.5 w-1.5 rounded-full ${dim} bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.35)]`;
     };
 
-    const countTextClass = (kind: 'green' | 'yellow' | 'red', value: number) => {
+    const countTextClass = (kind: 'active' | 'inProgress' | 'banned', value: number) => {
         const isZero = !(Number(value) > 0);
         const dim = isZero ? 'opacity-35' : 'opacity-95';
-        if (kind === 'green') return `${dim} text-emerald-100/90`;
-        if (kind === 'yellow') return `${dim} text-amber-50/90`;
+        if (kind === 'active') return `${dim} text-emerald-100/90`;
+        if (kind === 'inProgress') return `${dim} text-amber-50/90`;
         return `${dim} text-rose-50/90`;
     };
 
@@ -538,8 +534,7 @@ export const Sidebar = ({
                                         const brand = brandById.get(brandId);
                                         if (!brand) return null;
                                         const iconUrl = brandIconUrls[brand.id];
-                                        const summary =
-                                            brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
+                                        const summary = brandAppSummaryByBrandId[brand.id] || EMPTY_BRAND_APP_SUMMARY;
                                         return (
                                             <React.Fragment key={brand.id}>
                                                 <SortableBrandRow
@@ -576,8 +571,7 @@ export const Sidebar = ({
                         activeBrands.map((brand) => {
                             const isActive = brand.id === selectedBrandId;
                             const iconUrl = brandIconUrls[brand.id];
-                            const summary =
-                                brandAppSummaryByBrandId[brand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 };
+                            const summary = brandAppSummaryByBrandId[brand.id] || EMPTY_BRAND_APP_SUMMARY;
                             return (
                                 <React.Fragment key={brand.id}>
                                     <PlainBrandRow
@@ -652,14 +646,7 @@ export const Sidebar = ({
                             {inactiveBrands.length ? (
                                 inactiveBrands.map((brand) => {
                                     const iconUrl = brandIconUrls[brand.id];
-                                    const summary =
-                                        brandAppSummaryByBrandId[brand.id] || {
-                                            total: 0,
-                                            active: 0,
-                                            green: 0,
-                                            yellow: 0,
-                                            red: 0,
-                                        };
+                                    const summary = brandAppSummaryByBrandId[brand.id] || EMPTY_BRAND_APP_SUMMARY;
                                     return (
                                         <React.Fragment key={brand.id}>
                                             <InactiveDrawerBrandRow
@@ -697,6 +684,8 @@ export const Sidebar = ({
                                                 }}
                                                 onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
                                                 clampCount={clampCount}
+                                                dotClass={dotClass}
+                                                countTextClass={countTextClass}
                                                 setRowRef={(el) => setBrandRowRef(brand.id, el)}
                                                 text={text}
                                             />
@@ -718,7 +707,7 @@ export const Sidebar = ({
                         <PlainBrandRow
                             brand={noBrand}
                             iconUrl={brandIconUrls[noBrand.id]}
-                            summary={brandAppSummaryByBrandId[noBrand.id] || { total: 0, active: 0, green: 0, yellow: 0, red: 0 }}
+                            summary={brandAppSummaryByBrandId[noBrand.id] || EMPTY_BRAND_APP_SUMMARY}
                             isActive={noBrand.id === selectedBrandId}
                             isInactive={false}
                             isNoBrand
@@ -869,6 +858,108 @@ export const Sidebar = ({
     );
 };
 
+const buildInProgressAttentionLabel = (text: (key: TranslationKey) => string, count: number) =>
+    String(text('in_progress_attention_tooltip') || '').replace('{count}', String(Math.max(0, Math.floor(count || 0))));
+
+const buildBrandSummaryTooltip = (text: (key: TranslationKey) => string, summary: BrandAppSummary) => {
+    const lines = [
+        `${text('active_apps')} + ${text('in_progress')}: ${summary.nonBanned}`,
+        `${text('active_apps')}: ${summary.active}`,
+        `${text('in_progress')}: ${summary.inProgress}`,
+        `${text('banned_apps')}: ${summary.banned}`,
+    ];
+    if (summary.inProgressAttentionCount > 0) {
+        lines.push(buildInProgressAttentionLabel(text, summary.inProgressAttentionCount));
+    }
+    return lines.join('\n');
+};
+
+function InProgressAttentionMarker({
+    count,
+    text,
+    dataTestId,
+}: {
+    count: number;
+    text: (key: TranslationKey) => string;
+    dataTestId?: string;
+}) {
+    const label = buildInProgressAttentionLabel(text, count);
+    if (!(count > 0)) return null;
+
+    return (
+        <span
+            data-testid={dataTestId}
+            className="inline-flex items-center justify-center text-amber-200/85"
+            title={label}
+            aria-label={label}
+        >
+            <AlertTriangle size={10} />
+        </span>
+    );
+}
+
+function BrandStatusSummaryCluster({
+    summary,
+    clampCount,
+    dotClass,
+    countTextClass,
+    text,
+    showActiveIndicator = false,
+    className = '',
+}: {
+    summary: BrandAppSummary;
+    clampCount: (n: number) => string;
+    dotClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
+    countTextClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
+    text: (key: TranslationKey) => string;
+    showActiveIndicator?: boolean;
+    className?: string;
+}) {
+    return (
+        <div
+            data-testid="brand-row-status-summary"
+            className={['flex items-center gap-2 shrink-0', className].filter(Boolean).join(' ')}
+            title={buildBrandSummaryTooltip(text, summary)}
+        >
+            <span
+                data-testid="brand-row-non-banned-count"
+                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]"
+            >
+                {clampCount(summary.nonBanned)}
+            </span>
+            <div className="flex flex-col items-end justify-center gap-0.5">
+                <div
+                    data-testid="brand-row-status-active"
+                    className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums"
+                >
+                    <span className={dotClass('active', summary.active)} />
+                    <span className={countTextClass('active', summary.active)}>{clampCount(summary.active)}</span>
+                </div>
+                <div
+                    data-testid="brand-row-status-in-progress"
+                    className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums"
+                >
+                    <span className={dotClass('inProgress', summary.inProgress)} />
+                    <span className={countTextClass('inProgress', summary.inProgress)}>{clampCount(summary.inProgress)}</span>
+                    <InProgressAttentionMarker
+                        count={summary.inProgressAttentionCount}
+                        text={text}
+                        dataTestId="brand-row-in-progress-warning"
+                    />
+                </div>
+                <div
+                    data-testid="brand-row-status-banned"
+                    className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums"
+                >
+                    <span className={dotClass('banned', summary.banned)} />
+                    <span className={countTextClass('banned', summary.banned)}>{clampCount(summary.banned)}</span>
+                </div>
+            </div>
+            {showActiveIndicator ? <ArrowUpRight size={16} className="text-indigo-200" /> : null}
+        </div>
+    );
+}
+
 function PlainBrandRow({
     brand,
     iconUrl,
@@ -891,7 +982,7 @@ function PlainBrandRow({
 }: {
     brand: Brand;
     iconUrl: string | undefined;
-    summary: { total: number; active: number; green: number; yellow: number; red: number };
+    summary: BrandAppSummary;
     isActive: boolean;
     isInactive: boolean;
     enableActiveTestId?: boolean;
@@ -903,8 +994,8 @@ function PlainBrandRow({
     onSelect: () => void;
     onOpenLightbox: () => void;
     clampCount: (n: number) => string;
-    dotClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
-    countTextClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
+    dotClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
+    countTextClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -1002,36 +1093,21 @@ function PlainBrandRow({
                     </div>
                 </div>
                 {isNoBrand ? (
-                    <div className="flex items-center gap-2 shrink-0" title={`Apps: ${summary.total}`}>
+                    <div className="flex items-center gap-2 shrink-0" title={`${text('apps')}: ${summary.total}`}>
                         <span className="inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-950/35 px-2 py-0.5 text-[10px] font-semibold text-cyan-100/85 tabular-nums min-w-[24px]">
                             {clampCount(summary.total)}
                         </span>
                         {isActive && <ArrowUpRight size={16} className="text-cyan-200" />}
                     </div>
                 ) : (
-                    <div
-                        className="flex items-center gap-2 shrink-0"
-                        title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
-                    >
-                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
-                            {clampCount(summary.active)}
-                        </span>
-                        <div className="flex flex-col items-end justify-center gap-0.5">
-                            <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                                <span className={dotClass('green', summary.green)} />
-                                <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
-                            </div>
-                            <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                                <span className={dotClass('yellow', summary.yellow)} />
-                                <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
-                            </div>
-                            <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                                <span className={dotClass('red', summary.red)} />
-                                <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
-                            </div>
-                        </div>
-                        {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
-                    </div>
+                    <BrandStatusSummaryCluster
+                        summary={summary}
+                        clampCount={clampCount}
+                        dotClass={dotClass}
+                        countTextClass={countTextClass}
+                        text={text}
+                        showActiveIndicator={isActive}
+                    />
                 )}
             </div>
         </button>
@@ -1052,12 +1128,14 @@ function InactiveDrawerBrandRow({
     onActivate,
     onOpenLightbox,
     clampCount,
+    dotClass,
+    countTextClass,
     setRowRef,
     text,
 }: {
     brand: Brand;
     iconUrl: string | undefined;
-    summary: { total: number; active: number; green: number; yellow: number; red: number };
+    summary: BrandAppSummary;
     isActive: boolean;
     isLockedByOtherDevice: boolean;
     isBusy: boolean;
@@ -1068,6 +1146,8 @@ function InactiveDrawerBrandRow({
     onActivate: () => Promise<void> | void;
     onOpenLightbox: () => void;
     clampCount: (n: number) => string;
+    dotClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
+    countTextClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -1126,13 +1206,17 @@ function InactiveDrawerBrandRow({
                             {brand.name}
                         </p>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2">
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
                         <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
                             /{brand.slug}
                         </p>
-                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
-                            {clampCount(summary.active)}
-                        </span>
+                        <BrandStatusSummaryCluster
+                            summary={summary}
+                            clampCount={clampCount}
+                            dotClass={dotClass}
+                            countTextClass={countTextClass}
+                            text={text}
+                        />
                     </div>
                 </div>
             </button>
@@ -1181,7 +1265,7 @@ function SortableBrandRow({
 }: {
     brand: Brand;
     iconUrl: string | undefined;
-    summary: { total: number; active: number; green: number; yellow: number; red: number };
+    summary: BrandAppSummary;
     isActive: boolean;
     isInactive: boolean;
     isLockedByOtherDevice: boolean;
@@ -1193,8 +1277,8 @@ function SortableBrandRow({
     onSelect: () => void;
     onOpenLightbox: () => void;
     clampCount: (n: number) => string;
-    dotClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
-    countTextClass: (kind: 'green' | 'yellow' | 'red', value: number) => string;
+    dotClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
+    countTextClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -1291,29 +1375,14 @@ function SortableBrandRow({
                         </p>
                     </div>
                 </div>
-                <div
-                    className="flex items-center gap-2 shrink-0"
-                    title={`Active apps: ${summary.active}\nAB tests: ${summary.green}\nReady (no A/B): ${summary.yellow}\nBanned: ${summary.red}`}
-                >
-                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 bg-slate-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-100/70 tabular-nums min-w-[22px]">
-                        {clampCount(summary.active)}
-                    </span>
-                    <div className="flex flex-col items-end justify-center gap-0.5">
-                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                            <span className={dotClass('green', summary.green)} />
-                            <span className={countTextClass('green', summary.green)}>{clampCount(summary.green)}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                            <span className={dotClass('yellow', summary.yellow)} />
-                            <span className={countTextClass('yellow', summary.yellow)}>{clampCount(summary.yellow)}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-[9px] font-semibold leading-none tabular-nums">
-                            <span className={dotClass('red', summary.red)} />
-                            <span className={countTextClass('red', summary.red)}>{clampCount(summary.red)}</span>
-                        </div>
-                    </div>
-                    {isActive && <ArrowUpRight size={16} className="text-indigo-200" />}
-                </div>
+                <BrandStatusSummaryCluster
+                    summary={summary}
+                    clampCount={clampCount}
+                    dotClass={dotClass}
+                    countTextClass={countTextClass}
+                    text={text}
+                    showActiveIndicator={isActive}
+                />
             </div>
         </button>
     );

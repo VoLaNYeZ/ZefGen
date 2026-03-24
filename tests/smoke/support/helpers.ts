@@ -107,14 +107,14 @@ export const gotoNoBrandCollapsedWorkspace = async (page: Page) => {
 };
 
 export const claimWorkspaceEditLockIfPrompted = async (page: Page) => {
-    const startEditingButton = page.getByRole('button', { name: /^Start editing$/ });
-    if (!(await startEditingButton.count())) return;
-    if (!(await startEditingButton.first().isVisible().catch(() => false))) return;
-    await startEditingButton.first().click();
+    const takeOverEditingButton = page.getByRole('button', { name: /^Take over editing$/ });
+    if (!(await takeOverEditingButton.count())) return;
+    if (!(await takeOverEditingButton.first().isVisible().catch(() => false))) return;
+    await takeOverEditingButton.first().click();
     await expect
         .poll(
             async () => {
-                const button = startEditingButton.first();
+                const button = takeOverEditingButton.first();
                 const stillVisible = await button.isVisible().catch(() => false);
                 if (!stillVisible) return 'claimed';
 
@@ -126,7 +126,7 @@ export const claimWorkspaceEditLockIfPrompted = async (page: Page) => {
             },
             {
                 timeout: 7000,
-                message: 'Expected workspace edit lock claim to leave read-only mode',
+                message: 'Expected workspace edit takeover to leave read-only mode',
             }
         )
         .toBe('claimed');

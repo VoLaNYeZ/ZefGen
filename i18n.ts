@@ -30,9 +30,11 @@ export const translations = {
         brand_used_by_another_user: 'Used by another user',
         brand_locked_open_blocked: 'This brand is currently used by another user.',
         brand_under_work_readonly: 'This brand is under work by another user. View-only mode.',
-        brand_start_editing: 'Start editing',
-        brand_readonly_write_blocked: 'This brand is in view-only mode. Click Start editing first.',
+        brand_start_editing: 'Take over editing',
+        brand_take_over_hint: 'Taking over will move the other session into view-only mode.',
+        brand_readonly_write_blocked: 'This brand is in view-only mode. Click Take over editing first.',
         brand_start_editing_failed: 'Could not claim editing lock yet. Try again in a few seconds.',
+        brand_take_over_failed: 'Could not take over editing yet. Try again in a few seconds.',
         collab_sync_offline: 'Collaboration sync is temporarily offline.',
         active_sessions_tooltip_title: 'active sessions on this account',
         active_sessions_unknown_country: 'unknown',
@@ -165,6 +167,8 @@ export const translations = {
         switch_fast_between_products: 'Switch fast between products.',
         add_app: 'Add app',
         active: 'Active',
+        in_progress: 'In Progress',
+        in_progress_attention_tooltip: '{count} in-progress apps are Apple-rejected or removed from sale.',
         ready: 'Ready',
         app_name: 'App name',
         app_name_required: 'App name is required.',
@@ -456,7 +460,7 @@ export const translations = {
         appstore_review_webhook_auto_checking:
             'appshelp checks Apple in the background every hour while this app is still in a non-final review state.',
         appstore_review_webhook_auto_checking_stopped:
-            'This app reached a final review state, so the hourly background Apple checks have stopped.',
+            'This app reached a final review state, so the hourly background Apple checks have stopped. Use Check Apple now whenever you want a manual Apple status refresh.',
         appstore_review_webhook_checking_apple: 'Checking Apple now...',
         appstore_review_webhook_now_title: 'What happens now',
         appstore_review_webhook_no_sync_yet: 'No sync has run yet.',
@@ -470,7 +474,7 @@ export const translations = {
         appstore_review_webhook_next_live:
             'Review tracking is live. appshelp keeps checking Apple every hour until the app reaches a final state.',
         appstore_review_webhook_next_terminal:
-            'A final App Review state is stored. Automatic hourly Apple checks have stopped.',
+            'A final App Review state is stored. Automatic hourly Apple checks have stopped, but you can still use Check Apple now for a manual refresh.',
         appstore_review_webhook_process_title: 'How this works',
         appstore_review_webhook_process_subtitle:
             'Apple sends review-state changes here, and this panel can create the Apple webhook for you.',
@@ -799,9 +803,11 @@ export const translations = {
         brand_used_by_another_user: 'Занят другим пользователем',
         brand_locked_open_blocked: 'Этот бренд сейчас открыт у другого пользователя.',
         brand_under_work_readonly: 'Этот бренд сейчас у другого пользователя. Режим только просмотра.',
-        brand_start_editing: 'Начать редактирование',
-        brand_readonly_write_blocked: 'Бренд открыт только для просмотра. Нажмите «Начать редактирование».',
+        brand_start_editing: 'Забрать редактирование',
+        brand_take_over_hint: 'Если забрать редактирование, другая сессия перейдет в режим только просмотра.',
+        brand_readonly_write_blocked: 'Бренд открыт только для просмотра. Нажмите «Забрать редактирование».',
         brand_start_editing_failed: 'Не удалось получить право редактирования. Попробуйте через несколько секунд.',
+        brand_take_over_failed: 'Не удалось забрать право редактирования. Попробуйте через несколько секунд.',
         collab_sync_offline: 'Синхронизация совместной работы временно недоступна.',
         active_sessions_tooltip_title: 'активных сессий на этом аккаунте',
         active_sessions_unknown_country: 'unknown',
@@ -888,6 +894,8 @@ export const translations = {
         switch_fast_between_products: 'Быстро переключайся между продуктами.',
         add_app: 'Добавить приложение',
         active: 'Активно',
+        in_progress: 'В работе',
+        in_progress_attention_tooltip: '{count} приложений в работе были отклонены Apple или сняты с продажи.',
         ready: 'Готово',
         app_name: 'Название приложения',
         app_name_required: 'Название приложения обязательно.',
@@ -1179,7 +1187,7 @@ export const translations = {
         appstore_review_webhook_auto_checking:
             'appshelp проверяет Apple в фоне каждый час, пока у этого app не появился финальный review state.',
         appstore_review_webhook_auto_checking_stopped:
-            'У этого app уже финальный review state, поэтому фоновые hourly-проверки Apple остановлены.',
+            'У этого app уже финальный review state, поэтому фоновые hourly-проверки Apple остановлены. Но Check Apple now все равно можно использовать для ручного обновления статуса.',
         appstore_review_webhook_checking_apple: 'Проверяю Apple сейчас...',
         appstore_review_webhook_now_title: 'Что происходит сейчас',
         appstore_review_webhook_no_sync_yet: 'Синк еще не запускался.',
@@ -1193,7 +1201,7 @@ export const translations = {
         appstore_review_webhook_next_live:
             'Трекинг review state уже live. appshelp продолжит проверять Apple каждый час, пока app не дойдет до финального состояния.',
         appstore_review_webhook_next_terminal:
-            'Финальный App Review state уже сохранен. Автоматические hourly-проверки Apple остановлены.',
+            'Финальный App Review state уже сохранен. Автоматические hourly-проверки Apple остановлены, но Check Apple now все еще доступен для ручного обновления.',
         appstore_review_webhook_process_title: 'Как это работает',
         appstore_review_webhook_process_subtitle:
             'Apple шлет сюда изменения review state, а эта панель умеет сама создать webhook у Apple.',

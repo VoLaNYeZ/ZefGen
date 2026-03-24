@@ -50,6 +50,7 @@ import { AppShellLayout } from './AppShellLayout';
 import { AppShellOverlays } from './AppShellOverlays';
 import { AppShellPageContent } from './AppShellPageContent';
 import { Sidebar } from './Sidebar';
+import type { AppStoreReviewPanelSnapshot } from './AppStoreReviewWebhookRow';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';
 import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
@@ -98,6 +99,7 @@ export function AppShell({ session }: AppShellProps) {
     const [dataError, setDataError] = useState<string | null>(null);
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
     const [heartbeatBrandId, setHeartbeatBrandId] = useState<string | null>(null);
+    const [appReviewStateOverridesByAppId, setAppReviewStateOverridesByAppId] = useState<Record<string, string | null>>({});
     const workspaceSnapshotsRef = useRef<Record<string, AppWorkspaceSnapshot>>({});
     const brandReleaseInfoGuardRef = useRef<WorkspaceSwitchGuard | null>(null);
     const appStoreLinkGuardRef = useRef<WorkspaceSwitchGuard | null>(null);
@@ -115,7 +117,6 @@ export function AppShell({ session }: AppShellProps) {
         reportLockedBrandWarning,
         reportReadOnlyBlocked,
         showAliasNotice,
-        showCollabWarning,
     } = useAppShellNotices({ text });
 
     const {
@@ -158,6 +159,7 @@ export function AppShell({ session }: AppShellProps) {
         activeSessionCountries,
         lockedBrandIdSet,
         lockConflictBrandId,
+        takeOverBrand,
         tryClaimBrand,
         releaseCurrentBrand,
         refreshSnapshot,
@@ -292,6 +294,7 @@ export function AppShell({ session }: AppShellProps) {
         apps,
         brands,
         session,
+        reviewStateOverridesByAppId: appReviewStateOverridesByAppId,
     });
 
     const {
@@ -734,6 +737,30 @@ export function AppShell({ session }: AppShellProps) {
         buildAppScreenshotPromptsSnapshot,
     });
 
+    useEffect(() => {
+        setAppReviewStateOverridesByAppId({});
+    }, [session.user.id]);
+
+    const handleAppStoreReviewSnapshotChangeWithSummary = useCallback(
+        (snapshot: AppStoreReviewPanelSnapshot | null) => {
+            handleAppStoreReviewSnapshotChange(snapshot);
+            if (!snapshot?.status) return;
+
+            const appId = String(snapshot.appId || '').trim();
+            if (!appId) return;
+
+            const latestReviewState = String(snapshot.status.webhook?.latest_review_state || '').trim() || null;
+            setAppReviewStateOverridesByAppId((prev) => {
+                if (prev[appId] === latestReviewState) return prev;
+                return {
+                    ...prev,
+                    [appId]: latestReviewState,
+                };
+            });
+        },
+        [handleAppStoreReviewSnapshotChange]
+    );
+
     // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
     const { jobs: connectorRunnerJobs, refresh: refreshConnectorRunnerJobs } = useConnectorJobs({
         session,
@@ -892,7 +919,7 @@ export function AppShell({ session }: AppShellProps) {
         });
     }, [activePage, selectedBrand, selectedApp]);
 
-    const { handleStartEditing, isClaimingEditLock } = useWorkspaceLockSideEffects({
+    const { handleTakeOverEditing, isTakingOverEditLock, takeOverEditLockError } = useWorkspaceLockSideEffects({
         activePage,
         brands,
         isCurrentBrandReadOnly,
@@ -904,8 +931,8 @@ export function AppShell({ session }: AppShellProps) {
         requestWorkspaceSelection,
         selectedBrandId,
         setHeartbeatBrandId,
-        showCollabWarning,
         softLockViewModeEnabled,
+        takeOverBrand,
         text,
         tryClaimBrand,
         workspaceSwitchPending,
@@ -1126,7 +1153,7 @@ export function AppShell({ session }: AppShellProps) {
             isNoBrandMode,
             onAppStoreLinkGuardChange: handleAppStoreLinkGuardChange,
             onAppStoreReviewGuardChange: handleAppStoreReviewGuardChange,
-            onAppStoreReviewSnapshotChange: handleAppStoreReviewSnapshotChange,
+            onAppStoreReviewSnapshotChange: handleAppStoreReviewSnapshotChangeWithSummary,
             onCreateGithubRepo: handleCreateGithubRepo,
             onDeleteGithubRepo: handleDeleteGithubRepo,
             onOpenAccounts: openAccounts,
@@ -1371,7 +1398,7 @@ export function AppShell({ session }: AppShellProps) {
         dataError,
         dataLoading,
         editingBrandId,
-        isClaimingEditLock,
+        isTakingOverEditLock,
         isCurrentBrandReadOnly,
         isNoBrandMode,
         onBrandIconUpload: handleBrandIconUpload,
@@ -1392,9 +1419,10 @@ export function AppShell({ session }: AppShellProps) {
         onOpenLightbox: openLightbox,
         onRetry: handleRetry,
         onSaveBrand: () => runWriteAction(() => submitBrandForm()),
-        onStartEditing: handleStartEditing,
+        onTakeOverEditing: handleTakeOverEditing,
         selectedBrand,
         stickyHeaderRef,
+        takeOverEditLockError,
         text,
     };
 

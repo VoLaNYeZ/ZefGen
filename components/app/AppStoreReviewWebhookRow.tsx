@@ -372,6 +372,11 @@ export function AppStoreReviewWebhookRow(props: {
     const backgroundAppleRefreshStopped =
         backgroundAppleRefreshConfigured && isTerminalAppstoreReviewState(config?.latest_review_state);
     const canCheckAppleNow = backgroundAppleRefreshConfigured && !credentialIssues.length;
+    const showHeaderCheckAppleNow =
+        !expanded &&
+        !isReadOnly &&
+        canCheckAppleNow &&
+        String(config?.latest_review_state || '').trim().toUpperCase() === 'READY_FOR_SALE';
     const draftGuardReason = React.useMemo(() => {
         if (!hasAppleDraftChanges) return null;
         if (keyModeDraft === 'team') {
@@ -1815,15 +1820,32 @@ export function AppStoreReviewWebhookRow(props: {
                         {notice ? <p className="mt-3 text-xs text-emerald-300/95">{notice}</p> : null}
                     </div>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => setExpanded((current) => !current)}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white"
-                    title={expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}
-                >
-                    <span>{expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}</span>
-                    <ChevronDown size={13} className={`transition ${expanded ? 'rotate-180' : ''}`} />
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                    {showHeaderCheckAppleNow ? (
+                        <button
+                            type="button"
+                            onClick={() => void handleCheckAppleNow()}
+                            disabled={loading || busyAction !== null || !canCheckAppleNow}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                        >
+                            <RefreshCcw size={13} />
+                            <span>
+                                {busyAction === 'check'
+                                    ? text('loading')
+                                    : text('appstore_review_webhook_check_apple_button')}
+                            </span>
+                        </button>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((current) => !current)}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white"
+                        title={expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}
+                    >
+                        <span>{expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}</span>
+                        <ChevronDown size={13} className={`transition ${expanded ? 'rotate-180' : ''}`} />
+                    </button>
+                </div>
             </div>
         </section>
     );

@@ -164,6 +164,11 @@ export const deleteBrandCascade = async (brandId: string) => {
     assertSmokeNoError(error, `Could not delete smoke cleanup brand ${brandId}`);
 };
 
+export const setBrandInactiveState = async (brandId: string, isInactive: boolean) => {
+    const { error } = await smokeAdmin.from('brands').update({ is_inactive: isInactive }).eq('id', brandId);
+    assertSmokeNoError(error, `Could not set inactive=${String(isInactive)} for smoke brand ${brandId}`);
+};
+
 export const clearAppStoreAccountsForApp = async (appId: string) => {
     const { error } = await smokeAdmin.from('appstore_accounts').delete().eq('app_id', appId);
     assertSmokeNoError(error, `Could not clear smoke appstore accounts for app ${appId}`);

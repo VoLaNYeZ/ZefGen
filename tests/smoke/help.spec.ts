@@ -20,7 +20,7 @@ test('help center content switches between english and russian', async ({ page }
     await expect(page.getByTestId('help-page-root').getByRole('heading', { level: 1 })).toHaveText(/Центр помощи/i);
     await expect(page.getByTestId('help-section-overview')).toContainText(/Карта платформы/i);
     await expect(page.getByTestId('help-section-selected-app-setup')).toContainText(/webhook/i);
-    await expect(page.getByTestId('help-page-nav')).toContainText(/No Brand \/ Step 11/i);
+    await expect(page.getByTestId('help-page-nav')).toContainText(/No Brand \/ Шаг 11/i);
     await expect(page.getByTestId('help-page-root')).not.toContainText(/Переходи сразу к нужной странице или шагу процесса/i);
 
     await page.getByTestId('brand-sidebar').getByRole('button', { name: /^EN$/ }).click();

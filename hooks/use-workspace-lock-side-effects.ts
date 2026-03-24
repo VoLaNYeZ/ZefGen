@@ -25,8 +25,8 @@ type Params = {
     requestWorkspaceSelection: RequestWorkspaceSelection;
     selectedBrandId: string | null;
     setHeartbeatBrandId: Dispatch<SetStateAction<string | null>>;
-    showCollabWarning: (message: string) => void;
     softLockViewModeEnabled: boolean;
+    takeOverBrand: (brandId: string) => Promise<BrandLockResult>;
     text: (key: TranslationKey) => string;
     tryClaimBrand: (brandId: string) => Promise<BrandLockResult>;
     workspaceSwitchPending: boolean;
@@ -44,15 +44,17 @@ export function useWorkspaceLockSideEffects({
     requestWorkspaceSelection,
     selectedBrandId,
     setHeartbeatBrandId,
-    showCollabWarning,
     softLockViewModeEnabled,
+    takeOverBrand,
     text,
     tryClaimBrand,
     workspaceSwitchPending,
 }: Params) {
     const wasCurrentBrandReadOnlyRef = useRef(false);
+    const previousSelectedBrandIdRef = useRef<string | null>(null);
     const lockFallbackAttemptRef = useRef('');
-    const [isClaimingEditLock, setIsClaimingEditLock] = useState(false);
+    const [isTakingOverEditLock, setIsTakingOverEditLock] = useState(false);
+    const [takeOverEditLockErrorKey, setTakeOverEditLockErrorKey] = useState<TranslationKey | null>(null);
 
     useEffect(() => {
         if (!WORKSPACE_COLLAB_ENABLED) {
@@ -72,6 +74,17 @@ export function useWorkspaceLockSideEffects({
         }
         wasCurrentBrandReadOnlyRef.current = isCurrentBrandReadOnly;
     }, [isCurrentBrandReadOnly, reportLockedBrandWarning]);
+
+    useEffect(() => {
+        if (previousSelectedBrandIdRef.current !== selectedBrandId) {
+            previousSelectedBrandIdRef.current = selectedBrandId;
+            setTakeOverEditLockErrorKey(null);
+            return;
+        }
+        if (!selectedBrandId || !isCurrentBrandReadOnly) {
+            setTakeOverEditLockErrorKey(null);
+        }
+    }, [isCurrentBrandReadOnly, selectedBrandId]);
 
     useEffect(() => {
         if (!WORKSPACE_COLLAB_ENABLED || !WORKSPACE_LOCK_ENFORCEMENT_ENABLED) {
@@ -135,37 +148,38 @@ export function useWorkspaceLockSideEffects({
         workspaceSwitchPending,
     ]);
 
-    const handleStartEditing = useCallback(() => {
-        if (!softLockViewModeEnabled || !selectedBrandId || isClaimingEditLock) return;
-        setIsClaimingEditLock(true);
+    const handleTakeOverEditing = useCallback(() => {
+        if (!softLockViewModeEnabled || !selectedBrandId || isTakingOverEditLock) return;
+        setTakeOverEditLockErrorKey(null);
+        setIsTakingOverEditLock(true);
         void (async () => {
             try {
-                const result = await tryClaimBrand(selectedBrandId);
+                const result = await takeOverBrand(selectedBrandId);
                 if (!result.ok) {
-                    showCollabWarning(text('brand_start_editing_failed'));
+                    setTakeOverEditLockErrorKey('brand_take_over_failed');
                     return;
                 }
+                setTakeOverEditLockErrorKey(null);
                 setHeartbeatBrandId(selectedBrandId);
                 await refreshSnapshot().catch(() => {});
             } catch {
-                showCollabWarning(text('brand_start_editing_failed'));
+                setTakeOverEditLockErrorKey('brand_take_over_failed');
             } finally {
-                setIsClaimingEditLock(false);
+                setIsTakingOverEditLock(false);
             }
         })();
     }, [
-        isClaimingEditLock,
+        isTakingOverEditLock,
         refreshSnapshot,
         selectedBrandId,
         setHeartbeatBrandId,
-        showCollabWarning,
         softLockViewModeEnabled,
-        text,
-        tryClaimBrand,
+        takeOverBrand,
     ]);
 
     return {
-        handleStartEditing,
-        isClaimingEditLock,
+        handleTakeOverEditing,
+        isTakingOverEditLock,
+        takeOverEditLockError: takeOverEditLockErrorKey ? text(takeOverEditLockErrorKey) : null,
     };
 }

@@ -5,7 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-type WorkspaceAction = 'heartbeat' | 'claim_brand' | 'release_brand' | 'snapshot';
+type WorkspaceAction = 'heartbeat' | 'claim_brand' | 'take_over_brand' | 'release_brand' | 'snapshot';
 
 type WorkspaceRequestBody = {
     action?: WorkspaceAction;
@@ -221,6 +221,17 @@ const hasCrossDeviceBrandConflictStabilized = async (supabase: any, brandId: str
     return hasCrossDeviceBrandConflict(supabase, brandId, clientDeviceId);
 };
 
+const clearBrandFromOtherSessions = async (supabase: any, brandId: string, clientDeviceId: string) => {
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase
+        .from('workspace_sessions')
+        .update({ brand_id: null, last_seen_at: nowIso, updated_at: nowIso })
+        .eq('brand_id', brandId)
+        .gt('expires_at', nowIso)
+        .neq('client_device_id', clientDeviceId);
+    if (error) throw error;
+};
+
 const upsertSessionState = async (
     supabase: any,
     userId: string,
@@ -294,6 +305,38 @@ const fallbackClaimBrand = async (
         );
         return { ok: false, reason: 'locked_by_other_device' };
     }
+    return { ok: true, reason: null };
+};
+
+const fallbackTakeOverBrand = async (
+    supabase: any,
+    userId: string | null,
+    clientSessionId: string,
+    clientDeviceId: string,
+    brandId: string,
+    countryCode: string,
+    ttlSeconds: number
+) => {
+    if (!userId) return { ok: false, reason: 'unauthorized' };
+    const existing = await getSessionStateRow(supabase, clientSessionId);
+    if (existing?.client_device_id && existing.client_device_id !== clientDeviceId) {
+        return { ok: false, reason: 'session_id_collision' };
+    }
+
+    await upsertSessionState(supabase, userId, clientSessionId, clientDeviceId, brandId, countryCode, ttlSeconds);
+    await clearBrandFromOtherSessions(supabase, brandId, clientDeviceId);
+
+    const postWriteConflict = await hasCrossDeviceBrandConflictStabilized(supabase, brandId, clientDeviceId);
+    if (!postWriteConflict) {
+        return { ok: true, reason: null };
+    }
+
+    await clearBrandFromOtherSessions(supabase, brandId, clientDeviceId);
+    const finalConflict = await hasCrossDeviceBrandConflict(supabase, brandId, clientDeviceId);
+    if (finalConflict) {
+        return { ok: false, reason: 'locked_by_other_device' };
+    }
+
     return { ok: true, reason: null };
 };
 
@@ -405,7 +448,7 @@ export default async function handler(req: any, res: any) {
             typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
 
         const action = String(body.action || '').trim() as WorkspaceAction;
-        if (!action || !['heartbeat', 'claim_brand', 'release_brand', 'snapshot'].includes(action)) {
+        if (!action || !['heartbeat', 'claim_brand', 'take_over_brand', 'release_brand', 'snapshot'].includes(action)) {
             return json(res, 400, { error: 'Invalid action' });
         }
 
@@ -464,6 +507,39 @@ export default async function handler(req: any, res: any) {
                 }
                 try {
                     const fallback = await fallbackClaimBrand(
+                        supabase,
+                        tokenUserId,
+                        clientSessionId,
+                        clientDeviceId,
+                        brandId,
+                        countryCode,
+                        ttlSeconds
+                    );
+                    return json(res, 200, normalizeLockResult(fallback));
+                } catch (fallbackError: any) {
+                    return json(res, 500, { error: String(fallbackError?.message || error) });
+                }
+            }
+            return json(res, 200, normalizeLockResult(data));
+        }
+
+        if (action === 'take_over_brand') {
+            if (!brandId) {
+                return json(res, 400, { error: 'Missing brandId for take_over_brand' });
+            }
+            const { data, error } = await supabase.rpc('workspace_take_over_brand_lock', {
+                p_client_session_id: clientSessionId,
+                p_client_device_id: clientDeviceId,
+                p_brand_id: brandId,
+                p_country_code: countryCode,
+                p_ttl_seconds: ttlSeconds,
+            });
+            if (error) {
+                if (isAuthError(error)) {
+                    return json(res, statusForRpcError(error), { error: String(error.message || error) });
+                }
+                try {
+                    const fallback = await fallbackTakeOverBrand(
                         supabase,
                         tokenUserId,
                         clientSessionId,

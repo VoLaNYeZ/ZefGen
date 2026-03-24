@@ -83,10 +83,11 @@ This document focuses on maintained source directories and the product flows the
 
 ## App Surface
 
-The authenticated app currently exposes three main surfaces:
+The authenticated app currently exposes four main surfaces:
 
 - `workspace` - the brand/app workspace for setup, generation, runner jobs, deliverables, App Store links, and review webhooks.
 - `accounts` - pooled App Store accounts, assignments, and notes.
+- `help` - the in-app Help Center with workflow guidance and deep-linkable sections.
 - `ideas` - idea CRUD plus brand-scoped `idea_generation` runner jobs.
 
 The authenticated shell is composed through:
@@ -110,14 +111,16 @@ The authenticated shell is composed through:
 
 - `components/app/AppShell.tsx` - top-level orchestrator that wires data hooks, route state, collaboration state, workspace snapshots, and view models.
 - `components/app/AppShellLayout.tsx` - shell scaffold that composes sidebar, chrome, page content, and overlays.
-- `components/app/AppShellPageContent.tsx` - page router for `workspace`, `accounts`, and `ideas`.
+- `components/app/AppShellPageContent.tsx` - page router for `workspace`, `accounts`, `help`, and `ideas`.
 - `components/app/AppShellOverlays.tsx` - overlay layer for deliverables, notices, lightbox, and job queue.
 - `components/app/WorkspacePage.tsx` - workspace page composition.
 - `components/app/AccountsPage.tsx` - App Store accounts page.
+- `components/app/HelpCenterPage.tsx` - Help Center page with section anchors, internal TOC state, and route-hash syncing.
 - `components/app/IdeasPage.tsx` - ideas table/editor plus idea-generation runner UI.
 - `components/app/Sidebar.tsx` - brands list, forms, locks, app counts, and global navigation.
 - `components/app/WorkspaceShellChrome.tsx` - sticky workspace header, alerts, and read-only banners.
 - `components/app/WorkspaceSwitchOverlay.tsx` - animated overlay during guarded workspace switches.
+- `components/app/help-center-content.ts` - localized Help Center copy and section metadata.
 
 ### Workspace selection and folder chrome
 
@@ -296,6 +299,7 @@ The authenticated shell is composed through:
 ### Shared libraries
 
 - `lib/supabase.ts` - shared browser Supabase client.
+- `lib/appstore-review-state.shared.js` - shared App Store review-state normalization and terminal/background-refresh rules.
 - `lib/server/generate-appstore-description.shared.js` - server prompt sanitizers/helpers reused across text-generation endpoints.
 - `lib/server/appstore-review-webhook.shared.js` - shared webhook parsing/normalization helpers.
 
@@ -344,7 +348,7 @@ The authenticated shell is composed through:
 
 ### Cloudflare bridge
 
-- `cloudflare/appstore-review-bridge/worker.js` - public `appshelp.cc` worker that exposes the bridge endpoints, raw webhook ingress, and public landing/privacy/terms/support/icon routes.
+- `cloudflare/appstore-review-bridge/worker.js` - public `appshelp.cc` worker that exposes the bridge endpoints, raw webhook ingress, public landing/privacy/terms/support/icon routes, and the hourly Apple status snapshot sweep.
 - `cloudflare/appstore-review-bridge/wrangler.jsonc` - worker config.
 - `cloudflare/appstore-review-bridge/wrangler.jsonc.example` - config template.
 
@@ -392,7 +396,7 @@ The authenticated shell is composed through:
 ### Tests
 
 - `tests/*.test.*` - node-level regression tests for accounts paste, App Store description helpers, review webhooks, capture modes, runner state, workspace startup selection, integration terminal parsing, and screenshot prompt workflow.
-- `tests/smoke/*.spec.ts` - browser smoke coverage for auth, navigation, workspace CRUD, startup workspace restore, brand inactive behavior, accounts, ideas, spec-reader window behavior, and screenshot prompt workflows.
+- `tests/smoke/*.spec.ts` - browser smoke coverage for auth, navigation, workspace CRUD, startup workspace restore, brand inactive behavior, accounts, help-center routing, ideas, spec-reader window behavior, and screenshot prompt workflows.
 - `tests/smoke/auth.setup.ts` - authenticated Playwright setup.
 - `tests/smoke/support/fixtures.ts` - global browser guard layer for smoke tests.
 - `tests/smoke/support/helpers.ts` - shared smoke helpers.

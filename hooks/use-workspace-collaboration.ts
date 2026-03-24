@@ -7,7 +7,7 @@ import type { BrandLockResult, WorkspaceSessionSnapshot } from '../types/zefgen'
 
 const DEVICE_ID_KEY = 'zefgen.deviceId';
 
-type WorkspaceAction = 'heartbeat' | 'claim_brand' | 'release_brand' | 'snapshot';
+type WorkspaceAction = 'heartbeat' | 'claim_brand' | 'take_over_brand' | 'release_brand' | 'snapshot';
 
 type WorkspaceRequestBody = {
     action: WorkspaceAction;
@@ -196,8 +196,8 @@ export const useWorkspaceCollaboration = ({
         refreshSnapshot,
     ]);
 
-    const tryClaimBrand = useCallback(
-        async (brandId: string): Promise<BrandLockResult> => {
+    const runBrandLockAction = useCallback(
+        async (action: Extract<WorkspaceAction, 'claim_brand' | 'take_over_brand'>, brandId: string): Promise<BrandLockResult> => {
             if (!isEnabled) {
                 return { ok: false, reason: 'disabled' };
             }
@@ -208,7 +208,7 @@ export const useWorkspaceCollaboration = ({
             try {
                 const runClaim = async (sessionId: string) => {
                     const payload = await postAction({
-                        action: 'claim_brand',
+                        action,
                         clientSessionId: sessionId,
                         clientDeviceId,
                         brandId: normalizedBrandId,
@@ -245,6 +245,16 @@ export const useWorkspaceCollaboration = ({
             refreshSnapshot,
             regenerateClientSessionId,
         ]
+    );
+
+    const tryClaimBrand = useCallback(
+        async (brandId: string): Promise<BrandLockResult> => runBrandLockAction('claim_brand', brandId),
+        [runBrandLockAction]
+    );
+
+    const takeOverBrand = useCallback(
+        async (brandId: string): Promise<BrandLockResult> => runBrandLockAction('take_over_brand', brandId),
+        [runBrandLockAction]
     );
 
     const releaseCurrentBrand = useCallback(async () => {
@@ -369,6 +379,7 @@ export const useWorkspaceCollaboration = ({
         activeSessionCountries,
         lockedBrandIdSet,
         lockConflictBrandId,
+        takeOverBrand,
         tryClaimBrand,
         releaseCurrentBrand,
         refreshSnapshot,

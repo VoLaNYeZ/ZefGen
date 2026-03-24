@@ -1,7 +1,8 @@
-import type { Page } from '@playwright/test';
+import type { BrowserContext, Page } from '@playwright/test';
 import { expect, test } from './support/fixtures';
 import { restoreSeededNoBrandApp } from './support/backend';
 import {
+    SMOKE_DEVICE_ID_KEY,
     claimWorkspaceEditLockIfPrompted,
     escapeRegex,
     gotoNoBrandCollapsedWorkspace,
@@ -212,6 +213,129 @@ const installPrimaryWorkspaceRunnerMocks = async (page: Page, initialJobs: Conne
             finishCanceled = next;
         },
     };
+};
+
+type WorkspaceSessionsMockState = {
+    activeSessionCountries: string[];
+    brandId: string;
+    claimCalls: number;
+    failTakeOverForDeviceId: string | null;
+    ownerDeviceId: string | null;
+    seenDeviceIds: Set<string>;
+    takeOverCalls: number;
+};
+
+const installWorkspaceSessionsMock = async (context: BrowserContext, state: WorkspaceSessionsMockState) => {
+    await context.route('**/api/workspace-sessions', async (route) => {
+        const payload = (readRequestJson(route.request()) as Record<string, unknown> | null) ?? {};
+        const action = String(payload.action || '');
+        const clientDeviceId = String(payload.clientDeviceId || '').trim();
+        const brandId = typeof payload.brandId === 'string' && payload.brandId.trim() ? payload.brandId.trim() : null;
+
+        if (clientDeviceId) {
+            state.seenDeviceIds.add(clientDeviceId);
+        }
+
+        const lockedBrandIds =
+            state.ownerDeviceId && clientDeviceId && state.ownerDeviceId !== clientDeviceId ? [state.brandId] : [];
+
+        if (action === 'snapshot') {
+            const activeSessionCount = Math.max(1, state.seenDeviceIds.size || (state.ownerDeviceId ? 1 : 0));
+            const activeSessionCountries = Array.from({ length: activeSessionCount }, (_, index) => {
+                return state.activeSessionCountries[index % state.activeSessionCountries.length] || 'unknown';
+            });
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    active_session_count: activeSessionCount,
+                    active_session_countries: activeSessionCountries,
+                    locked_brand_ids_by_other_devices: lockedBrandIds,
+                }),
+            });
+            return;
+        }
+
+        if (action === 'release_brand') {
+            if (brandId === state.brandId && state.ownerDeviceId === clientDeviceId) {
+                state.ownerDeviceId = null;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ ok: true, reason: null }),
+            });
+            return;
+        }
+
+        if (action === 'claim_brand') {
+            state.claimCalls += 1;
+            if (brandId === state.brandId && state.ownerDeviceId && state.ownerDeviceId !== clientDeviceId) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ ok: false, reason: 'locked_by_other_device' }),
+                });
+                return;
+            }
+            if (brandId === state.brandId && clientDeviceId) {
+                state.ownerDeviceId = clientDeviceId;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ ok: true, reason: null }),
+            });
+            return;
+        }
+
+        if (action === 'take_over_brand') {
+            state.takeOverCalls += 1;
+            if (clientDeviceId && state.failTakeOverForDeviceId === clientDeviceId) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ ok: false, reason: 'unavailable' }),
+                });
+                return;
+            }
+            if (brandId === state.brandId && clientDeviceId) {
+                state.ownerDeviceId = clientDeviceId;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ ok: true, reason: null }),
+            });
+            return;
+        }
+
+        if (action === 'heartbeat') {
+            if (brandId === state.brandId && state.ownerDeviceId && state.ownerDeviceId !== clientDeviceId) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ ok: false, reason: 'locked_by_other_device' }),
+                });
+                return;
+            }
+            if (brandId === state.brandId && clientDeviceId) {
+                state.ownerDeviceId = clientDeviceId;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ ok: true, reason: null }),
+            });
+            return;
+        }
+
+        await route.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: `Unexpected action: ${action}` }),
+        });
+    });
 };
 
 test('seeded workspace renders core panels without runtime errors', async ({ page }) => {
@@ -489,43 +613,138 @@ test('client spec opens in a clean reader window without the removed header copy
     await popup.close();
 });
 
-test('read-only workspace can claim editing lock and re-enable writes', async ({ page }) => {
-    let editLockClaimed = false;
-    await page.route('**/api/workspace-sessions', async (route) => {
-        const action = String(route.request().postDataJSON()?.action || '');
-        if (action === 'claim_brand') {
-            editLockClaimed = true;
-            await route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify({ ok: true, reason: null }),
-            });
-            return;
-        }
+test('locked brand opens in view-only mode without auto takeover', async ({ page }) => {
+    const currentDeviceId = 'smoke-view-only-device';
+    await page.context().addInitScript(
+        ({ key, value }) => {
+            window.localStorage.setItem(key, value);
+        },
+        { key: SMOKE_DEVICE_ID_KEY, value: currentDeviceId }
+    );
 
-        const lockedBrandIds = editLockClaimed ? [] : [smokeEnv.seed.brand.id];
-        const body =
-            action === 'heartbeat'
-                ? { ok: !lockedBrandIds.length, reason: lockedBrandIds.length ? 'locked_by_other_device' : null }
-                : {
-                      active_session_count: 2,
-                      active_session_countries: ['us', 'de'],
-                      locked_brand_ids_by_other_devices: lockedBrandIds,
-                  };
-
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(body),
-        });
-    });
+    const sessionState: WorkspaceSessionsMockState = {
+        activeSessionCountries: ['us', 'de'],
+        brandId: smokeEnv.seed.brand.id,
+        claimCalls: 0,
+        failTakeOverForDeviceId: null,
+        ownerDeviceId: 'smoke-other-device',
+        seenDeviceIds: new Set(['smoke-other-device']),
+        takeOverCalls: 0,
+    };
+    await installWorkspaceSessionsMock(page.context(), sessionState);
 
     await gotoWorkspace(page);
 
-    await expect(page.getByRole('button', { name: /^Start editing$/ })).toBeVisible();
-    await claimWorkspaceEditLockIfPrompted(page);
-    await expect(page.getByRole('button', { name: /^Start editing$/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Edit brand$/ })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Take over editing$/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Edit brand$/ })).toBeDisabled();
+    expect(sessionState.claimCalls).toBe(0);
+    expect(sessionState.takeOverCalls).toBe(0);
+});
+
+test('read-only workspace can take over editing and push the displaced session into view-only mode', async ({ page }) => {
+    const currentDeviceId = 'smoke-takeover-current-device';
+    const otherDeviceId = 'smoke-takeover-other-device';
+    const browser = page.context().browser();
+    if (!browser) {
+        throw new Error('Expected Playwright browser to be available for the takeover smoke test.');
+    }
+
+    const sessionState: WorkspaceSessionsMockState = {
+        activeSessionCountries: ['us', 'de'],
+        brandId: smokeEnv.seed.brand.id,
+        claimCalls: 0,
+        failTakeOverForDeviceId: null,
+        ownerDeviceId: otherDeviceId,
+        seenDeviceIds: new Set([otherDeviceId]),
+        takeOverCalls: 0,
+    };
+
+    await page.context().addInitScript(
+        ({ key, value }) => {
+            window.localStorage.setItem(key, value);
+        },
+        { key: SMOKE_DEVICE_ID_KEY, value: currentDeviceId }
+    );
+    await installWorkspaceSessionsMock(page.context(), sessionState);
+
+    const storageState = await page.context().storageState();
+    const otherContext = await browser.newContext({ storageState });
+    await otherContext.addInitScript(
+        ({ key, value }) => {
+            window.localStorage.setItem(key, value);
+        },
+        { key: SMOKE_DEVICE_ID_KEY, value: otherDeviceId }
+    );
+    await installWorkspaceSessionsMock(otherContext, sessionState);
+
+    try {
+        const otherPage = await otherContext.newPage();
+        await gotoWorkspace(otherPage);
+        await expect(otherPage.getByRole('button', { name: /^Edit brand$/ })).toBeEnabled();
+
+        await gotoWorkspace(page);
+        await expect(page.getByRole('button', { name: /^Take over editing$/ })).toBeVisible();
+        expect(sessionState.takeOverCalls).toBe(0);
+
+        await claimWorkspaceEditLockIfPrompted(page);
+        await expect(page.getByRole('button', { name: /^Take over editing$/ })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /^Edit brand$/ })).toBeEnabled();
+        expect(sessionState.ownerDeviceId).toBe(currentDeviceId);
+        expect(sessionState.takeOverCalls).toBe(1);
+
+        await otherPage.evaluate(() => {
+            window.dispatchEvent(new Event('focus'));
+            window.dispatchEvent(new Event('online'));
+        });
+
+        await expect(otherPage.getByRole('button', { name: /^Take over editing$/ })).toBeVisible();
+        await expect(otherPage.getByRole('button', { name: /^Edit brand$/ })).toBeDisabled();
+    } finally {
+        await otherContext.close();
+    }
+});
+
+test('take over failure stays inline even while the job queue is visible', async ({ page }) => {
+    const currentDeviceId = 'smoke-takeover-failure-device';
+    await page.context().addInitScript(
+        ({ key, value }) => {
+            window.localStorage.setItem(key, value);
+        },
+        { key: SMOKE_DEVICE_ID_KEY, value: currentDeviceId }
+    );
+
+    const sessionState: WorkspaceSessionsMockState = {
+        activeSessionCountries: ['us', 'de'],
+        brandId: smokeEnv.seed.brand.id,
+        claimCalls: 0,
+        failTakeOverForDeviceId: currentDeviceId,
+        ownerDeviceId: 'smoke-takeover-queue-owner',
+        seenDeviceIds: new Set(['smoke-takeover-queue-owner']),
+        takeOverCalls: 0,
+    };
+    await installWorkspaceSessionsMock(page.context(), sessionState);
+    await installPrimaryWorkspaceRunnerMocks(page, [
+        buildConnectorJobRow({
+            id: smokeJobId(31),
+            kind: 'generate',
+            status: 'running',
+            created_at: isoAt(-1),
+            updated_at: isoAt(-1),
+            started_at: isoAt(-1),
+        }),
+    ]);
+
+    await gotoWorkspace(page);
+
+    await expect(page.getByTestId('generation-queue-widget')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Take over editing$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Take over editing$/ }).click();
+
+    await expect(page.getByTestId('workspace-readonly-banner-error')).toContainText(/take over editing/i);
+    await expect(page.getByRole('button', { name: /^Take over editing$/ })).toBeVisible();
+    await expect(page.getByTestId('generation-queue-widget')).toBeVisible();
+    expect(sessionState.takeOverCalls).toBe(1);
 });
 
 test('no-brand move step stays visible when the image workspace is collapsed', async ({ page }) => {
