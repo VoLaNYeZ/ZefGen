@@ -18,6 +18,8 @@ const toTs = (value: any) => {
 
 const isTerminal = (status: ConnectorJobStatus) =>
     status === 'succeeded' || status === 'failed' || status === 'canceled';
+const isActive = (status: ConnectorJobStatus) =>
+    status === 'queued' || status === 'running' || status === 'waiting_for_user';
 
 const mapStatus = (status: ConnectorJobStatus): { status: GenerationJobStatus; message?: string } => {
     if (status === 'queued') return { status: 'queued', message: 'Queued' };
@@ -52,9 +54,11 @@ export const useConnectorJobQueue = (payload: {
     apps: AppItem[];
     brands: Brand[];
     pollMs?: number;
+    idlePollMs?: number;
 }) => {
     const { session, apps, brands } = payload;
-    const pollMs = clampPollMs(payload.pollMs ?? 2500);
+    const activePollMs = clampPollMs(payload.pollMs ?? 2500);
+    const idlePollMs = Math.max(activePollMs, clampPollMs(payload.idlePollMs ?? activePollMs));
 
     const storageKey = useMemo(() => {
         const uid = String(session?.user?.id || '').trim();
@@ -67,6 +71,7 @@ export const useConnectorJobQueue = (payload: {
     const [cacheById, setCacheById] = useState<Record<string, ConnectorJob>>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const scopeKeyRef = useRef('');
 
     const appLabelById = useMemo(() => {
         const map = new Map<string, string>();
@@ -155,6 +160,15 @@ export const useConnectorJobQueue = (payload: {
         return false;
     }, []);
 
+    const hasActiveJobsInCache = useMemo(
+        () =>
+            (Object.values(cacheById) as ConnectorJob[]).some(
+                (row) => row && !shouldHideRow(row) && isActive(row.status)
+            ),
+        [cacheById, shouldHideRow]
+    );
+    const effectivePollMs = hasActiveJobsInCache ? activePollMs : idlePollMs;
+
     const refresh = useCallback(async () => {
         if (!session) return;
         setLoading(true);
@@ -208,6 +222,7 @@ export const useConnectorJobQueue = (payload: {
     }, [session, persistHiddenState, shouldHideRow]);
 
     useEffect(() => {
+        const scopeKey = session?.user?.id ? session.user.id : '';
         if (!session) {
             setCacheById({});
             setLoading(false);
@@ -215,12 +230,19 @@ export const useConnectorJobQueue = (payload: {
             dismissedByIdRef.current = {};
             dismissedAtByIdRef.current = {};
             hideFinishedBeforeMsRef.current = 0;
+            scopeKeyRef.current = '';
             return;
         }
+
+        if (scopeKeyRef.current !== scopeKey) {
+            scopeKeyRef.current = scopeKey;
+            setCacheById({});
+            setError(null);
+        }
         refresh();
-        const t = window.setInterval(refresh, pollMs);
+        const t = window.setInterval(refresh, effectivePollMs);
         return () => window.clearInterval(t);
-    }, [session?.user?.id, pollMs, refresh]);
+    }, [effectivePollMs, refresh, session?.user?.id]);
 
     const jobs: GenerationJob[] = useMemo(() => {
         const rows = Object.values(cacheById) as ConnectorJob[];

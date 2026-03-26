@@ -7,9 +7,11 @@ export const useConnectorJobArtifacts = (payload: {
     session: Session | null;
     jobId: string | null;
     pollMs?: number;
+    live?: boolean;
 }) => {
     const { session, jobId } = payload;
     const pollMs = Math.max(1500, Math.floor(payload.pollMs ?? 5000));
+    const live = payload.live ?? true;
     const { getSignedUrl } = useSignedUrlCache({ userId: session?.user.id ?? null });
 
     const [artifacts, setArtifacts] = useState<any[]>([]);
@@ -18,6 +20,7 @@ export const useConnectorJobArtifacts = (payload: {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const artifactsSignatureRef = useRef('');
+    const scopeKeyRef = useRef('');
 
     const runRefresh = useCallback(async (background = false) => {
         if (!session || !jobId) {
@@ -60,6 +63,7 @@ export const useConnectorJobArtifacts = (payload: {
     }, [runRefresh]);
 
     useEffect(() => {
+        const scopeKey = session?.user?.id && jobId ? `${session.user.id}:${jobId}` : '';
         if (!session || !jobId) {
             setArtifacts([]);
             setArtifactUrlsById({});
@@ -67,17 +71,24 @@ export const useConnectorJobArtifacts = (payload: {
             setLoading(false);
             setError(null);
             artifactsSignatureRef.current = '';
+            scopeKeyRef.current = '';
             return;
         }
-        setArtifacts([]);
-        setArtifactUrlsById({});
-        setArtifactJsonById({});
-        setError(null);
-        artifactsSignatureRef.current = '';
+
+        if (scopeKeyRef.current !== scopeKey) {
+            scopeKeyRef.current = scopeKey;
+            setArtifacts([]);
+            setArtifactUrlsById({});
+            setArtifactJsonById({});
+            artifactsSignatureRef.current = '';
+        }
+
         void runRefresh(false);
+        if (!live) return;
+
         const timer = window.setInterval(() => void runRefresh(true), pollMs);
         return () => window.clearInterval(timer);
-    }, [jobId, pollMs, runRefresh, session]);
+    }, [jobId, live, pollMs, runRefresh, session]);
 
     useEffect(() => {
         let canceled = false;

@@ -1,5 +1,5 @@
 import { Suspense, type ComponentProps, type RefObject } from 'react';
-import type { Language } from '../../i18n';
+import { t, type Language } from '../../i18n';
 import type { Brand } from '../../types/zefgen';
 import type { AppPage } from '../../utils/routes';
 import { lazyWithReload } from '../../utils/lazy-with-reload';
@@ -88,7 +88,7 @@ export function AppShellPageContent({
 
     if (activePage === 'help') {
         return (
-            <Suspense fallback={<PageContentFallback label={loadingLabel} />}>
+            <Suspense fallback={<PageContentFallback label={t(help.lang, 'loading')} />}>
                 <LazyHelpCenterPage key={help.lang} {...help} />
             </Suspense>
         );

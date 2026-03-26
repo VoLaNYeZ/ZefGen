@@ -49,6 +49,7 @@ import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
 import { AppShellLayout } from './AppShellLayout';
 import { AppShellOverlays } from './AppShellOverlays';
 import { AppShellPageContent } from './AppShellPageContent';
+import { HELP_CENTER_RUNTIME_LANG } from './help-center-content';
 import { Sidebar } from './Sidebar';
 import type { AppStoreReviewPanelSnapshot } from './AppStoreReviewWebhookRow';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
@@ -767,6 +768,7 @@ export function AppShell({ session }: AppShellProps) {
         selectedApp,
         githubRepoUrl,
         pollMs: 10_000,
+        idlePollMs: 30_000,
     });
 
     const connectorJobQueue = useConnectorJobQueue({
@@ -774,6 +776,7 @@ export function AppShell({ session }: AppShellProps) {
         apps,
         brands,
         pollMs: 2500,
+        idlePollMs: 15_000,
     });
 
     // Note: we intentionally do NOT "live sync" these per-selected app anymore because it caused
@@ -1172,6 +1175,7 @@ export function AppShell({ session }: AppShellProps) {
             session,
             setupStepDone,
             showNoAppsEmptyState,
+            showManualCopyAction: true,
             step1Done,
             step2Done,
             step5Done,
@@ -1452,7 +1456,7 @@ export function AppShell({ session }: AppShellProps) {
     };
 
     const helpContent = {
-        lang,
+        lang: HELP_CENTER_RUNTIME_LANG,
         mainScrollContainerRef: mainScrollRef,
     };
 

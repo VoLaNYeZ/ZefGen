@@ -215,7 +215,7 @@ The authenticated shell is composed through:
 - `hooks/use-app-ideas.ts` - ideas/categories CRUD and app assignments.
 - `hooks/use-appstore-accounts.ts` - pooled App Store accounts CRUD.
 - `hooks/use-appstore-account.ts` - app-level account read helper.
-- `hooks/use-brand-app-summaries.ts` - sidebar app counts and ready/banned/completed indicators.
+- `hooks/use-brand-app-summaries.ts` - sidebar app counts and active/in-progress/banned indicators derived from App Store review state.
 - `hooks/use-signed-url-cache.ts` - signed URL caching across storage-backed assets.
 
 ### Connector, jobs, and artifacts

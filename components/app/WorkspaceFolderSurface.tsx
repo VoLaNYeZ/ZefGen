@@ -240,6 +240,7 @@ export function WorkspaceFolderSurface({
                     selectedBrand: setup.selectedBrand,
                     session: setup.session,
                     setupStepDone: setup.setupStepDone,
+                    showManualCopyAction: setup.showManualCopyAction,
                     step1Done: setup.step1Done,
                     step2Done: setup.step2Done,
                     step5Done: setup.step5Done,

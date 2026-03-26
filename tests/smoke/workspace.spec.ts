@@ -5,6 +5,7 @@ import {
     SMOKE_DEVICE_ID_KEY,
     claimWorkspaceEditLockIfPrompted,
     escapeRegex,
+    grantClipboardPermissions,
     gotoNoBrandCollapsedWorkspace,
     gotoWorkspace,
     selectOptionContainingText,
@@ -361,6 +362,46 @@ test('seeded workspace renders core panels without runtime errors', async ({ pag
     }
 });
 
+test('step 7 manual copy action stays visible in EN and RU and writes the expected clipboard payload', async ({ page }) => {
+    await gotoWorkspace(page);
+    await grantClipboardPermissions(page);
+
+    const appStoreName = await page.getByLabel("App's App Store name").inputValue();
+    const apphudKey = await page.getByLabel('Apphud Key').inputValue();
+    const analyticsUrl = await page.getByLabel('Analytics URL').inputValue();
+    const bundleId = await page.getByLabel('Bundle ID').inputValue();
+    const iapProductId = await page.getByLabel('IAP Product ID').inputValue();
+    const expectedClipboard = [
+        `Привет, нужна интеграция - [${smokeEnv.seed.primaryApp.alias.toUpperCase()}] ${appStoreName.trim()}`,
+        `Apphud Key - "${apphudKey.trim()}"`,
+        `Analytics URL - "${analyticsUrl.trim()}"`,
+        `Bundle ID - "${bundleId.trim()}"`,
+        `*IAP Product ID - ${iapProductId.trim() || 'без покупок'}`,
+        '+ Firebase нужно создать',
+        '+ Пуш подрубить',
+    ].join('\n');
+
+    const autoReleasePanel = page.getByTestId('workspace-panel-auto-release');
+    const manualCopyButton = autoReleasePanel.getByTestId('manual-integration-copy-button');
+
+    await expect(manualCopyButton).toBeVisible();
+    await expect(manualCopyButton).toContainText('Copy for manual');
+
+    await page.getByTestId('brand-sidebar').getByRole('button', { name: /^RU$/ }).click();
+    await expect(manualCopyButton).toBeVisible();
+
+    await manualCopyButton.click();
+
+    await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
+            message: 'Expected the Step 7 manual copy button to write the integration handoff text to the clipboard.',
+        })
+        .toBe(expectedClipboard);
+
+    await page.getByTestId('brand-sidebar').getByRole('button', { name: /^EN$/ }).click();
+    await expect(manualCopyButton).toBeVisible();
+});
+
 test('step 5 generate asks for confirmation before re-running after a successful generate', async ({ page }) => {
     const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
         buildConnectorJobRow({
@@ -432,6 +473,97 @@ test('step 5 cancel shows cancel requested and then terminal canceled after refr
 
     await expect(runnerPanel.getByTestId('runner-cancel-active-button')).toHaveCount(0);
     await expect(runnerPanel.getByTestId('runner-selected-job-status')).toHaveText(/^canceled$/i);
+});
+
+test('step 5 previous fix reports stay read-only and reveal prior bug details', async ({ page }) => {
+    const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
+        buildConnectorJobRow({
+            id: smokeJobId(31),
+            kind: 'fix',
+            status: 'failed',
+            input: {
+                bug_report:
+                    'Settings screen still crashes after the first render when the user opens reminders from the dashboard.',
+            },
+            error: 'Verify failed on Settings after launch.',
+            created_at: isoAt(-1),
+            updated_at: isoAt(-1),
+            started_at: isoAt(-1),
+            ended_at: isoAt(-1),
+        }),
+        buildConnectorJobRow({
+            id: smokeJobId(32),
+            kind: 'fix',
+            status: 'succeeded',
+            input: {
+                bug_report:
+                    'Onboarding CTA does not respond after choosing a category. Repro: open onboarding, tap a category, then tap Continue.',
+            },
+            summary: 'Adjusted the CTA state handling after category selection.',
+            result_commit_sha: 'def456',
+            pr_url: 'https://github.com/example/smoke-primary/pull/42',
+            created_at: isoAt(-8),
+            updated_at: isoAt(-7),
+            started_at: isoAt(-8),
+            ended_at: isoAt(-7),
+        }),
+        buildConnectorJobRow({
+            id: smokeJobId(33),
+            kind: 'fix',
+            status: 'failed',
+            input: {},
+            created_at: isoAt(-12),
+            updated_at: isoAt(-12),
+            started_at: isoAt(-12),
+            ended_at: isoAt(-11),
+        }),
+    ]);
+
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const runnerPanel = page.getByTestId('workspace-panel-runner');
+    const fixInput = runnerPanel.getByPlaceholder(/Describe the issue and how to reproduce it\./i);
+    const fixHistoryToggle = runnerPanel.getByTestId('runner-fix-history-toggle');
+
+    await expect(fixHistoryToggle).toBeVisible();
+    await expect(fixInput).toHaveValue('');
+    expect(runnerMock.getCreateCallCount()).toBe(0);
+
+    await fixHistoryToggle.click();
+
+    const fixHistoryList = runnerPanel.getByTestId('runner-fix-history-list');
+    const fixHistoryItems = fixHistoryList.locator('[data-testid^="runner-fix-history-item-"]');
+
+    await expect(fixHistoryList).toBeVisible();
+    await expect(fixHistoryItems).toHaveCount(2);
+    await expect(fixHistoryItems.nth(0)).toContainText(/Settings screen still crashes/i);
+    await expect(fixHistoryItems.nth(0)).toContainText(/failed/i);
+    await expect(fixHistoryItems.nth(1)).toContainText(/Onboarding CTA does not respond/i);
+    await expect(fixHistoryItems.nth(1)).toContainText(/succeeded/i);
+    await expect(fixHistoryList).toContainText(/Some fix jobs do not have a saved bug report\./i);
+
+    await fixHistoryItems.nth(1).getByRole('button').click();
+
+    await expect(runnerPanel.getByTestId(`runner-fix-history-detail-${smokeJobId(32)}`)).toContainText(
+        /Onboarding CTA does not respond after choosing a category/i
+    );
+    await expect(runnerPanel.getByTestId(`runner-fix-history-detail-${smokeJobId(32)}`)).toContainText(
+        /Adjusted the CTA state handling after category selection\./i
+    );
+    await expect(runnerPanel.getByTestId(`runner-fix-history-detail-${smokeJobId(32)}`)).toContainText(/def456/i);
+    await expect(runnerPanel.getByTestId(`runner-fix-history-detail-${smokeJobId(32)}`)).toContainText(
+        /Open result/i
+    );
+
+    await expect(runnerPanel.getByTestId('runner-selected-job-status')).toHaveText(/^failed$/i);
+    await expect(fixInput).toHaveValue('');
+    expect(runnerMock.getCreateCallCount()).toBe(0);
+
+    await fixHistoryItems.nth(1).getByRole('button').click();
+    await expect(runnerPanel.getByTestId(`runner-fix-history-detail-${smokeJobId(32)}`)).toHaveCount(0);
+    await expect(fixInput).toHaveValue('');
+    expect(runnerMock.getCreateCallCount()).toBe(0);
 });
 
 test('deliverables rail stays pinned while scrolling through the screenshot workflow', async ({ page }) => {

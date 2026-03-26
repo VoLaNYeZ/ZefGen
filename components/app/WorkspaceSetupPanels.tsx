@@ -11,6 +11,7 @@ import type {
     Brand,
     IdeaAppAssignment,
 } from '../../types/zefgen';
+import { buildManualIntegrationCopyText } from '../../utils/manual-integration-copy';
 import { AppStoreLinkRow } from './AppStoreLinkRow';
 import { AppStoreReviewWebhookRow } from './AppStoreReviewWebhookRow';
 import { AutoReleaseModulePanel } from './AutoReleaseModulePanel';
@@ -60,6 +61,7 @@ type WorkspaceSetupPanelsProps = {
     selectedBrand: Brand | null;
     session: Session | null;
     setupStepDone: boolean;
+    showManualCopyAction: boolean;
     step1Done: boolean;
     step2Done: boolean;
     step5Done: boolean;
@@ -107,6 +109,7 @@ export function WorkspaceSetupPanels({
     selectedBrand,
     session,
     setupStepDone,
+    showManualCopyAction,
     step1Done,
     step2Done,
     step5Done,
@@ -132,6 +135,15 @@ export function WorkspaceSetupPanels({
                 text={text}
             />
         </div>
+    );
+
+    const manualCopyText = React.useMemo(
+        () =>
+            buildManualIntegrationCopyText({
+                selectedApp,
+                variables: connectorForm.variables,
+            }),
+        [connectorForm.variables, selectedApp]
     );
 
     return (
@@ -249,7 +261,9 @@ export function WorkspaceSetupPanels({
                     <AutoReleaseModulePanel
                         isEnabled={connectorEnabled}
                         integrationReady={integrationReady}
+                        manualCopyText={manualCopyText}
                         onNotImplemented={onNotImplementedAutoRelease}
+                        showManualCopyAction={showManualCopyAction}
                         text={text}
                     />
                 </div>

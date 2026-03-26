@@ -90,7 +90,22 @@ const getCaptureModeLabel = (mode: RunnerSupportedCaptureMode, text: (key: Trans
     return mode;
 };
 
+type PreviousFixJob = ConnectorJob & { bugReport: string };
 type ConnectorForm = ReturnType<typeof import('../../hooks/use-connector-config-form').useConnectorConfigForm>;
+
+const getConnectorJobBugReport = (job: ConnectorJob | null | undefined) => {
+    const input = job?.input;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return '';
+    return String((input as Record<string, unknown>).bug_report ?? '').trim();
+};
+
+const formatBugReportPreview = (value: string, max = 180) => {
+    const normalized = String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (normalized.length <= max) return normalized;
+    return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+};
 
 export function ConnectorRunnerPanel(props: {
     session: Session | null;
@@ -111,6 +126,8 @@ export function ConnectorRunnerPanel(props: {
     const [animateTerminalAccent, setAnimateTerminalAccent] = React.useState(false);
     const [selectedJobId, setSelectedJobId] = React.useState<string | null>(null);
     const [captureMode, setCaptureMode] = React.useState<RunnerSupportedCaptureMode>(DEFAULT_RUNNER_CAPTURE_MODE);
+    const [fixHistoryExpanded, setFixHistoryExpanded] = React.useState(false);
+    const [expandedFixJobId, setExpandedFixJobId] = React.useState<string | null>(null);
     const prefersReducedMotion = useReducedMotion();
 
     const {
@@ -131,18 +148,24 @@ export function ConnectorRunnerPanel(props: {
         githubRepoUrl,
         baseBranch: MAIN_BRANCH,
         pollMs: 3000,
+        idlePollMs: 15_000,
     });
 
+    const isLatestJobLive =
+        latestJob?.status === 'queued' || latestJob?.status === 'running' || latestJob?.status === 'waiting_for_user';
     const { messages, unansweredQuestions, answerQuestion } = useConnectorJobMessages({
         session,
         jobId: latestJob?.id || null,
         pollMs: 2500,
+        live: isLatestJobLive,
     });
 
     const selectedJob = React.useMemo(
         () => jobs.find((job) => String(job?.id || '') === String(selectedJobId || '')) ?? latestJob ?? null,
         [jobs, latestJob, selectedJobId]
     );
+    const isSelectedJobLive =
+        selectedJob?.status === 'queued' || selectedJob?.status === 'running' || selectedJob?.status === 'waiting_for_user';
 
     const {
         artifacts,
@@ -154,6 +177,7 @@ export function ConnectorRunnerPanel(props: {
         session,
         jobId: selectedJob?.id || null,
         pollMs: 5000,
+        live: isSelectedJobLive,
     });
 
     const groupedArtifacts = React.useMemo(() => groupConnectorArtifacts(artifacts), [artifacts]);
@@ -167,6 +191,8 @@ export function ConnectorRunnerPanel(props: {
         setAnimateTerminalAccent(false);
         setSelectedJobId(null);
         setCaptureMode(DEFAULT_RUNNER_CAPTURE_MODE);
+        setFixHistoryExpanded(false);
+        setExpandedFixJobId(null);
     }, [selectedApp?.id]);
 
     React.useEffect(() => {
@@ -577,6 +603,33 @@ export function ConnectorRunnerPanel(props: {
         };
     }, [artifactJsonById, groupedArtifacts]);
 
+    const allFixJobs = React.useMemo(
+        () => jobs.filter((job: ConnectorJob) => String(job?.kind || '') === 'fix'),
+        [jobs]
+    );
+
+    const previousFixJobs = React.useMemo<PreviousFixJob[]>(
+        () =>
+            allFixJobs.reduce<PreviousFixJob[]>((acc, job: ConnectorJob) => {
+                const bugReport = getConnectorJobBugReport(job);
+                if (!bugReport) return acc;
+                acc.push({ ...job, bugReport });
+                return acc;
+            }, []),
+        [allFixJobs]
+    );
+
+    const missingFixReportCount = React.useMemo(
+        () => allFixJobs.filter((job: ConnectorJob) => !getConnectorJobBugReport(job)).length,
+        [allFixJobs]
+    );
+
+    React.useEffect(() => {
+        if (!expandedFixJobId) return;
+        const exists = previousFixJobs.some((job) => String(job.id) === String(expandedFixJobId));
+        if (!exists) setExpandedFixJobId(null);
+    }, [expandedFixJobId, previousFixJobs]);
+
     const combinedError = localError || connectorForm.error || error || artifactsError;
 
     return (
@@ -965,6 +1018,131 @@ export function ConnectorRunnerPanel(props: {
                                     {busy ? <Loader2 className="animate-spin" size={14} /> : null}
                                     {text('connector_submit_fix')}
                                 </button>
+                            </div>
+                            <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/15 p-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFixHistoryExpanded((current) => {
+                                            const next = !current;
+                                            if (!next) setExpandedFixJobId(null);
+                                            return next;
+                                        });
+                                    }}
+                                    className="flex w-full items-center justify-between gap-3 text-left"
+                                    data-testid="runner-fix-history-toggle"
+                                    aria-expanded={fixHistoryExpanded}
+                                >
+                                    <div className="min-w-0">
+                                        <div className="text-[11px] font-semibold text-indigo-100">
+                                            {text('connector_fix_history')}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-indigo-200/50">
+                                            {previousFixJobs.length}
+                                        </div>
+                                    </div>
+                                    <span className="shrink-0 text-[11px] font-semibold text-indigo-200/65">
+                                        {fixHistoryExpanded
+                                            ? text('connector_fix_history_hide')
+                                            : text('connector_fix_history_show')}
+                                    </span>
+                                </button>
+
+                                {fixHistoryExpanded ? (
+                                    <div className="mt-3 grid gap-2" data-testid="runner-fix-history-list">
+                                        {previousFixJobs.length > 0 ? (
+                                            previousFixJobs.map((job) => {
+                                                const isExpanded = String(job.id) === String(expandedFixJobId || '');
+                                                return (
+                                                    <div
+                                                        key={job.id}
+                                                        className="rounded-2xl border border-white/10 bg-slate-950/20 p-3"
+                                                        data-testid={`runner-fix-history-item-${job.id}`}
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setExpandedFixJobId((current) =>
+                                                                    String(current || '') === String(job.id) ? null : String(job.id)
+                                                                )
+                                                            }
+                                                            className="flex w-full items-start justify-between gap-3 text-left"
+                                                            aria-expanded={isExpanded}
+                                                        >
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-indigo-200/55">
+                                                                    <span>{formatDateTime(job.created_at) || '-'}</span>
+                                                                    <span className={badge(String(job.status))}>{String(job.status)}</span>
+                                                                </div>
+                                                                <div className="mt-2 max-h-[3.4em] overflow-hidden whitespace-pre-wrap break-words text-[11px] leading-[1.4] text-indigo-100/85">
+                                                                    {formatBugReportPreview(job.bugReport)}
+                                                                </div>
+                                                            </div>
+                                                            <span className="shrink-0 text-[11px] font-semibold text-indigo-200/65">
+                                                                {isExpanded
+                                                                    ? text('connector_fix_history_hide')
+                                                                    : text('connector_fix_history_show')}
+                                                            </span>
+                                                        </button>
+
+                                                        {isExpanded ? (
+                                                            <div
+                                                                className="mt-3 grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-[11px] text-indigo-100/85"
+                                                                data-testid={`runner-fix-history-detail-${job.id}`}
+                                                            >
+                                                                <div className="whitespace-pre-wrap break-words">{job.bugReport}</div>
+                                                                {job.summary ? (
+                                                                    <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-3 whitespace-pre-wrap break-words text-indigo-200/80">
+                                                                        {String(job.summary)}
+                                                                    </div>
+                                                                ) : null}
+                                                                {job.error ? (
+                                                                    <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3 whitespace-pre-wrap break-words text-rose-100/90">
+                                                                        {String(job.error)}
+                                                                    </div>
+                                                                ) : null}
+                                                                {job.result_commit_sha ? (
+                                                                    <div>
+                                                                        {text('connector_result_commit_sha')}{' '}
+                                                                        <span className="font-semibold text-indigo-100">
+                                                                            {job.result_commit_sha}
+                                                                        </span>
+                                                                    </div>
+                                                                ) : null}
+                                                                {job.pr_url ? (
+                                                                    <a
+                                                                        href={String(job.pr_url)}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        className="ui-btn-fit ui-btn-fit-dense inline-flex w-fit items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1.5 font-semibold text-indigo-100 hover:bg-indigo-500/15"
+                                                                    >
+                                                                        {text('connector_open_pr')}
+                                                                        <ExternalLink size={14} />
+                                                                    </a>
+                                                                ) : null}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })
+                                        ) : (
+                                            <div
+                                                className="text-[11px] text-indigo-200/50"
+                                                data-testid="runner-fix-history-empty"
+                                            >
+                                                {missingFixReportCount > 0
+                                                    ? text('connector_fix_history_missing_report')
+                                                    : text('connector_fix_history_empty')}
+                                            </div>
+                                        )}
+
+                                        {previousFixJobs.length > 0 && missingFixReportCount > 0 ? (
+                                            <div className="text-[11px] text-indigo-200/50">
+                                                {text('connector_fix_history_missing_report')}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                             </div>
                         </motion.div>
                     </motion.div>

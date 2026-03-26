@@ -3,14 +3,19 @@ import type { Session } from '@supabase/supabase-js';
 import type { ConnectorJob } from '../data/connector-jobs';
 import { createConnectorJob, fetchConnectorJobsForUser, requestCancelConnectorJob } from '../data/connector-jobs';
 
+const isActiveConnectorJob = (job: ConnectorJob | null | undefined) =>
+    job?.status === 'queued' || job?.status === 'running' || job?.status === 'waiting_for_user';
+
 export const useIdeaGenerationJobs = (payload: {
     session: Session | null;
     brandId: string | null;
     pollMs?: number;
+    idlePollMs?: number;
     onDataError?: (message: string) => void;
 }) => {
     const { session, brandId, onDataError } = payload;
-    const pollMs = Math.max(1200, Math.floor(payload.pollMs ?? 3000));
+    const activePollMs = Math.max(1200, Math.floor(payload.pollMs ?? 3000));
+    const idlePollMs = Math.max(activePollMs, Math.floor(payload.idlePollMs ?? activePollMs));
 
     const [jobs, setJobs] = useState<ConnectorJob[]>([]);
     const [loading, setLoading] = useState(false);
@@ -18,6 +23,7 @@ export const useIdeaGenerationJobs = (payload: {
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<number | null>(null);
     const signatureRef = useRef('');
+    const scopeKeyRef = useRef('');
 
     const runRefresh = useCallback(
         async (background = false) => {
@@ -71,6 +77,34 @@ export const useIdeaGenerationJobs = (payload: {
         [brandId, onDataError, session]
     );
 
+    const refresh = useCallback(async () => {
+        await runRefresh(false);
+    }, [runRefresh]);
+
+    const latestJob = useMemo(() => jobs[0] ?? null, [jobs]);
+    const hasActiveJob = useMemo(() => jobs.some((job) => isActiveConnectorJob(job)), [jobs]);
+    const effectivePollMs = hasActiveJob ? activePollMs : idlePollMs;
+
+    useEffect(() => {
+        const scopeKey = session?.user?.id && brandId ? `${session.user.id}:${brandId}` : '';
+        if (!session || !brandId) {
+            setJobs([]);
+            setLoading(false);
+            setError(null);
+            signatureRef.current = '';
+            scopeKeyRef.current = '';
+            return;
+        }
+
+        if (scopeKeyRef.current === scopeKey) return;
+
+        scopeKeyRef.current = scopeKey;
+        setJobs([]);
+        setError(null);
+        signatureRef.current = '';
+        void runRefresh(false);
+    }, [brandId, runRefresh, session?.user?.id]);
+
     useEffect(() => {
         if (timerRef.current) {
             window.clearInterval(timerRef.current);
@@ -78,15 +112,10 @@ export const useIdeaGenerationJobs = (payload: {
         }
 
         if (!session || !brandId) {
-            setJobs([]);
-            setLoading(false);
-            setError(null);
-            signatureRef.current = '';
             return;
         }
 
-        void runRefresh(false);
-        timerRef.current = window.setInterval(() => void runRefresh(true), pollMs);
+        timerRef.current = window.setInterval(() => void runRefresh(true), effectivePollMs);
 
         return () => {
             if (timerRef.current) {
@@ -94,13 +123,7 @@ export const useIdeaGenerationJobs = (payload: {
                 timerRef.current = null;
             }
         };
-    }, [brandId, pollMs, runRefresh, session?.user?.id]);
-
-    const refresh = useCallback(async () => {
-        await runRefresh(false);
-    }, [runRefresh]);
-
-    const latestJob = useMemo(() => jobs[0] ?? null, [jobs]);
+    }, [brandId, effectivePollMs, runRefresh, session?.user?.id]);
 
     const createJob = useCallback(
         async (input: Record<string, any>) => {

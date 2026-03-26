@@ -96,6 +96,7 @@ export const useWorkspaceCollaboration = ({
     const pollTimerRef = useRef<number | null>(null);
     const inFlightRef = useRef(false);
     const warnedCollabOutageRef = useRef(false);
+    const lastSnapshotAtRef = useRef(0);
 
     const lockedBrandIdSet = useMemo(() => new Set(lockedBrandIds), [lockedBrandIds]);
     const isEnabled = Boolean(enabled && session && clientDeviceId && clientSessionId);
@@ -159,6 +160,7 @@ export const useWorkspaceCollaboration = ({
             setActiveSessionCount(Math.max(1, normalized.active_session_count));
             setActiveSessionCountries(normalized.active_session_countries);
             setLockedBrandIds(normalized.locked_brand_ids_by_other_devices);
+            lastSnapshotAtRef.current = Date.now();
         },
         [isEnabled, postAction, clientSessionId, clientDeviceId]
     );
@@ -288,12 +290,14 @@ export const useWorkspaceCollaboration = ({
             setLockedBrandIds([]);
             setLockConflictBrandId(null);
             warnedCollabOutageRef.current = false;
+            lastSnapshotAtRef.current = 0;
             return;
         }
 
         setActiveSessionCount((prev) => (prev < 1 ? 1 : prev));
+        const snapshotMinIntervalMs = Math.max(30_000, Math.floor(pollMs) * 3);
 
-        const run = async () => {
+        const run = async (forceSnapshot = false) => {
             if (inFlightRef.current) return;
             inFlightRef.current = true;
             try {
@@ -305,7 +309,9 @@ export const useWorkspaceCollaboration = ({
                     setLockConflictBrandId((prev) => (prev === heartbeatBrandId ? null : prev));
                 }
 
-                await refreshSnapshot();
+                if (forceSnapshot || Date.now() - lastSnapshotAtRef.current >= snapshotMinIntervalMs) {
+                    await refreshSnapshot();
+                }
                 warnedCollabOutageRef.current = false;
             } catch {
                 // Keep last known state on transient failures.
@@ -318,13 +324,13 @@ export const useWorkspaceCollaboration = ({
             }
         };
 
-        run();
+        run(true);
         const runNow = () => {
-            void run();
+            void run(true);
         };
         const runWhenVisible = () => {
             if (document.visibilityState === 'visible') {
-                void run();
+                void run(true);
             }
         };
         clearPollTimer();

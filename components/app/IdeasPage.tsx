@@ -518,6 +518,7 @@ export function IdeasPage(props: {
         session,
         brandId: generatorBrandId || null,
         pollMs: 2500,
+        idlePollMs: 15_000,
         onDataError: reportError,
     });
 

@@ -464,12 +464,15 @@ export default async function handler(req: any, res: any) {
         const cleanupCutoffIso = new Date(
             Date.now() - WORKSPACE_SESSION_RETENTION_HOURS * 60 * 60 * 1000
         ).toISOString();
-        // Best-effort retention cleanup for this authenticated user.
-        // RLS keeps this scoped to the caller's own rows.
-        try {
-            await supabase.from('workspace_sessions').delete().lt('expires_at', cleanupCutoffIso);
-        } catch {
-            // Cleanup is best-effort and must never block action handling.
+        if (action !== 'snapshot') {
+            // Best-effort retention cleanup for mutating actions only.
+            // Snapshot is read-heavy, so skip extra DELETE traffic there.
+            // RLS keeps this scoped to the caller's own rows.
+            try {
+                await supabase.from('workspace_sessions').delete().lt('expires_at', cleanupCutoffIso);
+            } catch {
+                // Cleanup is best-effort and must never block action handling.
+            }
         }
 
         if (action === 'snapshot') {

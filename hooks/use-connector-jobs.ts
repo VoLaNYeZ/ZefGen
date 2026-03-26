@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { AppItem } from '../types/zefgen';
-import type { DownstreamCaptureMode } from '../data/connector-jobs.ts';
+import type { ConnectorJobStatus, DownstreamCaptureMode } from '../data/connector-jobs.ts';
 import {
     assertRunnerSupportedCaptureMode,
     createConnectorJob,
@@ -11,6 +11,8 @@ import {
 } from '../data/connector-jobs.ts';
 
 const normalizeDownstreamSource = (value: string) => String(value || '').trim();
+const isActiveConnectorJobStatus = (status: ConnectorJobStatus | string | null | undefined) =>
+    status === 'queued' || status === 'running' || status === 'waiting_for_user';
 
 export const buildVisualQaConnectorJobInput = (payload: { sourceJobId: string; sourceRef: string }) => {
     const sourceJobId = normalizeDownstreamSource(payload.sourceJobId);
@@ -48,9 +50,11 @@ export const useConnectorJobs = (payload: {
     githubRepoUrl?: string | null;
     baseBranch?: string | null;
     pollMs?: number;
+    idlePollMs?: number;
 }) => {
     const { session, selectedApp, githubRepoUrl } = payload;
-    const pollMs = Math.max(1200, Math.floor(payload.pollMs ?? 3000));
+    const activePollMs = Math.max(1200, Math.floor(payload.pollMs ?? 3000));
+    const idlePollMs = Math.max(activePollMs, Math.floor(payload.idlePollMs ?? activePollMs));
     const baseBranch = String(payload.baseBranch || '').trim() || 'main';
 
     const [jobs, setJobs] = useState<any[]>([]);
@@ -58,6 +62,7 @@ export const useConnectorJobs = (payload: {
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<number | null>(null);
     const jobsSignatureRef = useRef('');
+    const scopeKeyRef = useRef('');
 
     const runRefresh = useCallback(async (background = false) => {
         if (!session || !selectedApp) return;
@@ -92,26 +97,41 @@ export const useConnectorJobs = (payload: {
         await runRefresh(false);
     }, [runRefresh]);
 
+    const hasActiveJob = useMemo(
+        () => jobs.some((job) => isActiveConnectorJobStatus(job?.status)),
+        [jobs]
+    );
+    const effectivePollMs = hasActiveJob ? activePollMs : idlePollMs;
+
     useEffect(() => {
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
 
-        setJobs([]);
-        setError(null);
-        jobsSignatureRef.current = '';
+        const scopeKey = session?.user?.id && selectedApp?.id ? `${session.user.id}:${selectedApp.id}` : '';
 
         if (!session || !selectedApp) {
+            setJobs([]);
             setLoading(false);
+            setError(null);
+            jobsSignatureRef.current = '';
+            scopeKeyRef.current = '';
             return;
         }
 
+        if (scopeKeyRef.current !== scopeKey) {
+            scopeKeyRef.current = scopeKey;
+            setJobs([]);
+            setError(null);
+            jobsSignatureRef.current = '';
+        }
+
         void runRefresh(false);
-        timerRef.current = window.setInterval(() => void runRefresh(true), pollMs);
+        timerRef.current = window.setInterval(() => void runRefresh(true), effectivePollMs);
         return () => {
             if (timerRef.current) window.clearInterval(timerRef.current);
             timerRef.current = null;
         };
-    }, [session?.user?.id, selectedApp?.id, pollMs, runRefresh]);
+    }, [effectivePollMs, runRefresh, selectedApp?.id, session?.user?.id]);
 
     const latestJob = useMemo(() => jobs[0] ?? null, [jobs]);
 

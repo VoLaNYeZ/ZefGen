@@ -6,15 +6,18 @@ export const useConnectorJobMessages = (payload: {
     session: Session | null;
     jobId: string | null;
     pollMs?: number;
+    live?: boolean;
 }) => {
     const { session, jobId } = payload;
     const pollMs = Math.max(1200, Math.floor(payload.pollMs ?? 2500));
+    const live = payload.live ?? true;
 
     const [messages, setMessages] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<number | null>(null);
     const messagesSignatureRef = useRef('');
+    const scopeKeyRef = useRef('');
 
     const runRefresh = useCallback(async (background = false) => {
         if (!session || !jobId) return;
@@ -52,25 +55,31 @@ export const useConnectorJobMessages = (payload: {
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
 
+        const scopeKey = session?.user?.id && jobId ? `${session.user.id}:${jobId}` : '';
         if (!session || !jobId) {
             setMessages([]);
             setLoading(false);
             setError(null);
             messagesSignatureRef.current = '';
+            scopeKeyRef.current = '';
             return;
         }
 
-        setMessages([]);
-        setError(null);
-        messagesSignatureRef.current = '';
+        if (scopeKeyRef.current !== scopeKey) {
+            scopeKeyRef.current = scopeKey;
+            setMessages([]);
+            messagesSignatureRef.current = '';
+        }
 
         void runRefresh(false);
+        if (!live) return;
+
         timerRef.current = window.setInterval(() => void runRefresh(true), pollMs);
         return () => {
             if (timerRef.current) window.clearInterval(timerRef.current);
             timerRef.current = null;
         };
-    }, [session?.user?.id, jobId, pollMs, runRefresh]);
+    }, [session?.user?.id, jobId, live, pollMs, runRefresh]);
 
     const messageList = useMemo(() => (Array.isArray(messages) ? messages : []), [messages]);
 
