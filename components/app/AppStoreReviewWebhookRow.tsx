@@ -957,7 +957,7 @@ export function AppStoreReviewWebhookRow(props: {
     );
 
     const persistAppleDrafts = React.useCallback(
-        async (options?: { showNotice?: boolean; refreshAfter?: boolean }) => {
+        async (options?: { showNotice?: boolean; refreshAfter?: boolean; keepEditorOpen?: boolean }) => {
             if (!appId || !userId || isReadOnly) return null;
 
             let workingConfig = config;
@@ -1042,7 +1042,7 @@ export function AppStoreReviewWebhookRow(props: {
 
             clearAppleDraftDirty();
             setPrivateKeyDraft('');
-            setQuickSetupEditing(false);
+            setQuickSetupEditing(Boolean(options?.keepEditorOpen));
 
             if (options?.refreshAfter !== false) {
                 await refresh({ forceDraftHydrate: true });
@@ -1169,7 +1169,7 @@ export function AppStoreReviewWebhookRow(props: {
         setBusyAction('apps');
         setNotice(null);
         try {
-            const savedWebhook = await persistAppleDrafts({ refreshAfter: false });
+            const savedWebhook = await persistAppleDrafts({ refreshAfter: false, keepEditorOpen: true });
             const result = await fetchAppstoreReviewAppleApps({
                 publicSubdomain: resolveBridgeSubdomain(savedWebhook),
             });
