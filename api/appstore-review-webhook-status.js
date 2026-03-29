@@ -4,7 +4,6 @@ import {
     getWebhookStatusPayload,
     json,
     requireAuthenticatedUser,
-    requireOwnedApp,
     toPublicErrorStatus,
 } from '../lib/server/appstore-review-webhook.shared.js';
 
@@ -18,7 +17,9 @@ export default async function handler(req, res) {
         const { user } = await requireAuthenticatedUser(req);
         const service = createServiceSupabaseClient();
         const appId = getQueryParam(req, 'appId');
-        await requireOwnedApp({ service, userId: user.id, appId });
+        if (!appId) {
+            return json(res, 400, { error: 'Missing appId.' });
+        }
         const payload = await getWebhookStatusPayload({ service, userId: user.id, appId });
         return json(res, 200, payload);
     } catch (error) {

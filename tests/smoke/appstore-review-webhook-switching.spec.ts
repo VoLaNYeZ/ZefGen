@@ -5,6 +5,7 @@ import type { AppstoreReviewWebhook, AppstoreReviewWebhookStatus } from '../../t
 
 const nowIso = () => new Date().toISOString();
 const TEAM_ISSUER_ID = '57246542-96fe-1a63-e053-0824d011072a';
+const INTERNAL_SERVER_ERROR_PATTERN = /Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)/;
 
 const primaryCandidate = {
     id: 'primary-asc-app',
@@ -338,25 +339,31 @@ test('webhook panel restores cached app state instantly and revalidates in the b
     await expect(panel).toContainText(/ready for sale/i);
 });
 
-test('webhook panel keeps cached state visible and shows a warning when background refresh fails', async ({ page }) => {
-    const webhookMocks = await installWebhookMocks(page, { failFallbackForAppId: smokeEnv.seed.primaryApp.id });
-    await gotoWorkspace(page);
-    await claimWorkspaceEditLockIfPrompted(page);
+test.describe('webhook background refresh fallback', () => {
+    test.use({
+        allowedConsoleErrors: [INTERNAL_SERVER_ERROR_PATTERN],
+    });
 
-    const panel = await openWebhookSetup(page);
-    webhookMocks.setPrimaryPhase('afterLoad');
-    await panel.getByRole('button', { name: /load apple apps/i }).click();
-    await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
-    await page.waitForTimeout(100);
+    test('webhook panel keeps cached state visible and shows a warning when background refresh fails', async ({ page }) => {
+        const webhookMocks = await installWebhookMocks(page, { failFallbackForAppId: smokeEnv.seed.primaryApp.id });
+        await gotoWorkspace(page);
+        await claimWorkspaceEditLockIfPrompted(page);
 
-    await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
-    webhookMocks.setPrimaryPhase('afterSwitchBack');
-    await switchToApp(page, smokeEnv.seed.primaryApp.id, smokeEnv.seed.primaryApp.alias);
+        const panel = await openWebhookSetup(page);
+        webhookMocks.setPrimaryPhase('afterLoad');
+        await panel.getByRole('button', { name: /load apple apps/i }).click();
+        await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
+        await page.waitForTimeout(100);
 
-    await expect(panel.getByLabel(/^Key ID$/)).toBeVisible();
-    await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
-    await expect(panel).toContainText(/server status route warning/i);
-    await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
+        await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
+        webhookMocks.setPrimaryPhase('afterSwitchBack');
+        await switchToApp(page, smokeEnv.seed.primaryApp.id, smokeEnv.seed.primaryApp.alias);
+
+        await expect(panel.getByLabel(/^Key ID$/)).toBeVisible();
+        await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
+        await expect(panel).toContainText(/server status route warning/i);
+        await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
+    });
 });
 
 test('webhook switch guard keeps dirty edits on cancel and discards them on leave anyway', async ({ page }) => {

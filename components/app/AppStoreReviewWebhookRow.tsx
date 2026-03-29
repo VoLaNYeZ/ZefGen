@@ -1084,11 +1084,11 @@ export function AppStoreReviewWebhookRow(props: {
         if (!onSwitchGuardChange) return;
         onSwitchGuardChange({
             isDirty: hasAppleDraftChanges,
-            blockReason: null,
+            blockReason: hasAppleDraftChanges ? text('appstore_review_webhook_save_before_switch') : null,
             flushPending,
         });
         return () => onSwitchGuardChange(null);
-    }, [flushPending, hasAppleDraftChanges, onSwitchGuardChange]);
+    }, [flushPending, hasAppleDraftChanges, onSwitchGuardChange, text]);
 
     const resolveBridgeSubdomain = React.useCallback(
         (webhook: AppstoreReviewWebhook | null) => {
@@ -1874,7 +1874,15 @@ export function AppStoreReviewWebhookRow(props: {
                     ) : null}
                     <button
                         type="button"
-                        onClick={() => setExpanded((current) => !current)}
+                        onClick={() =>
+                            setExpanded((current) => {
+                                const nextExpanded = !current;
+                                if (nextExpanded && showQuickSetupEditor) {
+                                    setQuickSetupEditing(true);
+                                }
+                                return nextExpanded;
+                            })
+                        }
                         className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/20 px-3 py-1.5 text-[11px] font-semibold text-indigo-100/85 hover:border-indigo-400/40 hover:text-white"
                         title={expanded ? text('appstore_review_webhook_hide_setup') : text('appstore_review_webhook_open_setup')}
                     >
