@@ -706,6 +706,11 @@ export const useConnectorConfigForm = (payload: {
         );
     }, [baseBranch, projectBrief, variables]);
 
+    const isProjectBriefDirty = React.useMemo(() => {
+        const currentProjectBrief = String(projectBrief || '');
+        return currentProjectBrief !== lastSavedProjectBriefRef.current;
+    }, [projectBrief]);
+
     React.useEffect(() => {
         isDirtyRef.current = isDirty;
     }, [isDirty]);
@@ -1346,6 +1351,7 @@ export const useConnectorConfigForm = (payload: {
         setVariables,
         setVariable,
         isDirty,
+        isProjectBriefDirty,
         configUpdatedAt,
         legalLinks,
         buildSnapshot,

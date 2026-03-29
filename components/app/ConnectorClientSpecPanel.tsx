@@ -4,11 +4,12 @@ import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppIdea, AppIdeaCategory, AppItem, Brand, IdeaAppAssignment } from '../../types/zefgen';
 import { buildCanonicalBrandIdMap } from '../../utils/no-brand';
+import { normalizeLegacyRenderedSpec } from '../../utils/spec-text';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 
 const formatIdeaPreview = (description: string) => {
-    const normalized = String(description || '').replace(/\s+/g, ' ').trim();
+    const normalized = normalizeLegacyRenderedSpec(description).replace(/\s+/g, ' ').trim();
     if (!normalized) return '—';
     const words = normalized.split(' ');
     const short = words.length <= 6 ? normalized : `${words.slice(0, 6).join(' ')}...`;
@@ -152,7 +153,11 @@ export function ConnectorClientSpecPanel(props: {
     const [selectedIdeaId, setSelectedIdeaId] = React.useState('');
     const [ideaApplyBusy, setIdeaApplyBusy] = React.useState(false);
     const projectBrief = String(connectorForm.projectBrief || '');
-    const hasProjectBrief = normalize(projectBrief).length > 0;
+    const displayProjectBrief = React.useMemo(
+        () => (connectorForm.isProjectBriefDirty ? projectBrief : normalizeLegacyRenderedSpec(projectBrief)),
+        [connectorForm.isProjectBriefDirty, projectBrief]
+    );
+    const hasProjectBrief = normalize(displayProjectBrief).length > 0;
     const specReaderWindowRef = React.useRef<Window | null>(null);
 
     const ideasById = React.useMemo(() => new Map(ideaList.map((idea) => [idea.id, idea])), [ideaList]);
@@ -249,10 +254,10 @@ export function ConnectorClientSpecPanel(props: {
             const contentNode = doc.getElementById('spec-reader-content');
 
             if (contentNode) {
-                contentNode.textContent = projectBrief;
+                contentNode.textContent = displayProjectBrief;
             }
         },
-        [projectBrief, text]
+        [displayProjectBrief, text]
     );
 
     React.useEffect(() => {
@@ -324,7 +329,7 @@ export function ConnectorClientSpecPanel(props: {
         const idea = ideasById.get(nextIdeaId);
         if (!idea) return;
         setIdeaApplyBusy(true);
-        const ideaDescription = String(idea.client_spec_current || idea.description || '');
+        const ideaDescription = normalizeLegacyRenderedSpec(String(idea.client_spec_current || idea.description || ''));
         const ideaTitle = normalize((idea as any).title);
         const nextVariables = { ...(connectorForm.variables || {}) } as Record<string, any>;
         if (ideaTitle) {
@@ -477,7 +482,7 @@ export function ConnectorClientSpecPanel(props: {
 
                 <div className="mt-4">
                     <textarea
-                        value={projectBrief}
+                        value={displayProjectBrief}
                         onChange={(e) => connectorForm.setProjectBrief(e.target.value)}
                         rows={10}
                         disabled={!isEnabled}

@@ -763,6 +763,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     {text(f.label)}
                                 </div>
                                 <input
+                                    data-testid={`connector-variable-input-${f.key}`}
                                     value={String(connectorForm.variables?.[f.key] ?? '')}
                                     onChange={(e) =>
                                         connectorForm.setVariable(

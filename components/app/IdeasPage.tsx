@@ -14,6 +14,7 @@ import type {
     IdeaStatus,
 } from '../../types/zefgen';
 import { buildCanonicalBrandIdMap, getVisibleBrandOptions, isNoBrand } from '../../utils/no-brand';
+import { normalizeLegacyRenderedSpec } from '../../utils/spec-text';
 
 type Draft = Partial<Omit<AppIdea, 'id' | 'user_id' | 'updated_at' | 'created_at'>>;
 type NewDraft = {
@@ -1597,7 +1598,13 @@ export function IdeasPage(props: {
                                             </div>
                                             <div className={cellBox}>
                                                 <textarea
-                                                    value={String(draft.client_spec_current ?? idea.client_spec_current ?? idea.description ?? '')}
+                                                    value={
+                                                        Object.prototype.hasOwnProperty.call(draft, 'client_spec_current')
+                                                            ? String(draft.client_spec_current ?? '')
+                                                            : normalizeLegacyRenderedSpec(
+                                                                  String(idea.client_spec_current ?? idea.description ?? '')
+                                                              )
+                                                    }
                                                     onChange={(event) => setDraftField(idea.id, { client_spec_current: event.target.value })}
                                                     disabled={busy}
                                                     className={cellTextarea}

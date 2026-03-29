@@ -8,7 +8,12 @@ import {
 test('ideas show up in client spec picker and App Store links validate and persist', async ({ page }) => {
     const suffix = `${Date.now()}`.slice(-6);
     const ideaTitle = `Zeta Smoke ${suffix}`;
-    const ideaDescription = `Zeta Smoke ${suffix} helps operators turn noisy receipts and account screenshots into one weekly audit trail with calmer exports, cleaner labels, and shared review notes for small iPhone teams.`;
+    const legacyIdeaDescription =
+        `Zeta Smoke ${suffix} helps operators turn noisy receipts into one weekly audit trail.\\n` +
+        'Keep the output calm, reviewable, and clearly structured for small iPhone teams.';
+    const normalizedIdeaDescription =
+        `Zeta Smoke ${suffix} helps operators turn noisy receipts into one weekly audit trail.\n` +
+        'Keep the output calm, reviewable, and clearly structured for small iPhone teams.';
     const validAppStoreUrl = 'https://apps.apple.com/us/app/id1234567899';
 
     await gotoWorkspace(page);
@@ -18,7 +23,7 @@ test('ideas show up in client spec picker and App Store links validate and persi
     await page.getByTestId('ideas-page-root').getByRole('button', { name: /^new idea$/i }).click();
     await newIdeaRow.locator('select').selectOption({ label: 'Business' });
     await newIdeaRow.locator('input').fill(ideaTitle);
-    await newIdeaRow.locator('textarea').fill(ideaDescription);
+    await newIdeaRow.locator('textarea').fill(legacyIdeaDescription);
     await newIdeaRow.getByTitle(/^Save$/).click();
 
     await gotoWorkspace(page);
@@ -30,7 +35,15 @@ test('ideas show up in client spec picker and App Store links validate and persi
 
     await categorySelect.selectOption({ label: 'Business' });
     await selectOptionContainingText(ideaSelect, ideaTitle);
-    await expect(projectBrief).toHaveValue(ideaDescription);
+    await expect(projectBrief).toHaveValue(normalizedIdeaDescription);
+
+    const openButton = page.getByTestId('client-spec-reader-open-button');
+    await expect(openButton).toBeEnabled();
+    const [popup] = await Promise.all([page.waitForEvent('popup'), openButton.click()]);
+    await popup.waitForLoadState('domcontentloaded');
+    await expect(popup.locator('body')).toContainText('turn noisy receipts into one weekly audit trail.');
+    await expect(popup.locator('body')).toContainText('Keep the output calm, reviewable, and clearly structured');
+    await popup.close();
 
     const appStorePanel = page.getByTestId('workspace-panel-appstore-link');
     await appStorePanel.getByRole('button', { name: /^Edit$/ }).click();
