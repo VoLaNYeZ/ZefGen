@@ -51,7 +51,7 @@ type WorkspaceSetupPanelsProps = {
     onOpenAccountsForApp: () => void;
     onOpenIdeas: () => void;
     onPatchApp: (appId: string, patch: Partial<AppItem>) => Promise<AppItem | null>;
-    onPickAccount: (modeOrId: 'auto' | null | string) => Promise<void>;
+    onPickAccount: (modeOrId: null | string) => Promise<void>;
     onRefreshIntegrationJobs?: () => Promise<void>;
     onReportError: (msg: string) => void;
     onSaveCanonicalUrl: (canonicalUrl: string) => Promise<void>;
@@ -161,7 +161,7 @@ export function WorkspaceSetupPanels({
                             onSwitchGuardChange={onAppStoreLinkGuardChange}
                         />
                     </div>
-                    <div className="mt-4">
+                    <div data-testid="workspace-panel-app-review-webhook" className="mt-4">
                         <AppStoreReviewWebhookRow
                             selectedApp={selectedApp}
                             session={session}
@@ -184,7 +184,9 @@ export function WorkspaceSetupPanels({
             ) : null}
 
             <StepBlock step={iconStepNumber} done={step1Done}>
-                <IconGenerationModule {...generationModuleProps} />
+                <div data-testid="workspace-panel-icon">
+                    <IconGenerationModule {...generationModuleProps} />
+                </div>
             </StepBlock>
 
             {!isNoBrandMode ? (

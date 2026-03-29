@@ -7,7 +7,10 @@ import {
     WORKSPACE_COLLAB_TTL_SECONDS,
 } from '../../constants/zefgen';
 import { syncAutoGrowTextarea } from '../../utils/dom';
-import { useAppShellActions } from '../../hooks/use-app-shell-actions';
+import {
+    assignFirstAvailableAppstoreAccountToApp,
+    useAppShellActions,
+} from '../../hooks/use-app-shell-actions';
 import { useAppShellDerivedState } from '../../hooks/use-app-shell-derived-state';
 import { useAppShellSelectionModels } from '../../hooks/use-app-shell-selection-models';
 import { useAppShellUiState } from '../../hooks/use-app-shell-ui-state';
@@ -53,6 +56,7 @@ import { HELP_CENTER_RUNTIME_LANG } from './help-center-content';
 import { Sidebar } from './Sidebar';
 import type { AppStoreReviewPanelSnapshot } from './AppStoreReviewWebhookRow';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
+import type { AppItem, AppstoreAccount } from '../../types/zefgen';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';
 import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
@@ -100,7 +104,14 @@ export function AppShell({ session }: AppShellProps) {
     const [dataError, setDataError] = useState<string | null>(null);
     const [hasParsedRoute, setHasParsedRoute] = useState(false);
     const [heartbeatBrandId, setHeartbeatBrandId] = useState<string | null>(null);
+    const [pendingAutoAssignAppIds, setPendingAutoAssignAppIds] = useState<string[]>([]);
     const [appReviewStateOverridesByAppId, setAppReviewStateOverridesByAppId] = useState<Record<string, string | null>>({});
+    const pendingAutoAssignAppIdsRef = useRef<string[]>([]);
+    const pendingAutoAssignAppByIdRef = useRef<Map<string, AppItem>>(new Map());
+    const pendingAutoAssignDrainInFlightRef = useRef(false);
+    const appsRef = useRef<AppItem[]>([]);
+    const appstoreAccountsRef = useRef<AppstoreAccount[]>([]);
+    const appstoreAccountsLoadingRef = useRef(true);
     const workspaceSnapshotsRef = useRef<Record<string, AppWorkspaceSnapshot>>({});
     const brandReleaseInfoGuardRef = useRef<WorkspaceSwitchGuard | null>(null);
     const appStoreLinkGuardRef = useRef<WorkspaceSwitchGuard | null>(null);
@@ -119,6 +130,8 @@ export function AppShell({ session }: AppShellProps) {
         reportReadOnlyBlocked,
         showAliasNotice,
     } = useAppShellNotices({ text });
+    const reportActionErrorRef = useRef(reportActionError);
+    const textRef = useRef(text);
 
     const {
         brands,
@@ -182,6 +195,35 @@ export function AppShell({ session }: AppShellProps) {
     });
 
     const {
+        accounts: appstoreAccounts,
+        loading: appstoreAccountsLoading,
+        error: appstoreAccountsError,
+        refresh: refreshAppstoreAccounts,
+        createAccount: createAppstoreAccount,
+        updateAccount: updateAppstoreAccount,
+        deleteAccount: deleteAppstoreAccount,
+    } = useAppstoreAccounts({
+        session,
+        onDataError: setDataError,
+    });
+    const updateAppstoreAccountRef = useRef(updateAppstoreAccount);
+
+    const enqueuePendingAutoAssignApp = useCallback((app: AppItem) => {
+        pendingAutoAssignAppByIdRef.current.set(app.id, app);
+        if (!pendingAutoAssignAppIdsRef.current.includes(app.id)) {
+            pendingAutoAssignAppIdsRef.current = [...pendingAutoAssignAppIdsRef.current, app.id];
+        }
+        setPendingAutoAssignAppIds((current) => {
+            if (current.includes(app.id)) return current;
+            return [...current, app.id];
+        });
+    }, []);
+
+    const handleAutoAssignAccountForNewApp = useCallback((app: AppItem) => {
+        enqueuePendingAutoAssignApp(app);
+    }, [enqueuePendingAutoAssignApp]);
+
+    const {
         apps,
         loading: appsLoading,
         refresh: refreshApps,
@@ -226,6 +268,7 @@ export function AppShell({ session }: AppShellProps) {
                 .replace('{to}', to);
             showAliasNotice(message);
         },
+        onAfterCreateApp: handleAutoAssignAccountForNewApp,
     });
 
     const {
@@ -253,23 +296,106 @@ export function AppShell({ session }: AppShellProps) {
         appStoreReviewGuardRef.current = guard;
     }, []);
 
-    const {
-        accounts: appstoreAccounts,
-        loading: appstoreAccountsLoading,
-        error: appstoreAccountsError,
-        refresh: refreshAppstoreAccounts,
-        createAccount: createAppstoreAccount,
-        updateAccount: updateAppstoreAccount,
-        deleteAccount: deleteAppstoreAccount,
-    } = useAppstoreAccounts({
-        session,
-        onDataError: setDataError,
-    });
-
     const selectedAppstoreAccount = useMemo(() => {
         if (!selectedApp) return null;
         return appstoreAccounts.find((a) => a.app_id === selectedApp.id) || null;
     }, [appstoreAccounts, selectedApp]);
+
+    useEffect(() => {
+        pendingAutoAssignAppIdsRef.current = pendingAutoAssignAppIds;
+    }, [pendingAutoAssignAppIds]);
+
+    useEffect(() => {
+        appsRef.current = apps;
+    }, [apps]);
+
+    useEffect(() => {
+        appstoreAccountsRef.current = appstoreAccounts;
+    }, [appstoreAccounts]);
+
+    useEffect(() => {
+        appstoreAccountsLoadingRef.current = appstoreAccountsLoading;
+    }, [appstoreAccountsLoading]);
+
+    useEffect(() => {
+        reportActionErrorRef.current = reportActionError;
+    }, [reportActionError]);
+
+    useEffect(() => {
+        textRef.current = text;
+    }, [text]);
+
+    useEffect(() => {
+        updateAppstoreAccountRef.current = updateAppstoreAccount;
+    }, [updateAppstoreAccount]);
+
+    const removePendingAutoAssignAppId = useCallback((appId: string) => {
+        pendingAutoAssignAppIdsRef.current = pendingAutoAssignAppIdsRef.current.filter((queuedAppId) => queuedAppId !== appId);
+        pendingAutoAssignAppByIdRef.current.delete(appId);
+        setPendingAutoAssignAppIds((current) => {
+            return current.filter((queuedAppId) => queuedAppId !== appId);
+        });
+    }, []);
+
+    const drainPendingAutoAssignQueue = useCallback(async () => {
+        if (pendingAutoAssignDrainInFlightRef.current) return;
+        if (appstoreAccountsLoadingRef.current) return;
+        if (!pendingAutoAssignAppIdsRef.current.length) return;
+
+        pendingAutoAssignDrainInFlightRef.current = true;
+        let workingAccounts = appstoreAccountsRef.current;
+
+        try {
+            while (!appstoreAccountsLoadingRef.current && pendingAutoAssignAppIdsRef.current.length) {
+                const appId = pendingAutoAssignAppIdsRef.current[0];
+                if (!appId) break;
+
+                const pendingApp =
+                    appsRef.current.find((app) => app.id === appId) || pendingAutoAssignAppByIdRef.current.get(appId) || null;
+                if (!pendingApp) {
+                    removePendingAutoAssignAppId(appId);
+                    continue;
+                }
+
+                const alreadyAssigned = workingAccounts.some((account) => account.app_id === pendingApp.id);
+                if (alreadyAssigned) {
+                    removePendingAutoAssignAppId(appId);
+                    continue;
+                }
+
+                try {
+                    const assignedAccount = await assignFirstAvailableAppstoreAccountToApp({
+                        app: pendingApp,
+                        appstoreAccounts: workingAccounts,
+                        reportActionError: reportActionErrorRef.current,
+                        text: textRef.current,
+                        updateAppstoreAccount: updateAppstoreAccountRef.current,
+                    });
+
+                    if (assignedAccount) {
+                        workingAccounts = workingAccounts.map((account) =>
+                            account.id === assignedAccount.id ? { ...account, app_id: pendingApp.id } : account
+                        );
+                    }
+                } catch (error) {
+                    void error;
+                }
+
+                removePendingAutoAssignAppId(appId);
+            }
+        } finally {
+            pendingAutoAssignDrainInFlightRef.current = false;
+            if (!appstoreAccountsLoadingRef.current && pendingAutoAssignAppIdsRef.current.length) {
+                void drainPendingAutoAssignQueue();
+            }
+        }
+    }, [removePendingAutoAssignAppId]);
+
+    useEffect(() => {
+        if (!pendingAutoAssignAppIds.length) return;
+        if (appstoreAccountsLoading) return;
+        void drainPendingAutoAssignQueue();
+    }, [appstoreAccountsLoading, drainPendingAutoAssignQueue, pendingAutoAssignAppIds]);
 
     const {
         categories: appIdeaCategories,

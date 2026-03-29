@@ -10,6 +10,7 @@ test('authenticated direct /help load renders the help center', async ({ page })
     await expect(page.getByTestId('help-group-main-workflow')).toContainText(/Основной процесс/i);
     await expect(page.getByTestId('help-group-special-cases')).toContainText(/Особые сценарии/i);
     await expect(page.getByTestId('help-visual-overview')).toHaveAttribute('data-visual-placement', 'wide');
+    await expect(page.getByTestId('help-visual-overview').locator('img')).toBeVisible();
     await expect(page.getByTestId('help-visual-step-5-development')).toHaveAttribute('data-visual-medium', 'gif');
 });
 
@@ -57,6 +58,7 @@ test('help visuals open in a lightbox and close on escape', async ({ page }) => 
     await page.getByTestId('help-visual-overview').click();
     await expect(page.getByTestId('help-visual-lightbox')).toBeVisible();
     await expect(page.getByTestId('help-visual-lightbox-title')).toHaveText(/One-shot платформа полного цикла/i);
+    await expect(page.getByTestId('help-visual-lightbox').locator('img')).toBeVisible();
 
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('help-visual-lightbox')).toHaveCount(0);

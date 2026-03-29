@@ -16,6 +16,7 @@ type Params = {
     text: (key: TranslationKey) => string;
     onDataError?: (message: string) => void;
     onAliasAutoApplied?: (payload: { from: string; to: string }) => void;
+    onAfterCreateApp?: (app: AppItem) => void | Promise<void>;
 };
 
 export const useApps = ({
@@ -27,6 +28,7 @@ export const useApps = ({
     text,
     onDataError,
     onAliasAutoApplied,
+    onAfterCreateApp,
 }: Params) => {
     const [apps, setApps] = useState<AppItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -243,6 +245,7 @@ export const useApps = ({
         if (!session || !selectedBrand) return false;
 
         const name = normalizedAppName;
+        let createdApp: AppItem | null = null;
 
         if (!editingAppId && activeApps.length >= MAX_ACTIVE_APPS) {
             setAppFormError(text('max_active_apps'));
@@ -305,7 +308,11 @@ export const useApps = ({
                 return false;
             }
             if (data) {
-                setApps((prev) => [...prev, { ...data, is_banned: data.is_banned ?? false }]);
+                createdApp = {
+                    ...data,
+                    is_banned: data.is_banned ?? false,
+                };
+                setApps((prev) => [...prev, createdApp!]);
                 setSelectedAppId(data.id);
                 if (aliasAutoAdjusted) {
                     onAliasAutoApplied?.({
@@ -318,6 +325,9 @@ export const useApps = ({
 
         setAppFormLoading(false);
         closeAppForm();
+        if (createdApp) {
+            void Promise.resolve(onAfterCreateApp?.(createdApp)).catch(() => {});
+        }
         return true;
     };
 

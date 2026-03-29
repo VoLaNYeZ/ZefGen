@@ -1093,9 +1093,12 @@ function PlainBrandRow({
                     </div>
                 </div>
                 {isNoBrand ? (
-                    <div className="flex items-center gap-2 shrink-0" title={`${text('apps')}: ${summary.total}`}>
+                    <div
+                        className="flex items-center gap-2 shrink-0"
+                        title={`${text('active_apps')} + ${text('in_progress')}: ${summary.nonBanned}`}
+                    >
                         <span className="inline-flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-950/35 px-2 py-0.5 text-[10px] font-semibold text-cyan-100/85 tabular-nums min-w-[24px]">
-                            {clampCount(summary.total)}
+                            {clampCount(summary.nonBanned)}
                         </span>
                         {isActive && <ArrowUpRight size={16} className="text-cyan-200" />}
                     </div>

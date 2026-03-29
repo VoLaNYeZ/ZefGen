@@ -49,12 +49,14 @@ const getSectionContentClasses = (section: HelpSection, hasVisualSlot: boolean) 
     return 'space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 lg:space-y-0';
 };
 
-const getVisualSlotClasses = (section: HelpSection, expanded = false) => {
+const getVisualSlotClasses = (section: HelpSection, expanded = false, variant: 'placeholder' | 'asset' = 'placeholder') => {
     const visual = section.visual;
     if (!visual) return '';
 
     const base =
-        'relative overflow-hidden rounded-[16px] border border-dashed border-sky-300/18 bg-[linear-gradient(180deg,rgba(15,23,42,0.82)_0%,rgba(2,6,23,0.92)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]';
+        variant === 'asset'
+            ? 'relative overflow-hidden rounded-[16px] border border-white/10 bg-slate-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+            : 'relative overflow-hidden rounded-[16px] border border-dashed border-sky-300/18 bg-[linear-gradient(180deg,rgba(15,23,42,0.82)_0%,rgba(2,6,23,0.92)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]';
 
     if (expanded) {
         return `${base} min-h-[320px] sm:min-h-[420px] lg:min-h-[540px]`;
@@ -524,14 +526,14 @@ export function HelpCenterPage({ lang, mainScrollContainerRef }: HelpCenterPageP
                                                 data-visual-placement={section.visual?.placement}
                                                 aria-label={getOpenVisualLabel(lang)}
                                                 onClick={() => setLightboxSectionId(section.id)}
-                                                className={`group overflow-hidden rounded-[16px] border border-white/10 bg-slate-950/40 text-left transition hover:border-sky-300/28 ${
+                                                className={`group block w-full text-left transition hover:border-sky-300/28 ${
                                                     section.visual?.placement === 'wide' ? 'mt-1' : 'lg:self-start'
-                                                }`}
+                                                } ${getVisualSlotClasses(section, false, 'asset')}`}
                                             >
                                                 <img
                                                     src={visualAsset?.src}
                                                     alt={visualAsset?.alt}
-                                                    className="block h-auto w-full object-cover transition duration-200 group-hover:scale-[1.01]"
+                                                    className="absolute inset-0 block h-full w-full object-cover object-top transition duration-200 group-hover:scale-[1.01]"
                                                     loading="lazy"
                                                 />
                                             </button>

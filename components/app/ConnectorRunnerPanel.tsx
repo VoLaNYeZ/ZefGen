@@ -1330,7 +1330,29 @@ function QuestionCard(props: {
 }) {
     const { question, onAnswer, disabled, text } = props;
     const [content, setContent] = React.useState('');
-    const options: string[] = Array.isArray(question?.options) ? question.options : [];
+    const options = React.useMemo(
+        () =>
+            (Array.isArray(question?.options) ? question.options : [])
+                .map((option, index) => {
+                    if (typeof option === 'string') {
+                        const label = String(option || '').trim();
+                        if (!label) return null;
+                        return { key: label, label };
+                    }
+
+                    if (!option || typeof option !== 'object') return null;
+
+                    const label = String(
+                        (option as any).label || (option as any).name || (option as any).slug || (option as any).id || ''
+                    ).trim();
+                    if (!label) return null;
+
+                    const key = String((option as any).id || (option as any).slug || label || index);
+                    return { key, label };
+                })
+                .filter(Boolean) as Array<{ key: string; label: string }>,
+        [question?.options]
+    );
 
     return (
         <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
@@ -1341,13 +1363,13 @@ function QuestionCard(props: {
                 <div className="mt-2 flex flex-wrap gap-2">
                     {options.slice(0, 8).map((option) => (
                         <button
-                            key={option}
+                            key={option.key}
                             type="button"
-                            onClick={() => setContent(option)}
+                            onClick={() => setContent(option.label)}
                             disabled={disabled}
                             className="ui-btn-fit ui-btn-fit-dense rounded-full border border-amber-400/20 bg-black/10 px-3 py-1 text-[11px] font-semibold text-amber-50/90 hover:border-amber-300/40"
                         >
-                            {option}
+                            {option.label}
                         </button>
                     ))}
                 </div>

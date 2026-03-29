@@ -1,9 +1,13 @@
 import { useCallback } from 'react';
 import type { FormEvent } from 'react';
-import type { TranslationKey } from '../i18n';
-import { signOut } from '../data/auth';
-import { syncAutoGrowTextarea } from '../utils/dom';
-import type { AppItem, AppstoreAccount } from '../types/zefgen';
+import type { TranslationKey } from '../i18n.ts';
+import { signOut } from '../data/auth.ts';
+import { syncAutoGrowTextarea } from '../utils/dom.ts';
+import type { AppItem, AppstoreAccount } from '../types/zefgen.ts';
+import {
+    assignFirstAvailableAppstoreAccountToApp,
+    bindAppstoreAccountForApp,
+} from '../utils/appstore-account-binding.ts';
 
 type UseAppShellActionsParams = {
     appstoreAccounts: AppstoreAccount[];
@@ -24,6 +28,8 @@ type UseAppShellActionsParams = {
     text: (key: TranslationKey) => string;
     updateAppstoreAccount: (params: { id: string; patch: Partial<AppstoreAccount> }) => Promise<void>;
 };
+
+export { assignFirstAvailableAppstoreAccountToApp, bindAppstoreAccountForApp } from '../utils/appstore-account-binding.ts';
 
 export function useAppShellActions({
     appstoreAccounts,
@@ -69,45 +75,19 @@ export function useAppShellActions({
     }, []);
 
     const pickAccountForSelectedApp = useCallback(
-        async (modeOrId: 'auto' | null | string) => {
+        async (modeOrId: null | string) => {
             if (!selectedApp) return;
             if (appstoreAccountsLoading) return;
-
-            const current = selectedAppstoreAccount;
-            const pickAuto = () =>
-                appstoreAccounts.find((account) => !account.app_id && account.usability && !account.was_used_before) ||
-                null;
-
-            try {
-                if (modeOrId === null) {
-                    if (!current) return;
-                    await updateAppstoreAccount({ id: current.id, patch: { app_id: null } });
-                    return;
-                }
-
-                const next =
-                    modeOrId === 'auto'
-                        ? pickAuto()
-                        : appstoreAccounts.find((account) => account.id === modeOrId) || null;
-
-                if (!next) {
-                    reportActionError(
-                        modeOrId === 'auto' ? text('accounts_no_usable_accounts') : text('download_failed')
-                    );
-                    return;
-                }
-
-                if (current && next.id === current.id) return;
-
-                if (current && current.id !== next.id) {
-                    await updateAppstoreAccount({ id: current.id, patch: { app_id: null } });
-                }
-
-                await updateAppstoreAccount({ id: next.id, patch: { app_id: selectedApp.id } });
-            } catch (error: any) {
-                reportActionError(String(error?.message || error));
-                throw error;
-            }
+            await bindAppstoreAccountForApp({
+                app: selectedApp,
+                appstoreAccounts,
+                nextAccountId: modeOrId,
+                reportActionError,
+                text,
+                updateAppstoreAccount,
+                currentAccount: selectedAppstoreAccount,
+                requireSwitchConfirmation: true,
+            });
         },
         [
             appstoreAccounts,

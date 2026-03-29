@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run check:declaration-order && npm run check:migration-filenames && vite build",
     "preview": "vite preview",
+    "capture:help-screenshots": "node scripts/capture-help-screenshots.mjs",
     "smoke": "npm run smoke:backend && npm run smoke:test",
     "smoke:backend": "npm run check:migration-filenames && node scripts/bootstrap-smoke-backend.mjs",
     "smoke:test": "playwright test --config=playwright.config.ts",

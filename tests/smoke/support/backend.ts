@@ -26,6 +26,9 @@ const expectedSeed = {
     appstoreAccountCount: 1,
 };
 
+const APPSTORE_ACCOUNT_SELECT =
+    'id, user_id, app_id, usability, was_used_before, email, password, email_password, number, geo, company_name, proxy, notes, updated_at, created_at';
+
 let cachedSmokeUserId: string | null = null;
 let smokeBackendSanityPromise: Promise<void> | null = null;
 
@@ -172,6 +175,78 @@ export const setBrandInactiveState = async (brandId: string, isInactive: boolean
 export const clearAppStoreAccountsForApp = async (appId: string) => {
     const { error } = await smokeAdmin.from('appstore_accounts').delete().eq('app_id', appId);
     assertSmokeNoError(error, `Could not clear smoke appstore accounts for app ${appId}`);
+};
+
+export const listSmokeAppstoreAccounts = async () => {
+    const smokeUserId = await loadSmokeUserId();
+    const { data, error } = await smokeAdmin
+        .from('appstore_accounts')
+        .select(APPSTORE_ACCOUNT_SELECT)
+        .eq('user_id', smokeUserId)
+        .order('created_at', { ascending: true });
+    assertSmokeNoError(error, 'Could not list smoke App Store accounts');
+    return data || [];
+};
+
+export const fetchSmokeAppstoreAccountForApp = async (appId: string) => {
+    const smokeUserId = await loadSmokeUserId();
+    const { data, error } = await smokeAdmin
+        .from('appstore_accounts')
+        .select(APPSTORE_ACCOUNT_SELECT)
+        .eq('user_id', smokeUserId)
+        .eq('app_id', appId)
+        .maybeSingle();
+    assertSmokeNoError(error, `Could not load smoke App Store account for app ${appId}`);
+    return data || null;
+};
+
+export const createSmokeAppstoreAccount = async (overrides: Partial<Record<string, unknown>> = {}) => {
+    const smokeUserId = await loadSmokeUserId();
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { data, error } = await smokeAdmin
+        .from('appstore_accounts')
+        .insert({
+            user_id: smokeUserId,
+            app_id: null,
+            usability: true,
+            was_used_before: false,
+            email: `smoke+${suffix}@example.test`,
+            password: `pass-${suffix}`,
+            email_password: `mail-${suffix}`,
+            number: `+1555${suffix.replace(/\D/g, '').slice(-7).padStart(7, '0')}`,
+            geo: 'US',
+            company_name: `Smoke Labs ${suffix}`,
+            proxy: `http://127.0.0.1:${String(Math.floor(1000 + Math.random() * 8000))}`,
+            notes: `Created by smoke test ${suffix}`,
+            ...overrides,
+        })
+        .select(APPSTORE_ACCOUNT_SELECT)
+        .single();
+    assertSmokeNoError(error, 'Could not create smoke App Store account');
+    return requireSmokeData('created smoke App Store account', data);
+};
+
+export const updateSmokeAppstoreAccount = async (accountId: string, patch: Partial<Record<string, unknown>>) => {
+    const smokeUserId = await loadSmokeUserId();
+    const { data, error } = await smokeAdmin
+        .from('appstore_accounts')
+        .update(patch)
+        .eq('user_id', smokeUserId)
+        .eq('id', accountId)
+        .select(APPSTORE_ACCOUNT_SELECT)
+        .single();
+    assertSmokeNoError(error, `Could not update smoke App Store account ${accountId}`);
+    return requireSmokeData(`updated smoke App Store account ${accountId}`, data);
+};
+
+export const deleteSmokeAppstoreAccount = async (accountId: string) => {
+    const smokeUserId = await loadSmokeUserId();
+    const { error } = await smokeAdmin
+        .from('appstore_accounts')
+        .delete()
+        .eq('user_id', smokeUserId)
+        .eq('id', accountId);
+    assertSmokeNoError(error, `Could not delete smoke App Store account ${accountId}`);
 };
 
 export const restoreSeededNoBrandApp = async () => {

@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink, FileText, LifeBuoy, Loader2, Plus, Shield } 
 import type { TranslationKey } from '../../i18n';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
+import { isAvailableAppstoreAccount } from '../../utils/appstore-account-selection';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
 
@@ -44,7 +45,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     selectedApp: AppItem | null;
     account: AppstoreAccount | null;
     allAccounts: AppstoreAccount[];
-    onPickAccount?: (modeOrId: 'auto' | null | string) => Promise<void>;
+    onPickAccount?: (modeOrId: null | string) => Promise<void>;
     onOpenAccountsForApp?: () => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -128,11 +129,14 @@ export function ConnectorVariablesSecretsPanel(props: {
 
     const pickerOptions = React.useMemo(() => {
         if (!selectedApp) return [];
-        return allAccounts.filter((a) => !a.app_id || a.app_id === selectedApp.id);
-    }, [allAccounts, selectedApp]);
+        return allAccounts.filter((accountOption) => {
+            if (accountOption.id === account?.id) return true;
+            return isAvailableAppstoreAccount(accountOption);
+        });
+    }, [account?.id, allAccounts, selectedApp]);
 
     const pickerValue = React.useMemo(() => {
-        return account?.id || 'auto';
+        return account?.id || 'unassigned';
     }, [account?.id]);
 
     const resolvedCompanyName = React.useMemo(() => {
@@ -273,13 +277,8 @@ export function ConnectorVariablesSecretsPanel(props: {
         if (!onPickAccount) return;
         if (pickBusy) return;
 
-        const next: 'auto' | null | string = raw === 'auto' ? 'auto' : raw === 'unassigned' ? null : raw;
-        if (account && next === account.id) return;
-
-        if (account && next !== account.id) {
-            const ok = window.confirm(text('accounts_confirm_switch_account'));
-            if (!ok) return;
-        }
+        const next: null | string = raw === 'unassigned' ? null : raw;
+        if ((account && next === account.id) || (!account && next === null)) return;
 
         setPickBusy(true);
         try {
@@ -638,7 +637,6 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     className="h-9 rounded-full border border-white/10 bg-slate-950/20 pl-4 pr-9 text-[11px] font-semibold text-indigo-100/85 outline-none hover:border-indigo-400/35 disabled:opacity-60"
                                     title={text('accounts_account')}
                                 >
-                                    <option value="auto">{text('accounts_auto')}</option>
                                     <option value="unassigned">{text('accounts_unassigned')}</option>
                                     {pickerOptions.map((a) => {
                                         const n = accountIndexById.get(a.id) ?? null;

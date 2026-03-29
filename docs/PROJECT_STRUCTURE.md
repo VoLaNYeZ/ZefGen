@@ -19,7 +19,6 @@ This document focuses on maintained source directories and the product flows the
 │   ├── fancy/
 │   └── ui/
 ├── constants/
-├── contexts/
 ├── data/
 ├── docs/
 ├── hooks/
@@ -53,7 +52,6 @@ This document focuses on maintained source directories and the product flows the
 - `vercel.json` - Vercel routing/deployment config.
 - `components.json` - local shadcn-style component config.
 - `.env.example` - local env template.
-- `.env.local` - local uncommitted environment overrides used for Vite/Vercel dev.
 - `PLANS.md` - ongoing implementation notes.
 
 ## Top-Level Directories
@@ -68,7 +66,6 @@ This document focuses on maintained source directories and the product flows the
 - `cloudflare/` - Cloudflare worker used for the public App Store review webhook bridge and landing pages.
 - `components/` - React components, split into app features, fancy experiments, and UI primitives.
 - `constants/` - shared app-wide constants and static lists.
-- `contexts/` - currently empty; reserved for future React contexts.
 - `data/` - thin data access layer around Supabase, Edge Functions, and first-party APIs.
 - `docs/` - product, architecture, test, and feature docs.
 - `hooks/` - stateful app logic and orchestration hooks.

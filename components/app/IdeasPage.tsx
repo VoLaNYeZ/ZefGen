@@ -34,6 +34,7 @@ type QuestionOptionView = {
 type IdeaGeneratorPrefs = {
     scope_brand_id?: string;
     selected_category_ids_by_brand?: Record<string, string[]>;
+    guidance_by_brand?: Record<string, string>;
     table_scope_brand_id?: string;
 };
 
@@ -74,6 +75,27 @@ const arraysEqual = (left: string[], right: string[]) => {
     return left.every((value, index) => value === right[index]);
 };
 
+const buildIdeaGenerationConfirmationAnswer = (payload: {
+    selectedCategoryIds: string[];
+    categoryById: Map<string, AppIdeaCategory>;
+    guidance?: string;
+}) => {
+    const normalizedGuidance = normalizeBlock(payload.guidance);
+    const answer: Record<string, unknown> = {
+        action: 'confirm_categories',
+        confirmed_category_ids: payload.selectedCategoryIds,
+        confirmed_category_slugs: payload.selectedCategoryIds
+            .map((categoryId) => payload.categoryById.get(categoryId)?.slug || null)
+            .filter(Boolean),
+    };
+
+    if (normalizedGuidance) {
+        answer.user_guidance = normalizedGuidance;
+    }
+
+    return JSON.stringify(answer, null, 2);
+};
+
 const getIdeaGeneratorPrefsStorageKey = (userId: string | null | undefined) => {
     const normalizedUserId = normalizeInline(userId);
     return normalizedUserId ? `zefgen.ideaGenerator.v2.${normalizedUserId}` : null;
@@ -99,9 +121,22 @@ const readIdeaGeneratorPrefs = (storageKey: string | null): IdeaGeneratorPrefs =
             }
         }
 
+        const guidanceByBrandRaw = parsed.guidance_by_brand;
+        const guidanceByBrand: Record<string, string> = {};
+        if (guidanceByBrandRaw && typeof guidanceByBrandRaw === 'object') {
+            for (const [brandId, value] of Object.entries(guidanceByBrandRaw)) {
+                const normalizedBrandId = normalizeInline(brandId);
+                if (!normalizedBrandId) continue;
+                const normalizedGuidance = normalizeBlock(value);
+                if (!normalizedGuidance) continue;
+                guidanceByBrand[normalizedBrandId] = normalizedGuidance;
+            }
+        }
+
         return {
             scope_brand_id: normalizeInline(parsed.scope_brand_id),
             selected_category_ids_by_brand: selectedByBrand,
+            guidance_by_brand: guidanceByBrand,
             table_scope_brand_id: normalizeInline(parsed.table_scope_brand_id) || TABLE_SCOPE_ALL,
         };
     } catch {
@@ -257,6 +292,7 @@ export function IdeasPage(props: {
     const [generatorBrandId, setGeneratorBrandId] = React.useState('');
     const [requestedCount, setRequestedCount] = React.useState('3');
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<string[]>([]);
+    const [generatorGuidance, setGeneratorGuidance] = React.useState('');
     const [tableScopeBrandId, setTableScopeBrandId] = React.useState<string>(TABLE_SCOPE_ALL);
     const [prefsHydrated, setPrefsHydrated] = React.useState(false);
     const [questionAnswer, setQuestionAnswer] = React.useState('');
@@ -266,6 +302,7 @@ export function IdeasPage(props: {
     const lastQuestionIdRef = React.useRef<string>('');
     const persistedGeneratorBrandIdRef = React.useRef<string>('');
     const persistedCategoryIdsByBrandRef = React.useRef<Record<string, string[]>>({});
+    const persistedGuidanceByBrandRef = React.useRef<Record<string, string>>({});
     const persistedTableScopeBrandIdRef = React.useRef<string>(TABLE_SCOPE_ALL);
     const ideaGeneratorPrefsStorageKey = React.useMemo(
         () => getIdeaGeneratorPrefsStorageKey(session?.user?.id || null),
@@ -289,12 +326,14 @@ export function IdeasPage(props: {
         if (!ideaGeneratorPrefsStorageKey) {
             persistedGeneratorBrandIdRef.current = '';
             persistedCategoryIdsByBrandRef.current = {};
+            persistedGuidanceByBrandRef.current = {};
             persistedTableScopeBrandIdRef.current = TABLE_SCOPE_ALL;
             return;
         }
         const prefs = readIdeaGeneratorPrefs(ideaGeneratorPrefsStorageKey);
         persistedGeneratorBrandIdRef.current = normalizeInline(prefs.scope_brand_id);
         persistedCategoryIdsByBrandRef.current = prefs.selected_category_ids_by_brand || {};
+        persistedGuidanceByBrandRef.current = prefs.guidance_by_brand || {};
         persistedTableScopeBrandIdRef.current = normalizeInline(prefs.table_scope_brand_id) || TABLE_SCOPE_ALL;
         setPrefsHydrated(true);
     }, [ideaGeneratorPrefsStorageKey]);
@@ -354,6 +393,7 @@ export function IdeasPage(props: {
     React.useEffect(() => {
         if (!generatorBrandId) {
             setSelectedCategoryIds([]);
+            setGeneratorGuidance('');
             lastGeneratorBrandIdRef.current = '';
             return;
         }
@@ -362,7 +402,9 @@ export function IdeasPage(props: {
             const persistedForBrand = (Array.isArray(persistedForBrandRaw) ? persistedForBrandRaw : []).filter((categoryId) =>
                 validCategoryIds.has(categoryId)
             );
+            const persistedGuidance = normalizeBlock(persistedGuidanceByBrandRef.current?.[generatorBrandId] || '');
             setSelectedCategoryIds(persistedForBrand.length ? persistedForBrand : suggestedCategoryIds);
+            setGeneratorGuidance(persistedGuidance);
             lastGeneratorBrandIdRef.current = generatorBrandId;
             return;
         }
@@ -378,25 +420,46 @@ export function IdeasPage(props: {
             writeIdeaGeneratorPrefs(ideaGeneratorPrefsStorageKey, {
                 scope_brand_id: '',
                 selected_category_ids_by_brand: persistedCategoryIdsByBrandRef.current,
+                guidance_by_brand: persistedGuidanceByBrandRef.current,
                 table_scope_brand_id: tableScopeBrandId || TABLE_SCOPE_ALL,
             });
             return;
         }
 
         const normalizedSelectedCategoryIds = safeSelectedCategoryIds.filter((categoryId) => validCategoryIds.has(categoryId));
+        const normalizedGeneratorGuidance = normalizeBlock(generatorGuidance);
         persistedGeneratorBrandIdRef.current = generatorBrandId;
         persistedTableScopeBrandIdRef.current = tableScopeBrandId || TABLE_SCOPE_ALL;
         persistedCategoryIdsByBrandRef.current = {
             ...persistedCategoryIdsByBrandRef.current,
             [generatorBrandId]: normalizedSelectedCategoryIds,
         };
+        if (normalizedGeneratorGuidance) {
+            persistedGuidanceByBrandRef.current = {
+                ...persistedGuidanceByBrandRef.current,
+                [generatorBrandId]: normalizedGeneratorGuidance,
+            };
+        } else {
+            const nextGuidanceByBrand = { ...persistedGuidanceByBrandRef.current };
+            delete nextGuidanceByBrand[generatorBrandId];
+            persistedGuidanceByBrandRef.current = nextGuidanceByBrand;
+        }
 
         writeIdeaGeneratorPrefs(ideaGeneratorPrefsStorageKey, {
             scope_brand_id: generatorBrandId,
             selected_category_ids_by_brand: persistedCategoryIdsByBrandRef.current,
+            guidance_by_brand: persistedGuidanceByBrandRef.current,
             table_scope_brand_id: tableScopeBrandId || TABLE_SCOPE_ALL,
         });
-    }, [generatorBrandId, ideaGeneratorPrefsStorageKey, prefsHydrated, safeSelectedCategoryIds, tableScopeBrandId, validCategoryIds]);
+    }, [
+        generatorBrandId,
+        generatorGuidance,
+        ideaGeneratorPrefsStorageKey,
+        prefsHydrated,
+        safeSelectedCategoryIds,
+        tableScopeBrandId,
+        validCategoryIds,
+    ]);
 
     const appliedAppsByIdeaId = React.useMemo(() => {
         const map = new Map<
@@ -841,6 +904,7 @@ export function IdeasPage(props: {
                 slug: category!.slug,
                 name: category!.name,
             }));
+        const normalizedGeneratorGuidance = normalizeBlock(generatorGuidance);
 
         try {
             await createIdeaGenerationJob({
@@ -848,10 +912,8 @@ export function IdeasPage(props: {
                 count,
                 creativity_mix: CREATIVITY_MIX,
                 suggested_category_ids: [],
-                confirmed_category_ids: [],
-                category_confirmation_required: true,
-                operator_seed_category_ids: confirmedCategoryIds,
-                operator_seed_categories: confirmedCategories,
+                confirmed_category_ids: confirmedCategoryIds,
+                category_confirmation_required: false,
                 example_corpus_root: IDEA_EXAMPLE_ROOT,
                 constraints: {
                     no_premium: true,
@@ -866,7 +928,9 @@ export function IdeasPage(props: {
                     prior_generated_count: ideaList.filter(
                         (idea) => idea.brand_id === currentGeneratorBrand.id && idea.idea_source === 'generated'
                     ).length,
+                    selected_categories: confirmedCategories,
                 },
+                ...(normalizedGeneratorGuidance ? { user_guidance: normalizedGeneratorGuidance } : {}),
             });
         } catch {
             // Error is already surfaced by the hook.
@@ -876,6 +940,7 @@ export function IdeasPage(props: {
         categoryById,
         createIdeaGenerationJob,
         currentGeneratorBrand,
+        generatorGuidance,
         ideaList,
         reportError,
         requestedCount,
@@ -1044,6 +1109,18 @@ export function IdeasPage(props: {
                             </div>
                         </div>
 
+                        <label className="grid gap-1">
+                            <span className="text-[11px] text-indigo-200/55">{text('ideas_generator_guidance')}</span>
+                            <textarea
+                                data-testid="ideas-generator-guidance"
+                                value={generatorGuidance}
+                                onChange={(event) => setGeneratorGuidance(event.target.value)}
+                                placeholder={text('ideas_generator_guidance_placeholder')}
+                                className={`${fieldBase} min-h-[96px] resize-y py-3`}
+                            />
+                            <span className="text-[11px] text-indigo-200/45">{text('ideas_generator_guidance_hint')}</span>
+                        </label>
+
                         <div className="flex flex-wrap items-center gap-3">
                             <button
                                 type="button"
@@ -1179,17 +1256,11 @@ export function IdeasPage(props: {
                                         type="button"
                                         onClick={() =>
                                             void onAnswerLatestQuestion(
-                                                JSON.stringify(
-                                                    {
-                                                        action: 'confirm_categories',
-                                                        confirmed_category_ids: safeSelectedCategoryIds,
-                                                        confirmed_category_slugs: safeSelectedCategoryIds
-                                                            .map((categoryId) => categoryById.get(categoryId)?.slug || null)
-                                                            .filter(Boolean),
-                                                    },
-                                                    null,
-                                                    2
-                                                )
+                                                buildIdeaGenerationConfirmationAnswer({
+                                                    selectedCategoryIds: safeSelectedCategoryIds,
+                                                    categoryById,
+                                                    guidance: questionAnswer,
+                                                })
                                             )
                                         }
                                         disabled={answerBusy || safeSelectedCategoryIds.length === 0}

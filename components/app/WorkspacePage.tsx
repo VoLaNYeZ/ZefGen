@@ -70,45 +70,49 @@ export function WorkspacePage({
                 <div className="space-y-6">
                     {!isNoBrandMode ? (
                         <>
-                            <BrandReleaseInfoPanel
-                                selectedBrand={selectedBrand}
-                                patchBrand={async (brandId, patch) => {
-                                    if (isCurrentBrandReadOnly) {
-                                        onReadOnlyBlocked();
-                                        return;
-                                    }
-                                    await onPatchBrand(brandId, patch);
-                                }}
-                                reportError={onReportError}
-                                text={text}
-                                isReadOnly={isCurrentBrandReadOnly}
-                                onSwitchGuardChange={onBrandReleaseInfoGuardChange}
-                            />
-                            <BrandReferencesPanel
-                                brandId={selectedBrand.id}
-                                brandScreenshotReferences={brandScreenshotReferences}
-                                brandRefUrls={brandRefUrls}
-                                handleReorderBrandReference={(fromIndex, toIndex) => {
-                                    void onRunWriteAction(() => handleReorderBrandReference(fromIndex, toIndex));
-                                }}
-                                handleDeleteBrandReference={(ref) => {
-                                    void onRunWriteAction(() => handleDeleteBrandReference(ref));
-                                }}
-                                handleBrandReferenceDragOver={handleBrandReferenceDragOver}
-                                handleBrandReferenceDragLeave={handleBrandReferenceDragLeave}
-                                handleBrandReferenceDrop={(event) => {
-                                    void onRunWriteAction(() => handleBrandReferenceDrop(event));
-                                }}
-                                handleBrandScreenshotUpload={(event) => {
-                                    void onRunWriteAction(() => handleBrandScreenshotUpload(event));
-                                }}
-                                isBrandRefDropActive={isBrandRefDropActive}
-                                brandScreenshotsUploading={brandScreenshotsUploading}
-                                maxScreenshotRefs={MAX_SCREENSHOT_REFS}
-                                openLightbox={openLightbox}
-                                text={text}
-                                isReadOnly={isCurrentBrandReadOnly}
-                            />
+                            <div data-testid="workspace-panel-brand-release-info">
+                                <BrandReleaseInfoPanel
+                                    selectedBrand={selectedBrand}
+                                    patchBrand={async (brandId, patch) => {
+                                        if (isCurrentBrandReadOnly) {
+                                            onReadOnlyBlocked();
+                                            return;
+                                        }
+                                        await onPatchBrand(brandId, patch);
+                                    }}
+                                    reportError={onReportError}
+                                    text={text}
+                                    isReadOnly={isCurrentBrandReadOnly}
+                                    onSwitchGuardChange={onBrandReleaseInfoGuardChange}
+                                />
+                            </div>
+                            <div data-testid="workspace-panel-brand-reference-library">
+                                <BrandReferencesPanel
+                                    brandId={selectedBrand.id}
+                                    brandScreenshotReferences={brandScreenshotReferences}
+                                    brandRefUrls={brandRefUrls}
+                                    handleReorderBrandReference={(fromIndex, toIndex) => {
+                                        void onRunWriteAction(() => handleReorderBrandReference(fromIndex, toIndex));
+                                    }}
+                                    handleDeleteBrandReference={(ref) => {
+                                        void onRunWriteAction(() => handleDeleteBrandReference(ref));
+                                    }}
+                                    handleBrandReferenceDragOver={handleBrandReferenceDragOver}
+                                    handleBrandReferenceDragLeave={handleBrandReferenceDragLeave}
+                                    handleBrandReferenceDrop={(event) => {
+                                        void onRunWriteAction(() => handleBrandReferenceDrop(event));
+                                    }}
+                                    handleBrandScreenshotUpload={(event) => {
+                                        void onRunWriteAction(() => handleBrandScreenshotUpload(event));
+                                    }}
+                                    isBrandRefDropActive={isBrandRefDropActive}
+                                    brandScreenshotsUploading={brandScreenshotsUploading}
+                                    maxScreenshotRefs={MAX_SCREENSHOT_REFS}
+                                    openLightbox={openLightbox}
+                                    text={text}
+                                    isReadOnly={isCurrentBrandReadOnly}
+                                />
+                            </div>
                         </>
                     ) : null}
 

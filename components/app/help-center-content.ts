@@ -701,13 +701,47 @@ const VISUAL_PLAN_BY_SECTION: Partial<Record<HelpSectionId, HelpSectionVisual>> 
     },
 };
 
+const HELP_VISUAL_ASSET_SRC_BY_SECTION: Partial<Record<HelpSectionId, string>> = {
+    overview: '/help/overview.png',
+    navigation: '/help/navigation.png',
+    'brands-and-apps': '/help/brands-and-apps.png',
+    accounts: '/help/accounts.png',
+    ideas: '/help/ideas.png',
+    'selected-app-setup': '/help/selected-app-setup.png',
+    'step-1-icon': '/help/step-1-icon.png',
+    'step-2-client-spec': '/help/step-2-client-spec.png',
+    'step-3-setup-data': '/help/step-3-setup-data.png',
+    'step-4-dev-files': '/help/step-4-dev-files.png',
+    'step-5-development': '/help/step-5-development.png',
+    'step-6-integration': '/help/step-6-integration.png',
+    'step-8-simulator-screenshots': '/help/step-8-simulator-screenshots.png',
+    'step-9-screenshot-prompts': '/help/step-9-screenshot-prompts.png',
+    'step-10-generated-screenshots': '/help/step-10-generated-screenshots.png',
+    'no-brand-flow': '/help/no-brand-flow.png',
+    'collaboration-and-guards': '/help/collaboration-and-guards.png',
+    'deliverables-export': '/help/deliverables-export.png',
+};
+
 export const getHelpCenterCopy = (lang: Language) => {
     const content = CONTENT_BY_LANG[lang] || CONTENT_BY_LANG.en;
     return {
         ...content,
         sections: content.sections.map((section) => ({
             ...section,
-            visual: VISUAL_PLAN_BY_SECTION[section.id],
+            visual: VISUAL_PLAN_BY_SECTION[section.id]
+                ? {
+                      ...VISUAL_PLAN_BY_SECTION[section.id],
+                      asset: HELP_VISUAL_ASSET_SRC_BY_SECTION[section.id]
+                          ? {
+                                src: HELP_VISUAL_ASSET_SRC_BY_SECTION[section.id] || '',
+                                alt:
+                                    lang === 'ru'
+                                        ? `${section.title} — скриншот интерфейса`
+                                        : `${section.title} interface screenshot`,
+                            }
+                          : undefined,
+                  }
+                : undefined,
         })),
     };
 };

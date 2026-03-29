@@ -90,7 +90,6 @@ export const translations = {
         accounts_disabled_hint: 'This account is unusable and will not be used.',
         accounts_used_before_hint: 'This account was used before and is blocked.',
         accounts_discard: 'Discard changes',
-        accounts_auto: 'Auto',
         accounts_unassigned: 'Unassigned',
         accounts_confirm_switch_account: 'Switch account for this app? This will detach the current account and attach the new one.',
         accounts_no_usable_accounts: 'No usable unassigned accounts available.',
@@ -143,6 +142,11 @@ export const translations = {
         ideas_generator_reset_categories: 'Reset to suggested',
         ideas_generator_suggested_short: 'Suggested',
         ideas_generator_select_categories: 'Select at least one category before queueing generation.',
+        ideas_generator_guidance: 'Extra guidance',
+        ideas_generator_guidance_placeholder:
+            'Optional. Add run-specific direction like audience, exclusions, tone, or product constraints.',
+        ideas_generator_guidance_hint:
+            'Used as soft direction for this run while the selected categories stay hard constraints.',
         ideas_generator_run: 'Generate idea specs',
         ideas_generator_ready_for: 'Generating for',
         ideas_generator_latest_run: 'Latest run',
@@ -868,7 +872,6 @@ export const translations = {
         accounts_disabled_hint: 'Этот аккаунт недоступен и не будет использоваться.',
         accounts_used_before_hint: 'Этот аккаунт уже использовался и заблокирован.',
         accounts_discard: 'Сбросить изменения',
-        accounts_auto: 'Авто',
         accounts_unassigned: 'Не назначено',
         accounts_confirm_switch_account: 'Сменить аккаунт для этого приложения? Текущий аккаунт будет отвязан, и новый будет привязан.',
         accounts_no_usable_accounts: 'Нет доступных свободных аккаунтов.',
@@ -884,6 +887,11 @@ export const translations = {
         ideas_category: 'Категория',
         ideas_name: 'Имя приложения',
         ideas_description: 'Описание идеи',
+        ideas_generator_guidance: 'Дополнительные указания',
+        ideas_generator_guidance_placeholder:
+            'Необязательно. Добавьте направление для этого запуска: аудитория, ограничения, тон или продуктовые условия.',
+        ideas_generator_guidance_hint:
+            'Используется как мягкое направление для этого запуска, а выбранные категории остаются жёсткими ограничениями.',
         ideas_applied_to: 'Применено в',
         ideas_actions: 'Действия',
         ideas_confirm_delete: 'Удалить эту идею? Это нельзя отменить.',
