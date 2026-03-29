@@ -10,6 +10,7 @@ import type {
     AppItem,
     Brand,
     IdeaAppAssignment,
+    IdeaCreativityTier,
     IdeaStatus,
 } from '../../types/zefgen';
 import { buildCanonicalBrandIdMap, getVisibleBrandOptions, isNoBrand } from '../../utils/no-brand';
@@ -38,7 +39,13 @@ type IdeaGeneratorPrefs = {
     table_scope_brand_id?: string;
 };
 
-const CREATIVITY_MIX = { safe: 4, balanced: 3, wild: 3 } as const;
+const DEFAULT_REQUESTED_COUNT = 3;
+const CREATIVITY_PERCENTAGES: Record<IdeaCreativityTier, number> = {
+    safe: 0.4,
+    balanced: 0.3,
+    wild: 0.3,
+};
+const CREATIVITY_TIER_ORDER: IdeaCreativityTier[] = ['safe', 'balanced', 'wild'];
 const IDEA_EXAMPLE_ROOT = 'Ideas_example';
 const TABLE_SCOPE_ALL = '__all__';
 const DEFAULT_SUGGESTED_CATEGORY_SLUGS = ['lifestyle', 'productivity', 'utilities'] as const;
@@ -73,6 +80,38 @@ const toggleListValue = (list: string[], id: string) => {
 const arraysEqual = (left: string[], right: string[]) => {
     if (left.length !== right.length) return false;
     return left.every((value, index) => value === right[index]);
+};
+
+const normalizeIdeaGenerationCount = (value: unknown) =>
+    Math.max(DEFAULT_REQUESTED_COUNT, Math.min(20, Number.parseInt(String(value ?? ''), 10) || DEFAULT_REQUESTED_COUNT));
+
+const buildCreativityMix = (count: number): Record<IdeaCreativityTier, number> => {
+    const normalizedCount = normalizeIdeaGenerationCount(count);
+    const buckets = CREATIVITY_TIER_ORDER.map((tier, index) => {
+        const exact = normalizedCount * CREATIVITY_PERCENTAGES[tier];
+        const base = Math.floor(exact);
+        return {
+            tier,
+            index,
+            base,
+            remainder: exact - base,
+        };
+    });
+
+    const allocated = buckets.reduce((sum, bucket) => sum + bucket.base, 0);
+    const remaining = normalizedCount - allocated;
+    const rankedBuckets = [...buckets].sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+
+    const result = { safe: 0, balanced: 0, wild: 0 } as Record<IdeaCreativityTier, number>;
+    for (const bucket of buckets) {
+        result[bucket.tier] = bucket.base;
+    }
+    for (let index = 0; index < remaining; index += 1) {
+        const target = rankedBuckets[index % rankedBuckets.length];
+        result[target.tier] += 1;
+    }
+
+    return result;
 };
 
 const buildIdeaGenerationConfirmationAnswer = (payload: {
@@ -290,7 +329,7 @@ export function IdeasPage(props: {
     const [newError, setNewError] = React.useState<string | null>(null);
     const [newRowScrollNonce, setNewRowScrollNonce] = React.useState(0);
     const [generatorBrandId, setGeneratorBrandId] = React.useState('');
-    const [requestedCount, setRequestedCount] = React.useState('3');
+    const [requestedCount, setRequestedCount] = React.useState(String(DEFAULT_REQUESTED_COUNT));
     const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<string[]>([]);
     const [generatorGuidance, setGeneratorGuidance] = React.useState('');
     const [tableScopeBrandId, setTableScopeBrandId] = React.useState<string>(TABLE_SCOPE_ALL);
@@ -384,6 +423,8 @@ export function IdeasPage(props: {
         () => (Array.isArray(selectedCategoryIds) ? selectedCategoryIds.filter(Boolean) : []),
         [selectedCategoryIds]
     );
+    const normalizedRequestedCount = React.useMemo(() => normalizeIdeaGenerationCount(requestedCount), [requestedCount]);
+    const creativityMix = React.useMemo(() => buildCreativityMix(normalizedRequestedCount), [normalizedRequestedCount]);
 
     const suggestedCategoryIds = React.useMemo(
         () => buildSuggestedCategoryIds({ brand: currentGeneratorBrand, categories: categoryList, ideas: ideaList }),
@@ -460,6 +501,12 @@ export function IdeasPage(props: {
         tableScopeBrandId,
         validCategoryIds,
     ]);
+
+    const handleGeneratorScopeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const nextBrandId = event.target.value;
+        setGeneratorBrandId(nextBrandId);
+        setTableScopeBrandId(nextBrandId || TABLE_SCOPE_ALL);
+    };
 
     const appliedAppsByIdeaId = React.useMemo(() => {
         const map = new Map<
@@ -886,7 +933,7 @@ export function IdeasPage(props: {
             reportError?.(message);
             return;
         }
-        const count = Math.max(1, Math.min(20, Number.parseInt(requestedCount, 10) || 3));
+        const count = normalizedRequestedCount;
         const confirmedCategoryIds = safeSelectedCategoryIds.filter((categoryId) =>
             categoryList.some((category) => category.id === categoryId)
         );
@@ -910,7 +957,7 @@ export function IdeasPage(props: {
             await createIdeaGenerationJob({
                 brand_id: currentGeneratorBrand.id,
                 count,
-                creativity_mix: CREATIVITY_MIX,
+                creativity_mix: creativityMix,
                 suggested_category_ids: [],
                 confirmed_category_ids: confirmedCategoryIds,
                 category_confirmation_required: false,
@@ -939,11 +986,12 @@ export function IdeasPage(props: {
         categoryList,
         categoryById,
         createIdeaGenerationJob,
+        creativityMix,
         currentGeneratorBrand,
         generatorGuidance,
         ideaList,
+        normalizedRequestedCount,
         reportError,
-        requestedCount,
         safeSelectedCategoryIds,
         text,
     ]);
@@ -1022,8 +1070,8 @@ export function IdeasPage(props: {
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-right text-xs text-indigo-100/70">
                             <div className="text-[10px] uppercase tracking-[0.14em] text-indigo-200/45">{text('ideas_generator_mix')}</div>
-                            <div className="mt-2 font-semibold text-indigo-100">
-                                {CREATIVITY_MIX.safe} / {CREATIVITY_MIX.balanced} / {CREATIVITY_MIX.wild}
+                            <div className="mt-2 font-semibold text-indigo-100" data-testid="ideas-generator-mix-value">
+                                {creativityMix.safe} / {creativityMix.balanced} / {creativityMix.wild}
                             </div>
                             <div className="mt-1 text-[11px] text-indigo-200/55">{text('ideas_generator_mix_caption')}</div>
                         </div>
@@ -1038,7 +1086,7 @@ export function IdeasPage(props: {
                                 <select
                                     data-testid="ideas-generator-scope-select"
                                     value={generatorBrandId}
-                                    onChange={(event) => setGeneratorBrandId(event.target.value)}
+                                    onChange={handleGeneratorScopeChange}
                                     className={`${fieldBase} h-10`}
                                 >
                                     <option value="">{text('ideas_generator_pick_scope')}</option>
@@ -1052,10 +1100,13 @@ export function IdeasPage(props: {
                             <label className="grid gap-1">
                                 <span className="text-[11px] text-indigo-200/55">{text('ideas_generator_count')}</span>
                                 <input
+                                    data-testid="ideas-generator-count-input"
                                     value={requestedCount}
                                     onChange={(event) => setRequestedCount(event.target.value.replace(/[^\d]/g, '').slice(0, 2))}
+                                    onBlur={() => setRequestedCount(String(normalizeIdeaGenerationCount(requestedCount)))}
                                     className={`${fieldBase} h-10`}
                                     inputMode="numeric"
+                                    min={DEFAULT_REQUESTED_COUNT}
                                 />
                             </label>
                         </div>

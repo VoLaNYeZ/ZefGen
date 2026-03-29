@@ -128,6 +128,15 @@ test('idea generator queues untouched current category selection as final confir
     const generatorScopeSelect = page.getByTestId('ideas-generator-scope-select');
     await generatorScopeSelect.selectOption({ label: 'No Brand' });
     await expect(generatorScopeSelect).toHaveValue(smokeEnv.seed.noBrand.id);
+    const countInput = page.getByTestId('ideas-generator-count-input');
+    await countInput.fill('1');
+    await countInput.blur();
+    await expect(countInput).toHaveValue('3');
+    await expect(page.getByTestId('ideas-generator-mix-value')).toHaveText('1 / 1 / 1');
+    await page.getByTestId('ideas-generator-count-input').fill('5');
+    await expect(page.getByTestId('ideas-generator-count-input')).toHaveValue('5');
+    await expect(page.getByTestId('ideas-generator-mix-value')).toHaveText('2 / 2 / 1');
+    await expect(page.getByText('40% safe / 30% balanced / 30% wild')).toBeVisible();
 
     const guidance =
         'Prefer offline-friendly utility apps for busy parents. Avoid finance, crypto, and AI-wrapper ideas.';
@@ -137,6 +146,12 @@ test('idea generator queues untouched current category selection as final confir
 
     await expect.poll(() => capturedCreateInput).not.toBeNull();
 
+    expect(capturedCreateInput?.count).toBe(5);
+    expect(capturedCreateInput?.creativity_mix).toEqual({
+        safe: 2,
+        balanced: 2,
+        wild: 1,
+    });
     expect(Array.isArray(capturedCreateInput?.confirmed_category_ids)).toBe(true);
     expect((capturedCreateInput?.confirmed_category_ids as unknown[]).length).toBeGreaterThan(0);
     expect(capturedCreateInput?.category_confirmation_required).toBe(false);

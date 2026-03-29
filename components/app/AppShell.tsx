@@ -54,7 +54,7 @@ import { AppShellOverlays } from './AppShellOverlays';
 import { AppShellPageContent } from './AppShellPageContent';
 import { HELP_CENTER_RUNTIME_LANG } from './help-center-content';
 import { Sidebar } from './Sidebar';
-import type { AppStoreReviewPanelSnapshot } from './AppStoreReviewWebhookRow';
+import type { AppStoreReviewPanelSnapshot } from '../../types/appstore-review-panel-snapshot';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';

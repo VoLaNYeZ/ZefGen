@@ -135,7 +135,7 @@ export const translations = {
         ideas_generator_pick_scope_first: 'Pick a brand or the no-brand scope first.',
         ideas_generator_count: 'Count',
         ideas_generator_mix: 'Creativity',
-        ideas_generator_mix_caption: '4 safe / 3 balanced / 3 wild',
+        ideas_generator_mix_caption: '40% safe / 30% balanced / 30% wild',
         ideas_generator_suggested_categories: 'Suggested categories',
         ideas_generator_corpus_hint:
             'Suggestions are seeded from brand context, prior generated ideas, and the runner corpus in Ideas_example.',
@@ -406,6 +406,8 @@ export const translations = {
         appstore_link_placeholder: 'Paste App Store URL or app ID',
         appstore_link_set: 'Set',
         appstore_link_invalid: 'Enter a valid App Store URL or app ID.',
+        appstore_review_webhook_discard_switch_confirm:
+            'Discard unsaved Apple webhook changes for this app and switch away?',
         appstore_review_webhook_save_before_switch: 'Save Apple config before switching apps.',
         appstore_link_in_store: 'In store:',
         appstore_review_webhook_title: 'App Store review webhook',
@@ -1142,6 +1144,8 @@ export const translations = {
         appstore_link_placeholder: 'Вставьте ссылку App Store или ID приложения',
         appstore_link_set: 'Сохранить',
         appstore_link_invalid: 'Введите корректную ссылку App Store или ID приложения.',
+        appstore_review_webhook_discard_switch_confirm:
+            'Сбросить несохраненные изменения Apple webhook для этого app и уйти с него?',
         appstore_review_webhook_save_before_switch: 'Сначала сохраните Apple config перед переключением приложений.',
         appstore_link_in_store: 'В сторе:',
         appstore_review_webhook_title: 'Webhook ревью App Store',

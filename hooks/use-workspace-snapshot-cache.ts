@@ -1,6 +1,6 @@
 import { useCallback, useEffect, type MutableRefObject } from 'react';
-import type { AppStoreReviewPanelSnapshot } from '../components/app/AppStoreReviewWebhookRow';
 import type { AppItem, Brand } from '../types/zefgen';
+import type { AppStoreReviewPanelSnapshot } from '../types/appstore-review-panel-snapshot';
 import type { AppScreenshotPromptsSnapshot } from './use-app-screenshot-prompts';
 import type { ConnectorConfigFormSnapshot } from './use-connector-config-form';
 import type { GeneratedAssetsAppSnapshot } from './use-generated-assets';

@@ -145,7 +145,10 @@ export function useWorkspaceSnapshotHydration({ sessionUserId, text, workspaceSn
                         text,
                     }),
                     appStoreNameHint: extractAppStoreNameHintFromConnectorConfig(connectorConfig || null),
-                    hasDraftChanges: false,
+                    appleCandidates: [],
+                    appleCandidatesLoaded: false,
+                    expanded: false,
+                    quickSetupEditing: false,
                 },
             };
 

@@ -42,6 +42,10 @@ import {
     isTerminalAppstoreReviewState,
     shouldBackgroundRefreshAppstoreReviewState,
 } from '../../lib/appstore-review-state.shared.js';
+import {
+    buildAppStoreReviewPanelSnapshot,
+    type AppStoreReviewPanelSnapshot,
+} from '../../types/appstore-review-panel-snapshot';
 import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
 
 const formatTimestamp = (value: string | null | undefined) => {
@@ -170,13 +174,6 @@ const buildLocalCredentialIssues = (payload: {
 
 type BusyAction = 'create' | 'rotate' | 'save' | 'apps' | 'check' | 'sync' | 'ping' | null;
 
-export type AppStoreReviewPanelSnapshot = {
-    appId: string;
-    status: AppstoreReviewWebhookStatus | null;
-    appStoreNameHint: string;
-    hasDraftChanges: boolean;
-};
-
 export const extractAppStoreNameHintFromConnectorConfig = (connectorConfig: any) =>
     String((connectorConfig as any)?.variables?.appstore_name || '').trim();
 
@@ -291,6 +288,7 @@ export function AppStoreReviewWebhookRow(props: {
     const hydratedAppIdRef = React.useRef('');
     const privateKeyInputRef = React.useRef<HTMLInputElement | null>(null);
     const hydrationSnapshotRef = React.useRef<AppStoreReviewPanelSnapshot | null>(hydrationSnapshot);
+    const cleanSnapshotRef = React.useRef<AppStoreReviewPanelSnapshot | null>(hydrationSnapshot);
     const hasAppleDraftChangesRef = React.useRef(false);
 
     const markAppleDraftDirty = React.useCallback(() => {
@@ -377,37 +375,6 @@ export function AppStoreReviewWebhookRow(props: {
         !isReadOnly &&
         canCheckAppleNow &&
         String(config?.latest_review_state || '').trim().toUpperCase() === 'READY_FOR_SALE';
-    const draftGuardReason = React.useMemo(() => {
-        if (!hasAppleDraftChanges) return null;
-        if (keyModeDraft === 'team') {
-            if (!normalizedIssuerIdDraft) return text('appstore_review_webhook_save_before_switch');
-            if (!APPLE_ISSUER_ID_PATTERN.test(normalizedIssuerIdDraft)) {
-                return text('appstore_review_webhook_issuer_id_invalid');
-            }
-        }
-
-        const storedManagedSubdomain =
-            String(config?.public_subdomain || '').trim() ||
-            extractManagedAppstoreReviewPublicSubdomain(config?.public_webhook_url) ||
-            '';
-        if (!legacyExplicitWebhookUrl && !String(publicSubdomainDraft || '').trim() && !storedManagedSubdomain) {
-            if (!String(appStoreNameHint || '').trim()) {
-                return text('appstore_review_webhook_appstore_name_required');
-            }
-        }
-
-        return null;
-    }, [
-        appStoreNameHint,
-        config?.public_subdomain,
-        config?.public_webhook_url,
-        hasAppleDraftChanges,
-        keyModeDraft,
-        legacyExplicitWebhookUrl,
-        normalizedIssuerIdDraft,
-        publicSubdomainDraft,
-        text,
-    ]);
     const headerStatusLabel = !config
         ? ''
         : latestStateLabel
@@ -631,13 +598,96 @@ export function AppStoreReviewWebhookRow(props: {
         [appStoreNameHint, clearAppleDraftDirty]
     );
 
+    const applySnapshotState = React.useCallback(
+        (snapshot: AppStoreReviewPanelSnapshot) => {
+            const nextAppStoreNameHint = String(snapshot.appStoreNameHint || '').trim();
+            setLoading(false);
+            setBusyAction(null);
+            setNotice(null);
+            setStatus(snapshot.status || null);
+            setAppleCandidates(Array.isArray(snapshot.appleCandidates) ? [...snapshot.appleCandidates] : []);
+            setAppleCandidatesLoaded(Boolean(snapshot.appleCandidatesLoaded));
+            setCopiedKey(null);
+            setIsPrivateKeyDragActive(false);
+            setCheckingAppleSnapshot(false);
+            setServerStatusWarning(null);
+            setExpanded(Boolean(snapshot.expanded));
+            setQuickSetupEditing(Boolean(snapshot.quickSetupEditing));
+            setAppStoreNameHint(nextAppStoreNameHint);
+            hydrateDraftsFromStatus(snapshot.status, true, {
+                appStoreNameHint: nextAppStoreNameHint,
+            });
+            hydratedAppIdRef.current = appId;
+            cleanSnapshotRef.current = snapshot;
+        },
+        [appId, hydrateDraftsFromStatus]
+    );
+
+    const discardDraftChanges = React.useCallback(() => {
+        const matchingCleanSnapshot =
+            cleanSnapshotRef.current && String(cleanSnapshotRef.current.appId || '').trim() === appId
+                ? cleanSnapshotRef.current
+                : null;
+        const nextStatus = matchingCleanSnapshot?.status || status || null;
+        const nextAppStoreNameHint = String(matchingCleanSnapshot?.appStoreNameHint || appStoreNameHint || '').trim();
+
+        setLoading(false);
+        setBusyAction(null);
+        setNotice(null);
+        setStatus(nextStatus);
+        setAppleCandidates(
+            matchingCleanSnapshot?.appleCandidates
+                ? [...matchingCleanSnapshot.appleCandidates]
+                : [...appleCandidates]
+        );
+        setAppleCandidatesLoaded(
+            matchingCleanSnapshot ? Boolean(matchingCleanSnapshot.appleCandidatesLoaded) : appleCandidatesLoaded
+        );
+        setCopiedKey(null);
+        setIsPrivateKeyDragActive(false);
+        setCheckingAppleSnapshot(false);
+        setServerStatusWarning(null);
+        setExpanded(matchingCleanSnapshot ? Boolean(matchingCleanSnapshot.expanded) : false);
+        setQuickSetupEditing(matchingCleanSnapshot ? Boolean(matchingCleanSnapshot.quickSetupEditing) : false);
+        setAppStoreNameHint(nextAppStoreNameHint);
+        hydrateDraftsFromStatus(nextStatus, true, {
+            appStoreNameHint: nextAppStoreNameHint,
+        });
+        hydratedAppIdRef.current = appId;
+    }, [appId, appStoreNameHint, appleCandidates, appleCandidatesLoaded, hydrateDraftsFromStatus, status]);
+
+    const cleanSnapshot = React.useMemo(
+        () =>
+            buildAppStoreReviewPanelSnapshot({
+                appId,
+                status,
+                appStoreNameHint,
+                appleCandidates,
+                appleCandidatesLoaded,
+                expanded,
+                quickSetupEditing,
+                hasDraftChanges: hasAppleDraftChanges,
+                privateKeyDraft,
+            }),
+        [
+            appId,
+            appStoreNameHint,
+            appleCandidates,
+            appleCandidatesLoaded,
+            expanded,
+            hasAppleDraftChanges,
+            privateKeyDraft,
+            quickSetupEditing,
+            status,
+        ]
+    );
+
     React.useLayoutEffect(() => {
         activeAppKeyRef.current = appId && userId ? `${userId}:${appId}` : '';
         hydratedAppIdRef.current = '';
         requestIdRef.current += 1;
-        setExpanded(false);
-        setQuickSetupEditing(false);
         if (!appId || !userId) {
+            cleanSnapshotRef.current = null;
             setLoading(false);
             setBusyAction(null);
             setNotice(null);
@@ -656,6 +706,8 @@ export function AppStoreReviewWebhookRow(props: {
             setCheckingAppleSnapshot(false);
             setServerStatusWarning(null);
             setAppStoreNameHint('');
+            setExpanded(false);
+            setQuickSetupEditing(false);
             return;
         }
 
@@ -664,25 +716,11 @@ export function AppStoreReviewWebhookRow(props: {
                 ? hydrationSnapshotRef.current
                 : null;
         if (matchingHydrationSnapshot) {
-            const nextAppStoreNameHint = String(matchingHydrationSnapshot.appStoreNameHint || '').trim();
-            setLoading(false);
-            setBusyAction(null);
-            setNotice(null);
-            setStatus(matchingHydrationSnapshot.status || null);
-            setAppleCandidates([]);
-            setAppleCandidatesLoaded(false);
-            setCopiedKey(null);
-            setIsPrivateKeyDragActive(false);
-            setCheckingAppleSnapshot(false);
-            setServerStatusWarning(null);
-            setAppStoreNameHint(nextAppStoreNameHint);
-            hydrateDraftsFromStatus(matchingHydrationSnapshot.status, true, {
-                appStoreNameHint: nextAppStoreNameHint,
-            });
-            hydratedAppIdRef.current = appId;
+            applySnapshotState(matchingHydrationSnapshot);
             return;
         }
 
+        cleanSnapshotRef.current = null;
         setLoading(true);
         setBusyAction(null);
         setNotice(null);
@@ -701,21 +739,20 @@ export function AppStoreReviewWebhookRow(props: {
         setCheckingAppleSnapshot(false);
         setServerStatusWarning(null);
         setAppStoreNameHint('');
-    }, [appId, userId]);
+        setExpanded(false);
+        setQuickSetupEditing(false);
+    }, [appId, applySnapshotState, clearAppleDraftDirty, userId]);
 
     React.useEffect(() => {
-        if (!onSnapshotChange) return;
         if (!appId) {
-            onSnapshotChange(null);
+            cleanSnapshotRef.current = null;
+            onSnapshotChange?.(null);
             return;
         }
-        onSnapshotChange({
-            appId,
-            status,
-            appStoreNameHint: String(appStoreNameHint || '').trim(),
-            hasDraftChanges: hasAppleDraftChanges,
-        });
-    }, [appId, appStoreNameHint, hasAppleDraftChanges, onSnapshotChange, status]);
+        if (!cleanSnapshot) return;
+        cleanSnapshotRef.current = cleanSnapshot;
+        onSnapshotChange?.(cleanSnapshot);
+    }, [appId, cleanSnapshot, onSnapshotChange]);
 
     const loadFallbackStatus = React.useCallback(async () => {
         const [webhookRes, eventsRes, connectorConfigRes, secretMetasRes] = await Promise.all([
@@ -774,15 +811,27 @@ export function AppStoreReviewWebhookRow(props: {
                     hydratedAppIdRef.current = appId;
                 } catch (fallbackError: any) {
                     if (requestIdRef.current !== requestId) return;
+                    const warningMessage = String(fallbackError?.message || error?.message || text('upload_failed')).trim();
+                    const hasRenderableCachedState =
+                        Boolean(status) ||
+                        Boolean(
+                            cleanSnapshotRef.current &&
+                                String(cleanSnapshotRef.current.appId || '').trim() === appId &&
+                                cleanSnapshotRef.current.status
+                        );
+                    if (hasRenderableCachedState) {
+                        setServerStatusWarning(warningMessage || text('upload_failed'));
+                        return;
+                    }
                     if (options?.reportErrors !== false) {
-                        reportError(String(fallbackError?.message || error?.message || text('upload_failed')));
+                        reportError(warningMessage || text('upload_failed'));
                     }
                 }
             } finally {
                 if (activeAppKeyRef.current === appKey) setLoading(false);
             }
         },
-        [appId, hydrateDraftsFromStatus, loadFallbackStatus, reportError, text, userId]
+        [appId, hydrateDraftsFromStatus, loadFallbackStatus, reportError, status, text, userId]
     );
 
     React.useEffect(() => {
@@ -1025,34 +1074,21 @@ export function AppStoreReviewWebhookRow(props: {
     const flushPending = React.useCallback(async () => {
         if (isReadOnly || !appId || !userId) return true;
         if (!hasAppleDraftChangesRef.current) return true;
-
-        setExpanded(true);
-        setQuickSetupEditing(true);
-        if (draftGuardReason) return false;
-
-        setBusyAction('save');
-        setNotice(null);
-        try {
-            await persistAppleDrafts();
-            setExpanded(false);
-            return true;
-        } catch (error: any) {
-            reportError(String(error?.message || text('upload_failed')));
-            return false;
-        } finally {
-            setBusyAction(null);
-        }
-    }, [appId, draftGuardReason, isReadOnly, persistAppleDrafts, reportError, text, userId]);
+        const confirmed = window.confirm(text('appstore_review_webhook_discard_switch_confirm'));
+        if (!confirmed) return false;
+        discardDraftChanges();
+        return true;
+    }, [appId, discardDraftChanges, isReadOnly, text, userId]);
 
     React.useEffect(() => {
         if (!onSwitchGuardChange) return;
         onSwitchGuardChange({
             isDirty: hasAppleDraftChanges,
-            blockReason: draftGuardReason,
+            blockReason: null,
             flushPending,
         });
         return () => onSwitchGuardChange(null);
-    }, [draftGuardReason, flushPending, hasAppleDraftChanges, onSwitchGuardChange]);
+    }, [flushPending, hasAppleDraftChanges, onSwitchGuardChange]);
 
     const resolveBridgeSubdomain = React.useCallback(
         (webhook: AppstoreReviewWebhook | null) => {
