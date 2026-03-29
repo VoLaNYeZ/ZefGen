@@ -344,6 +344,8 @@ export function IdeasPage(props: {
     const persistedCategoryIdsByBrandRef = React.useRef<Record<string, string[]>>({});
     const persistedGuidanceByBrandRef = React.useRef<Record<string, string>>({});
     const persistedTableScopeBrandIdRef = React.useRef<string>(TABLE_SCOPE_ALL);
+    const persistedGeneratorBrandAppliedRef = React.useRef(false);
+    const persistedTableScopeAppliedRef = React.useRef(false);
     const ideaGeneratorPrefsStorageKey = React.useMemo(
         () => getIdeaGeneratorPrefsStorageKey(session?.user?.id || null),
         [session?.user?.id]
@@ -363,6 +365,8 @@ export function IdeasPage(props: {
 
     React.useEffect(() => {
         setPrefsHydrated(false);
+        persistedGeneratorBrandAppliedRef.current = false;
+        persistedTableScopeAppliedRef.current = false;
         if (!ideaGeneratorPrefsStorageKey) {
             persistedGeneratorBrandIdRef.current = '';
             persistedCategoryIdsByBrandRef.current = {};
@@ -384,14 +388,23 @@ export function IdeasPage(props: {
             return;
         }
         setGeneratorBrandId((prev) => {
-            if (prev && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
             const persistedBrandId = persistedGeneratorBrandIdRef.current;
-            if (persistedBrandId && visibleScopeBrands.some((brand) => brand.id === persistedBrandId)) {
+            const hasPersistedBrandId = persistedBrandId && visibleScopeBrands.some((brand) => brand.id === persistedBrandId);
+
+            if (prefsHydrated && !persistedGeneratorBrandAppliedRef.current) {
+                persistedGeneratorBrandAppliedRef.current = true;
+                if (hasPersistedBrandId) {
+                    return persistedBrandId;
+                }
+            }
+
+            if (prev && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
+            if (hasPersistedBrandId) {
                 return persistedBrandId;
             }
             return canonicalSelectedBrandId || visibleScopeBrands[0]?.id || '';
         });
-    }, [canonicalSelectedBrandId, visibleScopeBrands]);
+    }, [canonicalSelectedBrandId, prefsHydrated, visibleScopeBrands]);
 
     React.useEffect(() => {
         if (!visibleScopeBrands.length) {
@@ -400,16 +413,24 @@ export function IdeasPage(props: {
         }
         setTableScopeBrandId((prev) => {
             const persistedTableScopeBrandId = persistedTableScopeBrandIdRef.current;
-            if (prev !== TABLE_SCOPE_ALL && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
-            if (
+            const hasPersistedTableScope =
                 persistedTableScopeBrandId === TABLE_SCOPE_ALL ||
-                visibleScopeBrands.some((brand) => brand.id === persistedTableScopeBrandId)
-            ) {
+                visibleScopeBrands.some((brand) => brand.id === persistedTableScopeBrandId);
+
+            if (prefsHydrated && !persistedTableScopeAppliedRef.current) {
+                persistedTableScopeAppliedRef.current = true;
+                if (hasPersistedTableScope) {
+                    return persistedTableScopeBrandId;
+                }
+            }
+
+            if (prev !== TABLE_SCOPE_ALL && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
+            if (hasPersistedTableScope) {
                 return persistedTableScopeBrandId;
             }
             return TABLE_SCOPE_ALL;
         });
-    }, [visibleScopeBrands]);
+    }, [prefsHydrated, visibleScopeBrands]);
 
     const brandById = React.useMemo(() => new Map(brandList.map((brand) => [brand.id, brand])), [brandList]);
     const scopeBrandById = React.useMemo(() => new Map(visibleScopeBrands.map((brand) => [brand.id, brand])), [visibleScopeBrands]);
