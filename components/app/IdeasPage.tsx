@@ -393,12 +393,13 @@ export function IdeasPage(props: {
 
             if (prefsHydrated && !persistedGeneratorBrandAppliedRef.current) {
                 if (hasPersistedBrandId) {
-                    persistedGeneratorBrandAppliedRef.current = true;
+                    if (prev === persistedBrandId) {
+                        persistedGeneratorBrandAppliedRef.current = true;
+                        return prev;
+                    }
                     return persistedBrandId;
                 }
-                if (!persistedBrandId) {
-                    persistedGeneratorBrandAppliedRef.current = true;
-                }
+                persistedGeneratorBrandAppliedRef.current = true;
             }
 
             if (prev && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
@@ -422,12 +423,13 @@ export function IdeasPage(props: {
 
             if (prefsHydrated && !persistedTableScopeAppliedRef.current) {
                 if (hasPersistedTableScope) {
-                    persistedTableScopeAppliedRef.current = true;
+                    if (prev === persistedTableScopeBrandId) {
+                        persistedTableScopeAppliedRef.current = true;
+                        return prev;
+                    }
                     return persistedTableScopeBrandId;
                 }
-                if (!persistedTableScopeBrandId) {
-                    persistedTableScopeAppliedRef.current = true;
-                }
+                persistedTableScopeAppliedRef.current = true;
             }
 
             if (prev !== TABLE_SCOPE_ALL && visibleScopeBrands.some((brand) => brand.id === prev)) return prev;
@@ -482,6 +484,7 @@ export function IdeasPage(props: {
 
     React.useEffect(() => {
         if (!ideaGeneratorPrefsStorageKey || !prefsHydrated) return;
+        if (!persistedGeneratorBrandAppliedRef.current || !persistedTableScopeAppliedRef.current) return;
 
         if (!generatorBrandId) {
             persistedGeneratorBrandIdRef.current = '';

@@ -1131,6 +1131,21 @@ export const useConnectorConfigForm = (payload: {
                         queueJobs?.setJobProgress(queueJobId, { current: 3, total: 4 });
                     }
                     await refresh({ mode: 'background', preserveConflict: true });
+                    if (isCurrentRequestContext(requestContext)) {
+                        // Apply the function response locally as the immediate source of truth.
+                        // This keeps the UI stable even if the follow-up refresh lags behind.
+                        setLegalLinks((prev) =>
+                            toLegalLinksState({
+                                id: String(data.runId || prev.id || '').trim(),
+                                fingerprint: String(data.fingerprint || prev.fingerprint || '').trim(),
+                                privacy_policy_url: String(data.urls?.privacy_policy_url || '').trim(),
+                                terms_of_use_url: String(data.urls?.terms_of_use_url || '').trim(),
+                                support_form_url: String(data.urls?.support_form_url || '').trim(),
+                                updated_at: new Date().toISOString(),
+                                created_at: prev.created_at,
+                            })
+                        );
+                    }
                     if (queueJobId) {
                         queueJobs?.setJobProgress(queueJobId, { current: 4, total: 4 });
                         queueJobs?.finishJob(queueJobId, { status: 'success', message: 'Done' });

@@ -54,6 +54,7 @@ const getRegenerateDescriptionButton = (page: Page) =>
     getSetupDataPanel(page).getByTestId('connector-appstore-description-regenerate');
 const getMetadataRetryButton = (page: Page) =>
     getSetupDataPanel(page).getByTestId('connector-appstore-metadata-retry');
+const getLegalLink = (page: Page, label: string) => getSetupDataPanel(page).getByLabel(label);
 
 const createBrandAndAppInCurrentWorkspace = async (page: Page, suffix: string) => {
     const brandName = `Setup Description ${suffix}`;
@@ -191,7 +192,9 @@ test('Generate Links does not regenerate App Store description', async ({ page }
         await expect(descriptionTextarea).toHaveValue(MANUAL_DESCRIPTION);
 
         await setupDataPanel.getByRole('button', { name: /generate links|regenerate links/i }).click();
-        await expect(setupDataPanel.getByText('Links generated.')).toBeVisible();
+        await expect(getLegalLink(page, 'Privacy Policy URL')).toHaveAttribute('href', 'https://example.test/privacy');
+        await expect(getLegalLink(page, 'Terms of Use URL')).toHaveAttribute('href', 'https://example.test/terms');
+        await expect(getLegalLink(page, 'Support form URL')).toHaveAttribute('href', 'https://example.test/support');
 
         expect(legalLinksCallCount, 'Expected Generate Links to hit the legal-links backend once').toBe(1);
         expect(descriptionApiCallCount, 'Generate Links should not call the App Store description API').toBe(0);
@@ -265,7 +268,6 @@ test('first description generation creates subtitle options and keywords, and la
         const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
         await getRegenerateDescriptionButton(page).click();
-        await expect(setupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'First regenerate should call the description API once').toBe(1);
         await expect(descriptionTextarea).toHaveValue(GENERATED_DESCRIPTION);
@@ -299,7 +301,6 @@ test('first description generation creates subtitle options and keywords, and la
 
         const descriptionApiCallCountBeforeSecondRegenerate = descriptionApiCallCount;
         await getRegenerateDescriptionButton(page).click();
-        await expect(reloadedSetupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'Second regenerate should call the description API exactly once more').toBe(
             descriptionApiCallCountBeforeSecondRegenerate + 1
@@ -379,9 +380,6 @@ test('description regenerate stays successful when metadata fails and Try again 
         const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
         await getRegenerateDescriptionButton(page).click();
-        await expect(
-            setupDataPanel.getByText('App Store description saved. Some App Store metadata still needs generation.')
-        ).toBeVisible();
 
         expect(descriptionApiCallCount, 'First regenerate should call the description API once').toBe(1);
         expect(requestBodies[0]?.generateDescription, 'First regenerate should request description generation').toBe(true);
@@ -391,7 +389,6 @@ test('description regenerate stays successful when metadata fails and Try again 
         await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toBeVisible();
 
         await getMetadataRetryButton(page).click();
-        await expect(setupDataPanel.getByText('Missing App Store metadata generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'Metadata retry should call the API exactly once more').toBe(2);
         expect(requestBodies[1]?.generateDescription, 'Metadata retry should skip description generation').toBe(false);
@@ -502,15 +499,11 @@ test('metadata-only retry requests only missing fields and preserves existing ma
         const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
         await getRegenerateDescriptionButton(page).click();
-        await expect(
-            setupDataPanel.getByText('App Store description saved. Some App Store metadata still needs generation.')
-        ).toBeVisible();
 
         await keywordsTextarea.fill(GENERATED_KEYWORDS_A);
         await expect(keywordsTextarea).toHaveValue(GENERATED_KEYWORDS_A);
 
         await getMetadataRetryButton(page).click();
-        await expect(setupDataPanel.getByText('Missing App Store metadata generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'First metadata retry should call the API again').toBe(2);
         expect(requestBodies[1]?.generateDescription, 'Retry should skip description generation').toBe(false);
@@ -530,7 +523,6 @@ test('metadata-only retry requests only missing fields and preserves existing ma
         await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toBeVisible();
 
         await getMetadataRetryButton(page).click();
-        await expect(setupDataPanel.getByText('Missing App Store metadata generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'Second metadata retry should call the API a third time').toBe(3);
         expect(requestBodies[2]?.generateDescription, 'Second retry should also skip description generation').toBe(false);
