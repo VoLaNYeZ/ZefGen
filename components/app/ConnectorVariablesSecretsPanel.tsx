@@ -862,6 +862,8 @@ export function ConnectorVariablesSecretsPanel(props: {
                                                 <span title={appstoreDescriptionRegenerateTitle} className="inline-flex">
                                                     <button
                                                         type="button"
+                                                        data-testid="connector-appstore-description-regenerate"
+                                                        aria-label={text('connector_appstore_desc_regenerate')}
                                                         onClick={() => void handleRegenerateDescriptionOnly()}
                                                         disabled={
                                                             !canEdit ||

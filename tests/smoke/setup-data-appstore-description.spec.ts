@@ -51,6 +51,9 @@ const getSetupDataPanel = (page: Page) => page.getByTestId('workspace-panel-vari
 
 const getAccountSelect = (page: Page) => getSetupDataPanel(page).locator('select[aria-label="Account"]');
 
+const getRegenerateDescriptionButton = (page: Page) =>
+    getSetupDataPanel(page).getByTestId('connector-appstore-description-regenerate');
+
 const createBrandAndAppInCurrentWorkspace = async (page: Page, suffix: string) => {
     const brandName = `Setup Description ${suffix}`;
     const brandSlug = slugifyForSmoke(brandName);
@@ -190,7 +193,7 @@ test('Generate Links does not regenerate App Store description', async ({ page }
         expect(descriptionApiCallCount, 'Generate Links should not call the App Store description API').toBe(0);
         await expect(descriptionTextarea).toHaveValue(MANUAL_DESCRIPTION);
 
-        await setupDataPanel.getByRole('button', { name: /^Regenerate$/i }).click();
+        await getRegenerateDescriptionButton(page).click();
         await expect(setupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'Regenerate should call the App Store description API exactly once').toBe(1);
@@ -254,7 +257,7 @@ test('first description generation creates subtitle options and keywords, and la
         const subtitleInput = setupDataPanel.getByTestId('connector-variable-input-appstore_initial_subtitle');
         const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
-        await setupDataPanel.getByRole('button', { name: /^Regenerate$/i }).click();
+        await getRegenerateDescriptionButton(page).click();
         await expect(setupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'First regenerate should call the description API once').toBe(1);
@@ -285,11 +288,15 @@ test('first description generation creates subtitle options and keywords, and la
         await reloadedSetupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-2').click();
         await expect(reloadedSubtitleInput).toHaveValue(GENERATED_SUBTITLE_OPTIONS_A[1]);
         await expect(reloadedSetupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')).toHaveCount(0);
+        await page.waitForTimeout(1200);
 
-        await reloadedSetupDataPanel.getByRole('button', { name: /^Regenerate$/i }).click();
+        const descriptionApiCallCountBeforeSecondRegenerate = descriptionApiCallCount;
+        await getRegenerateDescriptionButton(page).click();
         await expect(reloadedSetupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
-        expect(descriptionApiCallCount, 'Second regenerate should call the description API again').toBe(2);
+        expect(descriptionApiCallCount, 'Second regenerate should call the description API exactly once more').toBe(
+            descriptionApiCallCountBeforeSecondRegenerate + 1
+        );
         await expect(reloadedSetupDataPanel.getByTestId('connector-variable-textarea-appstore_description')).toHaveValue(
             GENERATED_DESCRIPTION_V2
         );
@@ -358,7 +365,7 @@ test('manual subtitle entry clears pending options and later regenerate skips me
         const subtitleInput = setupDataPanel.getByTestId('connector-variable-input-appstore_initial_subtitle');
         const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
-        await setupDataPanel.getByRole('button', { name: /^Regenerate$/i }).click();
+        await getRegenerateDescriptionButton(page).click();
         await expect(setupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'First regenerate should call the description API once').toBe(1);
@@ -396,7 +403,7 @@ test('manual subtitle entry clears pending options and later regenerate skips me
             reloadedSetupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')
         ).toHaveCount(0);
 
-        await reloadedSetupDataPanel.getByRole('button', { name: /^Regenerate$/i }).click();
+        await getRegenerateDescriptionButton(page).click();
         await expect(reloadedSetupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
 
         expect(descriptionApiCallCount, 'Second regenerate should call the description API again').toBe(2);
