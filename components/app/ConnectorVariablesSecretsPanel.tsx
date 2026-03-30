@@ -174,6 +174,27 @@ export function ConnectorVariablesSecretsPanel(props: {
         return String((connectorForm.variables as any)?.[APPSTORE_INITIAL_KEYWORDS_KEY] || '');
     }, [connectorForm.variables]);
 
+    const isInitialSubtitleMissing = React.useMemo(
+        () => !resolvedInitialSubtitle && resolvedInitialSubtitleOptions.length === 0,
+        [resolvedInitialSubtitle, resolvedInitialSubtitleOptions]
+    );
+
+    const isInitialKeywordsMissing = React.useMemo(
+        () => !String(resolvedInitialKeywords || '').trim(),
+        [resolvedInitialKeywords]
+    );
+
+    const showMetadataRetry = React.useMemo(
+        () => Boolean(resolvedAppStoreDescription) && (isInitialSubtitleMissing || isInitialKeywordsMissing),
+        [resolvedAppStoreDescription, isInitialSubtitleMissing, isInitialKeywordsMissing]
+    );
+
+    const metadataRetryMessageKey: TranslationKey = isInitialSubtitleMissing && isInitialKeywordsMissing
+        ? 'connector_appstore_metadata_missing_both'
+        : isInitialSubtitleMissing
+          ? 'connector_appstore_metadata_missing_subtitle'
+          : 'connector_appstore_metadata_missing_keywords';
+
     const resolvedAccountEmail = React.useMemo(() => {
         return String(account?.email || '').trim();
     }, [account?.email]);
@@ -403,6 +424,10 @@ export function ConnectorVariablesSecretsPanel(props: {
         });
         if (!result) return;
         if (result.status === 'generated') {
+            if (result.metadataStatus === 'error') {
+                setGenerateNotice(text('connector_appstore_desc_generated_partial'));
+                return;
+            }
             setGenerateNotice(text('connector_appstore_desc_generated'));
             return;
         }
@@ -411,6 +436,29 @@ export function ConnectorVariablesSecretsPanel(props: {
             return;
         }
         setGenerateNotice(text('connector_appstore_desc_failed'));
+    };
+
+    const handleRetryAppstoreMetadata = async () => {
+        if (!canEdit || connectorForm.generateDescriptionBusy || connectorForm.generateLinksBusy || !showMetadataRetry) return;
+        setGenerateNotice(null);
+        const result = await connectorForm.regenerateAppstoreDescription({
+            companyName: resolvedCompanyName,
+            metadataOnly: true,
+        });
+        if (!result) return;
+        if (result.status === 'generated') {
+            if (result.metadataStatus === 'generated' || result.metadataStatus === 'skipped') {
+                setGenerateNotice(text('connector_appstore_metadata_generated'));
+                return;
+            }
+            setGenerateNotice(text('connector_appstore_metadata_retry_failed'));
+            return;
+        }
+        if (result.status === 'skipped_short_spec') {
+            setGenerateNotice(text('connector_appstore_desc_skipped_short_spec'));
+            return;
+        }
+        setGenerateNotice(text('connector_appstore_metadata_retry_failed'));
     };
 
     const handleGenerateWebpage = React.useCallback(async () => {
@@ -682,7 +730,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     { key: 'proxy', label: text('accounts_proxy'), value: account.proxy },
                                 ] as Array<{ key: string; label: string; value: string }>
                             ).map((f) => (
-                                <label key={f.key} className="grid gap-1">
+                                <div key={f.key} className="grid gap-1">
                                     <div className="text-[11px] text-indigo-200/60">{f.label}</div>
                                     <div className="flex items-center gap-2">
                                         <input
@@ -699,7 +747,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                             {copiedKey === `account.${f.key}` ? <Check size={14} /> : <Copy size={14} />}
                                         </button>
                                     </div>
-                                </label>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -755,7 +803,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             </label>
                         ))}
 
-                        <label className="grid gap-1">
+                        <div className="grid gap-1">
                             <div className="text-[11px] text-indigo-200/60">{text('connector_generated_webpage')}</div>
                             <div className="flex items-center gap-2">
                                 {connectorForm.publicWebpageUrl ? (
@@ -786,7 +834,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     {copiedKey === 'webpage.compact' ? <Check size={14} /> : <Copy size={14} />}
                                 </button>
                             </div>
-                        </label>
+                        </div>
 
                         <div className="grid gap-1">
                             <div className="text-[11px] text-indigo-200/60">{text('connector_legal_links')}</div>
@@ -854,7 +902,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                             const hasPendingInitialSubtitleOptions =
                                 isAppstoreDescription && !resolvedInitialSubtitle && resolvedInitialSubtitleOptions.length > 0;
                             return (
-                                <label key={f.key} className="grid gap-1 sm:col-span-2">
+                                <div key={f.key} className="grid gap-1 sm:col-span-2">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="text-[11px] text-indigo-200/60">{text(f.label)}</div>
                                         {isAppstoreDescription ? (
@@ -940,6 +988,34 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     {isAppstoreDescription ? (
                                         <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/15 p-3 sm:p-4">
                                             <div className="grid gap-3">
+                                                {showMetadataRetry ? (
+                                                    <div
+                                                        data-testid="connector-appstore-metadata-warning"
+                                                        className="flex flex-col gap-2 rounded-2xl border border-amber-300/25 bg-amber-500/10 p-3 text-[11px] text-amber-50/90 sm:flex-row sm:items-center sm:justify-between"
+                                                    >
+                                                        <div>{text(metadataRetryMessageKey)}</div>
+                                                        <button
+                                                            type="button"
+                                                            data-testid="connector-appstore-metadata-retry"
+                                                            onClick={() => void handleRetryAppstoreMetadata()}
+                                                            disabled={
+                                                                !canEdit ||
+                                                                connectorForm.generateDescriptionBusy ||
+                                                                connectorForm.generateLinksBusy
+                                                            }
+                                                            className="ui-btn-fit ui-btn-fit-dense inline-flex min-w-[110px] items-center justify-center gap-1.5 rounded-full border border-amber-200/35 bg-amber-500/15 px-3 py-1.5 text-[11px] font-semibold text-amber-50 hover:bg-amber-500/20 disabled:opacity-60"
+                                                        >
+                                                            {connectorForm.generateDescriptionBusy ? (
+                                                                <>
+                                                                    <Loader2 size={12} className="animate-spin" />
+                                                                    <span>{text('connector_appstore_desc_busy')}</span>
+                                                                </>
+                                                            ) : (
+                                                                text('connector_appstore_metadata_retry')
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                ) : null}
                                                 <div className="grid gap-2">
                                                     <div className="flex items-center justify-between gap-2">
                                                         <div className="text-[11px] text-indigo-200/60">
@@ -1026,7 +1102,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                             </div>
                                         </div>
                                     ) : null}
-                                </label>
+                                </div>
                             );
                         })}
 

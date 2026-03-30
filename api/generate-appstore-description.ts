@@ -10,6 +10,7 @@ import {
     APPSTORE_SUBTITLE_OPTION_COUNT,
     MAX_APPSTORE_SUBTITLE_LENGTH,
     MIN_CLIENT_SPEC_LENGTH,
+    repairGeneratedKeywords,
     sanitizeClientSpecForPrompt,
     sanitizeDescription,
 } from '../lib/server/generate-appstore-description.shared.js';
@@ -19,6 +20,8 @@ type GenerateAppstoreDescriptionRequestBody = {
     appStoreName?: string;
     companyName?: string;
     appCategoryHint?: string;
+    generateDescription?: boolean;
+    existingDescription?: string;
     generateSubtitleOptions?: boolean;
     generateKeywords?: boolean;
 };
@@ -62,6 +65,21 @@ const extractBearerToken = (authorization: unknown) => {
     return match?.[1]?.trim() || null;
 };
 
+const wrapNetworkFetchError = (err: unknown, message: string) => {
+    const raw = String((err as any)?.message || err || '').trim();
+    if (!raw) {
+        const wrapped = new Error(message);
+        (wrapped as any).statusCode = 502;
+        return wrapped;
+    }
+    if (/fetch failed|networkerror|econnrefused|enotfound|etimedout|socket hang up/i.test(raw)) {
+        const wrapped = new Error(message);
+        (wrapped as any).statusCode = 502;
+        return wrapped;
+    }
+    return err as Error;
+};
+
 const verifySupabaseToken = async (token: string) => {
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -70,13 +88,21 @@ const verifySupabaseToken = async (token: string) => {
         throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.');
     }
 
-    const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
-        method: 'GET',
-        headers: {
-            apikey: supabaseAnonKey,
-            Authorization: `Bearer ${token}`,
-        },
-    });
+    let resp: Response;
+    try {
+        resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
+            method: 'GET',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${token}`,
+            },
+        });
+    } catch (err) {
+        throw wrapNetworkFetchError(
+            err,
+            'Failed to reach Supabase auth while verifying the current session. Check VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY and that Supabase is reachable.'
+        );
+    }
 
     return resp.ok;
 };
@@ -229,21 +255,29 @@ const requestOpenAIChatContent = async (payload: {
     temperature?: number;
     reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }) => {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${payload.apiKey}`,
-        },
-        body: JSON.stringify(
-            buildChatCompletionsBody({
-                model: payload.model,
-                messages: payload.messages,
-                temperature: payload.temperature,
-                reasoningEffort: payload.reasoningEffort,
-            })
-        ),
-    });
+    let response: Response;
+    try {
+        response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${payload.apiKey}`,
+            },
+            body: JSON.stringify(
+                buildChatCompletionsBody({
+                    model: payload.model,
+                    messages: payload.messages,
+                    temperature: payload.temperature,
+                    reasoningEffort: payload.reasoningEffort,
+                })
+            ),
+        });
+    } catch (err) {
+        throw wrapNetworkFetchError(
+            err,
+            `Failed to reach OpenAI while generating App Store description. Check OPENAI_API_KEY and outbound network access for model "${payload.model}".`
+        );
+    }
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -393,7 +427,8 @@ ${payload.generateKeywords ? `Rules for "keywords":
 - No spaces.
 - No numbers.
 - Each keyword must be one word only.
-- The full string must total exactly ${APPSTORE_KEYWORDS_LENGTH} characters, counting commas.` : ''}
+- The full string must total exactly ${APPSTORE_KEYWORDS_LENGTH} characters, counting commas.
+- Count every character before you answer and adjust until the total is exact.` : ''}
 
 Return JSON only. No markdown, no commentary, no extra keys.
 
@@ -444,6 +479,38 @@ ${payload.description}
 
 Current invalid output:
 ${payload.draft}`;
+
+const repairMetadataDraftKeywords = (
+    draft: string,
+    payload: {
+        clientSpec: string;
+        appStoreName: string;
+        appCategoryHint: string;
+        description: string;
+        generateKeywords: boolean;
+    }
+) => {
+    if (!payload.generateKeywords) return draft;
+
+    const parsed = extractJsonObject(draft);
+    if (!parsed || typeof parsed !== 'object') return draft;
+
+    const repairedKeywords = repairGeneratedKeywords((parsed as any)?.keywords, [
+        payload.description,
+        payload.clientSpec,
+        payload.appStoreName,
+        payload.appCategoryHint,
+    ]);
+
+    if (!repairedKeywords) return draft;
+
+    return JSON.stringify({
+        ...(parsed as Record<string, unknown>),
+        keywords: repairedKeywords,
+    });
+};
+
+const hasKeywordIssue = (issues: string[]) => issues.some((issue) => String(issue || '').startsWith('keywords_'));
 
 const analyzeMetadataDraft = (
     draft: string,
@@ -521,6 +588,14 @@ const generateMetadataWithOpenAI = async (payload: {
     });
     let finalDraft = initialDraft;
 
+    if (hasKeywordIssue(analysis.issues)) {
+        finalDraft = repairMetadataDraftKeywords(finalDraft, payload);
+        analysis = analyzeMetadataDraft(finalDraft, {
+            generateSubtitleOptions: payload.generateSubtitleOptions,
+            generateKeywords: payload.generateKeywords,
+        });
+    }
+
     if (analysis.issues.length > 0) {
         finalDraft = await requestOpenAIChatContent({
             apiKey,
@@ -553,6 +628,14 @@ const generateMetadataWithOpenAI = async (payload: {
             generateSubtitleOptions: payload.generateSubtitleOptions,
             generateKeywords: payload.generateKeywords,
         });
+
+        if (hasKeywordIssue(analysis.issues)) {
+            finalDraft = repairMetadataDraftKeywords(finalDraft, payload);
+            analysis = analyzeMetadataDraft(finalDraft, {
+                generateSubtitleOptions: payload.generateSubtitleOptions,
+                generateKeywords: payload.generateKeywords,
+            });
+        }
     }
 
     if (analysis.issues.length > 0) {
@@ -567,15 +650,13 @@ const generateMetadataWithOpenAI = async (payload: {
     };
 };
 
-const generateWithOpenAI = async (payload: {
+const generateDescriptionWithOpenAI = async (payload: {
     clientSpec: string;
     appStoreName: string;
     appCategoryHint: string;
     model: string;
     promptKey: PromptTemplate['key'];
     prompt: string;
-    generateSubtitleOptions: boolean;
-    generateKeywords: boolean;
 }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -640,25 +721,33 @@ const generateWithOpenAI = async (payload: {
         throw err;
     }
 
-    const metadata = await generateMetadataWithOpenAI({
-        clientSpec: payload.clientSpec,
-        appStoreName: payload.appStoreName,
-        appCategoryHint: payload.appCategoryHint,
-        description: finalText,
-        model: payload.model,
-        generateSubtitleOptions: payload.generateSubtitleOptions,
-        generateKeywords: payload.generateKeywords,
-    });
-
     return {
-        status: 'generated' as const,
         text: finalText,
-        subtitleOptions: metadata.subtitleOptions,
-        keywords: metadata.keywords,
         promptKey: payload.promptKey,
         model: payload.model,
     };
 };
+
+const buildGeneratedResponse = (payload: {
+    text: string;
+    promptKey: string;
+    model: string;
+    descriptionStatus: 'generated' | 'reused';
+    metadataStatus: 'generated' | 'skipped' | 'error';
+    subtitleOptions?: string[];
+    keywords?: string;
+    metadataError?: string | null;
+}) => ({
+    status: 'generated' as const,
+    text: payload.text,
+    subtitleOptions: Array.isArray(payload.subtitleOptions) ? payload.subtitleOptions : [],
+    keywords: String(payload.keywords || ''),
+    promptKey: payload.promptKey,
+    model: payload.model,
+    descriptionStatus: payload.descriptionStatus,
+    metadataStatus: payload.metadataStatus,
+    metadataError: String(payload.metadataError || '').trim() || null,
+});
 
 export default async function handler(req: any, res: any) {
     if (req.method !== 'POST') {
@@ -680,12 +769,13 @@ export default async function handler(req: any, res: any) {
         const body: unknown = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
         const parsed = (body || {}) as Partial<GenerateAppstoreDescriptionRequestBody>;
 
+        const generateDescription = parsed.generateDescription !== false;
         const clientSpec = String(parsed.clientSpec || '').trim();
-        if (!clientSpec) {
+        if (generateDescription && !clientSpec) {
             return json(res, 400, { status: 'error', error: 'Missing required field: clientSpec.' });
         }
 
-        if (clientSpec.length < MIN_CLIENT_SPEC_LENGTH) {
+        if (generateDescription && clientSpec.length < MIN_CLIENT_SPEC_LENGTH) {
             return json(res, 200, {
                 status: 'skipped_short_spec',
                 reason: `Client spec is too short (< ${MIN_CLIENT_SPEC_LENGTH} chars).`,
@@ -694,11 +784,75 @@ export default async function handler(req: any, res: any) {
 
         const appStoreName = String(parsed.appStoreName || '').trim();
         const appCategoryHint = String(parsed.appCategoryHint || '').trim();
+        const existingDescription = sanitizeDescription(parsed.existingDescription || '');
         const generateSubtitleOptions = parsed.generateSubtitleOptions !== false;
         const generateKeywords = parsed.generateKeywords !== false;
-        const sanitizedClientSpec = sanitizeClientSpecForPrompt(clientSpec);
+        const sanitizedClientSpec = clientSpec ? sanitizeClientSpecForPrompt(clientSpec) : '';
 
         const model = String(process.env.OPENAI_APPSTORE_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+
+        if (!generateDescription) {
+            if (!existingDescription) {
+                return json(res, 400, {
+                    status: 'error',
+                    error: 'Missing required field: existingDescription for metadata-only generation.',
+                });
+            }
+
+            if (!generateSubtitleOptions && !generateKeywords) {
+                return json(
+                    res,
+                    200,
+                    buildGeneratedResponse({
+                        text: existingDescription,
+                        promptKey: 'metadata_only',
+                        model,
+                        descriptionStatus: 'reused',
+                        metadataStatus: 'skipped',
+                    })
+                );
+            }
+
+            try {
+                const metadata = await generateMetadataWithOpenAI({
+                    clientSpec: sanitizedClientSpec,
+                    appStoreName,
+                    appCategoryHint,
+                    description: existingDescription,
+                    model,
+                    generateSubtitleOptions,
+                    generateKeywords,
+                });
+
+                return json(
+                    res,
+                    200,
+                    buildGeneratedResponse({
+                        text: existingDescription,
+                        promptKey: 'metadata_only',
+                        model,
+                        descriptionStatus: 'reused',
+                        metadataStatus: 'generated',
+                        subtitleOptions: metadata.subtitleOptions,
+                        keywords: metadata.keywords,
+                    })
+                );
+            } catch (err: any) {
+                return json(
+                    res,
+                    200,
+                    buildGeneratedResponse({
+                        text: existingDescription,
+                        promptKey: 'metadata_only',
+                        model,
+                        descriptionStatus: 'reused',
+                        metadataStatus: 'error',
+                        metadataError: String(err?.message || 'Failed to generate subtitle or keywords.').slice(0, 500),
+                    })
+                );
+            }
+        }
+
         const promptTemplate = pickPromptTemplate();
         const prompt = promptTemplate.build({
             clientSpec: sanitizedClientSpec,
@@ -706,18 +860,53 @@ export default async function handler(req: any, res: any) {
             appCategoryHint,
         });
 
-        const generated = await generateWithOpenAI({
+        const generatedDescription = await generateDescriptionWithOpenAI({
             clientSpec: sanitizedClientSpec,
             appStoreName,
             appCategoryHint,
             model,
             promptKey: promptTemplate.key,
             prompt,
-            generateSubtitleOptions,
-            generateKeywords,
         });
 
-        return json(res, 200, generated);
+        try {
+            const metadata = await generateMetadataWithOpenAI({
+                clientSpec: sanitizedClientSpec,
+                appStoreName,
+                appCategoryHint,
+                description: generatedDescription.text,
+                model,
+                generateSubtitleOptions,
+                generateKeywords,
+            });
+
+            return json(
+                res,
+                200,
+                buildGeneratedResponse({
+                    text: generatedDescription.text,
+                    promptKey: generatedDescription.promptKey,
+                    model: generatedDescription.model,
+                    descriptionStatus: 'generated',
+                    metadataStatus: generateSubtitleOptions || generateKeywords ? 'generated' : 'skipped',
+                    subtitleOptions: metadata.subtitleOptions,
+                    keywords: metadata.keywords,
+                })
+            );
+        } catch (err: any) {
+            return json(
+                res,
+                200,
+                buildGeneratedResponse({
+                    text: generatedDescription.text,
+                    promptKey: generatedDescription.promptKey,
+                    model: generatedDescription.model,
+                    descriptionStatus: 'generated',
+                    metadataStatus: 'error',
+                    metadataError: String(err?.message || 'Failed to generate subtitle or keywords.').slice(0, 500),
+                })
+            );
+        }
     } catch (err: any) {
         const status = Number(err?.statusCode) || 500;
         const safeMessage = String(err?.message || 'Server error').slice(0, 500);

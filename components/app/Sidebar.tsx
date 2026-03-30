@@ -646,13 +646,11 @@ export const Sidebar = ({
                             {inactiveBrands.length ? (
                                 inactiveBrands.map((brand) => {
                                     const iconUrl = brandIconUrls[brand.id];
-                                    const summary = brandAppSummaryByBrandId[brand.id] || EMPTY_BRAND_APP_SUMMARY;
                                     return (
                                         <React.Fragment key={brand.id}>
                                             <InactiveDrawerBrandRow
                                                 brand={brand}
                                                 iconUrl={iconUrl}
-                                                summary={summary}
                                                 isActive={brand.id === selectedBrandId}
                                                 isLockedByOtherDevice={lockedBrandIdSet.has(brand.id)}
                                                 isBusy={isBusy}
@@ -683,9 +681,6 @@ export const Sidebar = ({
                                                     }
                                                 }}
                                                 onOpenLightbox={() => iconUrl && openLightbox(iconUrl, text('icon_reference'))}
-                                                clampCount={clampCount}
-                                                dotClass={dotClass}
-                                                countTextClass={countTextClass}
                                                 setRowRef={(el) => setBrandRowRef(brand.id, el)}
                                                 text={text}
                                             />
@@ -1120,7 +1115,6 @@ function PlainBrandRow({
 function InactiveDrawerBrandRow({
     brand,
     iconUrl,
-    summary,
     isActive,
     isLockedByOtherDevice,
     isBusy,
@@ -1130,15 +1124,11 @@ function InactiveDrawerBrandRow({
     onSelect,
     onActivate,
     onOpenLightbox,
-    clampCount,
-    dotClass,
-    countTextClass,
     setRowRef,
     text,
 }: {
     brand: Brand;
     iconUrl: string | undefined;
-    summary: BrandAppSummary;
     isActive: boolean;
     isLockedByOtherDevice: boolean;
     isBusy: boolean;
@@ -1148,9 +1138,6 @@ function InactiveDrawerBrandRow({
     onSelect: () => void;
     onActivate: () => Promise<void> | void;
     onOpenLightbox: () => void;
-    clampCount: (n: number) => string;
-    dotClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
-    countTextClass: (kind: 'active' | 'inProgress' | 'banned', value: number) => string;
     setRowRef: (el: HTMLButtonElement | null) => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -1213,13 +1200,6 @@ function InactiveDrawerBrandRow({
                         <p className="text-xs text-indigo-200/60 truncate" title={`/${brand.slug}`}>
                             /{brand.slug}
                         </p>
-                        <BrandStatusSummaryCluster
-                            summary={summary}
-                            clampCount={clampCount}
-                            dotClass={dotClass}
-                            countTextClass={countTextClass}
-                            text={text}
-                        />
                     </div>
                 </div>
             </button>

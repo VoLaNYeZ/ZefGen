@@ -142,8 +142,9 @@ export function WorkspaceSetupPanels({
             buildManualIntegrationCopyText({
                 selectedApp,
                 variables: connectorForm.variables,
+                legalLinks: connectorForm.legalLinks,
             }),
-        [connectorForm.variables, selectedApp]
+        [connectorForm.legalLinks, connectorForm.variables, selectedApp]
     );
 
     return (
@@ -250,6 +251,8 @@ export function WorkspaceSetupPanels({
                         connectorForm={connectorForm}
                         connectorJobs={connectorRunnerJobs}
                         isEnabled={connectorEnabled}
+                        manualCopyText={manualCopyText}
+                        showManualCopyAction={showManualCopyAction}
                         text={text}
                         refreshJobs={onRefreshIntegrationJobs}
                         reportError={onReportError}
@@ -263,9 +266,7 @@ export function WorkspaceSetupPanels({
                     <AutoReleaseModulePanel
                         isEnabled={connectorEnabled}
                         integrationReady={integrationReady}
-                        manualCopyText={manualCopyText}
                         onNotImplemented={onNotImplementedAutoRelease}
-                        showManualCopyAction={showManualCopyAction}
                         text={text}
                     />
                 </div>

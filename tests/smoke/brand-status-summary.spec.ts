@@ -159,12 +159,7 @@ test('workspace brand summaries use Apple review state and flag rejected in-prog
         await expect(inactivePanel).toBeVisible();
 
         const inactiveBrandRow = inactivePanel.locator(`[data-brand-id="${smokeEnv.seed.brand.id}"]`);
-        await expect(inactiveBrandRow.getByTestId('brand-row-status-summary')).toBeVisible();
-        await expect(inactiveBrandRow.getByTestId('brand-row-non-banned-count')).toHaveText('2');
-        await expect(inactiveBrandRow.getByTestId('brand-row-status-active')).toContainText('1');
-        await expect(inactiveBrandRow.getByTestId('brand-row-status-in-progress')).toContainText('1');
-        await expect(inactiveBrandRow.getByTestId('brand-row-status-banned')).toContainText('0');
-        await expect(inactiveBrandRow.getByTestId('brand-row-in-progress-warning')).toBeVisible();
+        await expect(inactiveBrandRow.getByTestId('brand-row-status-summary')).toHaveCount(0);
     } finally {
         await setBrandInactiveState(smokeEnv.seed.brand.id, false);
     }

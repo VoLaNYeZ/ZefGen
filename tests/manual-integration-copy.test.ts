@@ -16,6 +16,11 @@ test('manual integration copy uses App Store name and quoted empty values', () =
             bundle_id: '',
             id_purchases: '',
         },
+        legalLinks: {
+            privacy_policy_url: '',
+            terms_of_use_url: '   ',
+            support_form_url: '',
+        },
     });
 
     assert.equal(
@@ -24,6 +29,9 @@ test('manual integration copy uses App Store name and quoted empty values', () =
             'Привет, нужна интеграция - [EF-XX] Store Name',
             'Apphud Key - ""',
             'Analytics URL - ""',
+            'privacy - ""',
+            'terms - ""',
+            'support - ""',
             'Bundle ID - ""',
             '*IAP Product ID - без покупок',
             '+ Firebase нужно создать',
@@ -45,6 +53,11 @@ test('manual integration copy falls back to selected app name and legacy apphud 
             bundle_id: 'com.example.app',
             id_purchases: 'premium.yearly',
         },
+        legalLinks: {
+            privacy_policy_url: 'https://example.com/privacy',
+            terms_of_use_url: 'https://example.com/terms',
+            support_form_url: 'https://example.com/support',
+        },
     });
 
     assert.equal(
@@ -53,6 +66,9 @@ test('manual integration copy falls back to selected app name and legacy apphud 
             'Привет, нужна интеграция - [EF-YY] Selected Name',
             'Apphud Key - "legacy-apphud-key"',
             'Analytics URL - "https://analytics.example.com"',
+            'privacy - "https://example.com/privacy"',
+            'terms - "https://example.com/terms"',
+            'support - "https://example.com/support"',
             'Bundle ID - "com.example.app"',
             '*IAP Product ID - premium.yearly',
             '+ Firebase нужно создать',

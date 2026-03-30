@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import {
     analyzeGeneratedAppstoreMetadata,
     analyzeGeneratedDescription,
+    analyzeGeneratedKeywords,
     APPSTORE_KEYWORDS_LENGTH,
     APPSTORE_SUBTITLE_OPTION_COUNT,
     MIN_DESCRIPTION_LENGTH,
     MAX_APPSTORE_SUBTITLE_LENGTH,
+    repairGeneratedKeywords,
     sanitizeClientSpecForPrompt,
 } from '../lib/server/generate-appstore-description.shared.js';
 
@@ -104,4 +106,35 @@ test('analyzeGeneratedAppstoreMetadata rejects malformed subtitle and keyword pa
     assert.match(analysis.issues.join(','), /subtitle_count/);
     assert.match(analysis.issues.join(','), /subtitle_length/);
     assert.match(analysis.issues.join(','), /keywords_length/);
+});
+
+test('repairGeneratedKeywords repacks long valid keyword sets to exact length', () => {
+    const repaired = repairGeneratedKeywords(
+        'focus,clarity,habits,routine,calm,coach,energy,journal,planner,wellness,mindset,reset,tracker,rhythm,breathing',
+        ['Build calmer routines with a coach, planner, and journal that keep progress visible every day.']
+    );
+    const analysis = analyzeGeneratedKeywords(repaired);
+
+    assert.equal(repaired.length, APPSTORE_KEYWORDS_LENGTH);
+    assert.deepEqual(analysis.issues, []);
+});
+
+test('repairGeneratedKeywords can backfill short keyword lists from source context', () => {
+    const repaired = repairGeneratedKeywords('focus,clarity,habits', [
+        'routine calm coach energy journal planner wellness mindset reset tracker rhythm',
+    ]);
+    const analysis = analyzeGeneratedKeywords(repaired);
+
+    assert.equal(repaired.length, APPSTORE_KEYWORDS_LENGTH);
+    assert.deepEqual(analysis.issues, []);
+});
+
+test('repairGeneratedKeywords normalizes dirty inputs before packing to exact length', () => {
+    const repaired = repairGeneratedKeywords(' Focus , clarity , energy2 , coach ,, reset ', [
+        'planner journal routine wellness tracker mindset calm habits progress goals',
+    ]);
+    const analysis = analyzeGeneratedKeywords(repaired);
+
+    assert.equal(repaired.length, APPSTORE_KEYWORDS_LENGTH);
+    assert.deepEqual(analysis.issues, []);
 });

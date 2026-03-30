@@ -392,9 +392,12 @@ export function IdeasPage(props: {
             const hasPersistedBrandId = persistedBrandId && visibleScopeBrands.some((brand) => brand.id === persistedBrandId);
 
             if (prefsHydrated && !persistedGeneratorBrandAppliedRef.current) {
-                persistedGeneratorBrandAppliedRef.current = true;
                 if (hasPersistedBrandId) {
+                    persistedGeneratorBrandAppliedRef.current = true;
                     return persistedBrandId;
+                }
+                if (!persistedBrandId) {
+                    persistedGeneratorBrandAppliedRef.current = true;
                 }
             }
 
@@ -418,9 +421,12 @@ export function IdeasPage(props: {
                 visibleScopeBrands.some((brand) => brand.id === persistedTableScopeBrandId);
 
             if (prefsHydrated && !persistedTableScopeAppliedRef.current) {
-                persistedTableScopeAppliedRef.current = true;
                 if (hasPersistedTableScope) {
+                    persistedTableScopeAppliedRef.current = true;
                     return persistedTableScopeBrandId;
+                }
+                if (!persistedTableScopeBrandId) {
+                    persistedTableScopeAppliedRef.current = true;
                 }
             }
 

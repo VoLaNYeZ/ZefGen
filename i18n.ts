@@ -591,10 +591,21 @@ export const translations = {
         connector_appstore_desc_busy: 'Regenerating...',
         connector_appstore_desc_short_spec_hint: 'Client spec must be at least 100 characters to generate description.',
         connector_appstore_desc_generated: 'App Store description generated and saved.',
+        connector_appstore_desc_generated_partial:
+            'App Store description saved. Some App Store metadata still needs generation.',
         connector_appstore_desc_skipped_short_spec:
             'App Store description was skipped: Client spec must be at least 100 characters.',
         connector_appstore_desc_failed: 'App Store description generation failed.',
         connector_appstore_desc_failed_quality: 'App Store description draft failed quality checks.',
+        connector_appstore_metadata_retry: 'Try again',
+        connector_appstore_metadata_generated: 'Missing App Store metadata generated and saved.',
+        connector_appstore_metadata_retry_failed: 'App Store subtitle/keywords generation failed.',
+        connector_appstore_metadata_missing_both:
+            'Initial subtitle and keywords are still missing. Try again to generate them.',
+        connector_appstore_metadata_missing_subtitle:
+            'Initial subtitle is still missing. Try again to generate it.',
+        connector_appstore_metadata_missing_keywords:
+            'Initial keywords are still missing. Try again to generate them.',
         connector_secrets: 'Secrets',
         connector_secrets_hint: 'Manage integration secrets.',
         connector_secret_value_placeholder: 'Secret value',
@@ -1335,10 +1346,21 @@ export const translations = {
         connector_appstore_desc_short_spec_hint:
             'CLIENT_SPEC должен быть не короче 100 символов для генерации описания.',
         connector_appstore_desc_generated: 'Описание для App Store сгенерировано и сохранено.',
+        connector_appstore_desc_generated_partial:
+            'Описание для App Store сохранено. Часть App Store metadata всё ещё нужно сгенерировать.',
         connector_appstore_desc_skipped_short_spec:
             'Описание для App Store пропущено: CLIENT_SPEC должен быть не короче 100 символов.',
         connector_appstore_desc_failed: 'Не удалось сгенерировать описание для App Store.',
         connector_appstore_desc_failed_quality: 'Черновик описания для App Store не прошёл проверку качества.',
+        connector_appstore_metadata_retry: 'Попробовать ещё раз',
+        connector_appstore_metadata_generated: 'Недостающие App Store metadata сгенерированы и сохранены.',
+        connector_appstore_metadata_retry_failed: 'Не удалось сгенерировать subtitle/keywords для App Store.',
+        connector_appstore_metadata_missing_both:
+            'Initial subtitle и keywords всё ещё отсутствуют. Попробуй сгенерировать их ещё раз.',
+        connector_appstore_metadata_missing_subtitle:
+            'Initial subtitle всё ещё отсутствует. Попробуй сгенерировать его ещё раз.',
+        connector_appstore_metadata_missing_keywords:
+            'Initial keywords всё ещё отсутствуют. Попробуй сгенерировать их ещё раз.',
         connector_secrets: 'Секреты',
         connector_secrets_hint: 'Управление секретами интеграций.',
         connector_secret_value_placeholder: 'Значение секрета',

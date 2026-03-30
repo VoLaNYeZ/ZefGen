@@ -5,6 +5,8 @@ export type GenerateAppstoreDescriptionPayload = {
     appStoreName?: string;
     companyName?: string;
     appCategoryHint?: string;
+    generateDescription?: boolean;
+    existingDescription?: string;
     generateSubtitleOptions?: boolean;
     generateKeywords?: boolean;
     accessTokenHint?: string;
@@ -18,6 +20,9 @@ export type GenerateAppstoreDescriptionResponse =
           keywords: string;
           promptKey: string;
           model: string;
+          descriptionStatus: 'generated' | 'reused';
+          metadataStatus: 'generated' | 'skipped' | 'error';
+          metadataError: string | null;
       }
     | {
           status: 'skipped_short_spec';
@@ -98,6 +103,8 @@ const invokeApi = async (token: string, payload: GenerateAppstoreDescriptionPayl
             appStoreName: payload.appStoreName,
             companyName: payload.companyName,
             appCategoryHint: payload.appCategoryHint,
+            generateDescription: payload.generateDescription !== false,
+            existingDescription: payload.existingDescription,
             generateSubtitleOptions: payload.generateSubtitleOptions !== false,
             generateKeywords: payload.generateKeywords !== false,
         }),
@@ -164,6 +171,14 @@ export const generateAppstoreDescription = async (
                 keywords: String(body?.keywords || ''),
                 promptKey: String(body?.promptKey || ''),
                 model: String(body?.model || ''),
+                descriptionStatus: body?.descriptionStatus === 'reused' ? 'reused' : 'generated',
+                metadataStatus:
+                    body?.metadataStatus === 'error'
+                        ? 'error'
+                        : body?.metadataStatus === 'skipped'
+                          ? 'skipped'
+                          : 'generated',
+                metadataError: String(body?.metadataError || '').trim() || null,
             };
         }
 

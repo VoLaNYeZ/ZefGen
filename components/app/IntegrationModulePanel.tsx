@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ExternalLink, Loader2 } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
 import type { AppItem } from '../../types/zefgen';
 import { createConnectorJob, type ConnectorJob } from '../../data/connector-jobs';
@@ -97,6 +97,8 @@ export function IntegrationModulePanel(props: {
     refreshJobs?: () => Promise<void>;
     reportError?: (msg: string) => void;
     isReadOnly?: boolean;
+    manualCopyText: string;
+    showManualCopyAction?: boolean;
 }) {
     const {
         session,
@@ -109,11 +111,15 @@ export function IntegrationModulePanel(props: {
         refreshJobs,
         reportError,
         isReadOnly = false,
+        manualCopyText,
+        showManualCopyAction = false,
     } = props;
 
     const [busy, setBusy] = React.useState(false);
     const [localError, setLocalError] = React.useState<string | null>(null);
+    const [manualCopyCopied, setManualCopyCopied] = React.useState(false);
     const [nowMs, setNowMs] = React.useState(() => Date.now());
+    const copiedTimerRef = React.useRef<number | null>(null);
 
     const repoFullName = React.useMemo(
         () => resolveRepoFullName(selectedApp, githubRepoUrl),
@@ -172,6 +178,12 @@ export function IntegrationModulePanel(props: {
             window.clearInterval(nowTimer);
         };
     }, [isIntegrationActive, latestIntegrationJob?.id]);
+
+    React.useEffect(() => {
+        return () => {
+            if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+        };
+    }, []);
 
     const integrationTerminal = React.useMemo(
         () =>
@@ -235,6 +247,30 @@ export function IntegrationModulePanel(props: {
         }
     };
 
+    const copyManualIntegration = async () => {
+        try {
+            await navigator.clipboard.writeText(manualCopyText);
+        } catch {
+            const el = document.createElement('textarea');
+            el.value = manualCopyText;
+            el.style.position = 'fixed';
+            el.style.left = '-9999px';
+            el.style.top = '0';
+            document.body.appendChild(el);
+            el.focus();
+            el.select();
+            try {
+                document.execCommand('copy');
+            } finally {
+                document.body.removeChild(el);
+            }
+        }
+
+        setManualCopyCopied(true);
+        if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = window.setTimeout(() => setManualCopyCopied(false), 1200);
+    };
+
     return (
         <section className="rounded-[28px] bg-slate-900 ring-1 ring-white/5 p-6">
             <div className="flex items-start justify-between gap-4">
@@ -244,15 +280,30 @@ export function IntegrationModulePanel(props: {
                     </p>
                     <p className="mt-3 text-sm text-indigo-200/60">{text('integration_module_subtitle')}</p>
                 </div>
-                <div
-                    className={`shrink-0 inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
-                        canLaunchIntegration
-                            ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
-                            : 'border-rose-400/25 bg-rose-500/10 text-rose-50/90'
-                    }`}
-                    title={canLaunchIntegration ? text('connector_requirement_ready') : text('connector_requirement_missing')}
-                >
-                    {canLaunchIntegration ? text('connector_ready') : text('connector_missing')}
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    {showManualCopyAction ? (
+                        <button
+                            type="button"
+                            onClick={() => void copyManualIntegration()}
+                            data-testid="manual-integration-copy-button"
+                            className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-slate-950/30 px-3 py-1.5 text-xs font-semibold text-indigo-100/90 hover:border-indigo-300/40 hover:bg-slate-950/45"
+                            title={manualCopyCopied ? text('copied') : 'Copy for manual'}
+                            aria-label="Copy for manual"
+                        >
+                            <span>Copy for manual</span>
+                            {manualCopyCopied ? <Check size={14} className="text-emerald-300" /> : <Copy size={14} />}
+                        </button>
+                    ) : null}
+                    <div
+                        className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-semibold ${
+                            canLaunchIntegration
+                                ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
+                                : 'border-rose-400/25 bg-rose-500/10 text-rose-50/90'
+                        }`}
+                        title={canLaunchIntegration ? text('connector_requirement_ready') : text('connector_requirement_missing')}
+                    >
+                        {canLaunchIntegration ? text('connector_ready') : text('connector_missing')}
+                    </div>
                 </div>
             </div>
 

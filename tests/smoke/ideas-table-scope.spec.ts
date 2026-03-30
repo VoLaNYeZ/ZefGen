@@ -6,11 +6,26 @@ test.use({
     allowedConsoleErrors: [/Failed to load resource: the server responded with a status of 400 \(Bad Request\)/],
 });
 
-const readIdeaGeneratorPrefs = async (page: Page) =>
-    page.evaluate(() => {
+const IDEA_GENERATOR_PREFS_PREFIX = 'zefgen.ideaGenerator.v2.';
+
+const clearIdeaGeneratorPrefs = async (page: Page) =>
+    page.evaluate((prefix) => {
+        const keysToRemove: string[] = [];
         for (let index = 0; index < window.localStorage.length; index += 1) {
             const key = window.localStorage.key(index);
-            if (!key || !key.startsWith('zefgen.ideaGenerator.v2.')) continue;
+            if (!key || !key.startsWith(prefix)) continue;
+            keysToRemove.push(key);
+        }
+        for (const key of keysToRemove) {
+            window.localStorage.removeItem(key);
+        }
+    }, IDEA_GENERATOR_PREFS_PREFIX);
+
+const readIdeaGeneratorPrefs = async (page: Page) =>
+    page.evaluate((prefix) => {
+        for (let index = 0; index < window.localStorage.length; index += 1) {
+            const key = window.localStorage.key(index);
+            if (!key || !key.startsWith(prefix)) continue;
             const raw = window.localStorage.getItem(key);
             if (!raw) continue;
             try {
@@ -24,10 +39,11 @@ const readIdeaGeneratorPrefs = async (page: Page) =>
             }
         }
         return null;
-    });
+    }, IDEA_GENERATOR_PREFS_PREFIX);
 
 test('generator scope updates table scope one-way and both persist independently', async ({ page }) => {
     await gotoWorkspace(page);
+    await clearIdeaGeneratorPrefs(page);
     await openIdeas(page);
 
     const generatorScopeSelect = page.getByTestId('ideas-generator-scope-select');

@@ -362,27 +362,33 @@ test('seeded workspace renders core panels without runtime errors', async ({ pag
     }
 });
 
-test('step 7 manual copy action stays visible in EN and RU and writes the expected clipboard payload', async ({ page }) => {
+test('step 6 manual copy action stays visible in EN and RU and writes the expected clipboard payload', async ({ page }) => {
     await gotoWorkspace(page);
     await grantClipboardPermissions(page);
 
     const appStoreName = await page.getByLabel("App's App Store name").inputValue();
     const apphudKey = await page.getByLabel('Apphud Key').inputValue();
     const analyticsUrl = await page.getByLabel('Analytics URL').inputValue();
+    const privacyUrl = (await page.getByLabel('Privacy Policy URL').getAttribute('href')) || '';
+    const termsUrl = (await page.getByLabel('Terms of Use URL').getAttribute('href')) || '';
+    const supportUrl = (await page.getByLabel('Support form URL').getAttribute('href')) || '';
     const bundleId = await page.getByLabel('Bundle ID').inputValue();
     const iapProductId = await page.getByLabel('IAP Product ID').inputValue();
     const expectedClipboard = [
         `Привет, нужна интеграция - [${smokeEnv.seed.primaryApp.alias.toUpperCase()}] ${appStoreName.trim()}`,
         `Apphud Key - "${apphudKey.trim()}"`,
         `Analytics URL - "${analyticsUrl.trim()}"`,
+        `privacy - "${privacyUrl.trim()}"`,
+        `terms - "${termsUrl.trim()}"`,
+        `support - "${supportUrl.trim()}"`,
         `Bundle ID - "${bundleId.trim()}"`,
         `*IAP Product ID - ${iapProductId.trim() || 'без покупок'}`,
         '+ Firebase нужно создать',
         '+ Пуш подрубить',
     ].join('\n');
 
-    const autoReleasePanel = page.getByTestId('workspace-panel-auto-release');
-    const manualCopyButton = autoReleasePanel.getByTestId('manual-integration-copy-button');
+    const integrationPanel = page.getByTestId('workspace-panel-integration');
+    const manualCopyButton = integrationPanel.getByTestId('manual-integration-copy-button');
 
     await expect(manualCopyButton).toBeVisible();
     await expect(manualCopyButton).toContainText('Copy for manual');
@@ -394,7 +400,7 @@ test('step 7 manual copy action stays visible in EN and RU and writes the expect
 
     await expect
         .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
-            message: 'Expected the Step 7 manual copy button to write the integration handoff text to the clipboard.',
+            message: 'Expected the Step 6 manual copy button to write the integration handoff text to the clipboard.',
         })
         .toBe(expectedClipboard);
 

@@ -170,6 +170,7 @@ type RegenerateAppstoreDescriptionOptions = {
     persistGenerated?: boolean;
     companyName?: string;
     reportError?: boolean;
+    metadataOnly?: boolean;
 };
 
 export type ConnectorConfigFormSnapshot = {
@@ -871,15 +872,48 @@ export const useConnectorConfigForm = (payload: {
             }
             try {
                 const currentVariables = normalizeVariables(variablesRef.current);
+                const existingDescription = String(currentVariables.appstore_description || '').trim();
                 const existingInitialSubtitle = String(currentVariables[APPSTORE_INITIAL_SUBTITLE_KEY] || '').trim();
                 const existingInitialSubtitleOptions = getAppstoreInitialSubtitleOptions(currentVariables);
                 const existingInitialKeywords = String(currentVariables[APPSTORE_INITIAL_KEYWORDS_KEY] || '').trim();
+                const shouldGenerateDescription = options?.metadataOnly !== true;
+                const shouldGenerateSubtitleOptions = !existingInitialSubtitle && existingInitialSubtitleOptions.length === 0;
+                const shouldGenerateKeywords = !existingInitialKeywords;
+
+                if (!shouldGenerateDescription && !existingDescription) {
+                    const msg = 'App Store description is required before retrying subtitle or keywords.';
+                    if (shouldReportError) {
+                        setError(msg);
+                        reportError?.(msg);
+                    }
+                    return {
+                        status: 'error',
+                        error: msg,
+                    };
+                }
+
+                if (!shouldGenerateDescription && !shouldGenerateSubtitleOptions && !shouldGenerateKeywords) {
+                    return {
+                        status: 'generated',
+                        text: existingDescription,
+                        subtitleOptions: [],
+                        keywords: '',
+                        promptKey: 'metadata_only',
+                        model: '',
+                        descriptionStatus: 'reused',
+                        metadataStatus: 'skipped',
+                        metadataError: null,
+                    };
+                }
+
                 const response = await generateAppstoreDescription({
-                    clientSpec: String(projectBrief || ''),
+                    clientSpec: String(projectBrief || '').trim(),
                     appStoreName: String(currentVariables?.appstore_name || '').trim(),
                     companyName: String(options?.companyName || '').trim(),
-                    generateSubtitleOptions: !existingInitialSubtitle && existingInitialSubtitleOptions.length === 0,
-                    generateKeywords: !existingInitialKeywords,
+                    generateDescription: shouldGenerateDescription,
+                    existingDescription: shouldGenerateDescription ? undefined : existingDescription,
+                    generateSubtitleOptions: shouldGenerateSubtitleOptions,
+                    generateKeywords: shouldGenerateKeywords,
                     accessTokenHint: String(session.access_token || ''),
                 });
                 if (!isCurrentRequestContext(requestContext)) return response;
@@ -893,31 +927,41 @@ export const useConnectorConfigForm = (payload: {
                         const generatedSubtitleOptions = Array.isArray(response.subtitleOptions)
                             ? response.subtitleOptions.map((item) => String(item || '').trim()).filter(Boolean)
                             : [];
-                        const nextVariablesPatch: Record<string, any> = {
-                            appstore_description: generatedText,
-                        };
+                        const nextVariablesPatch: Record<string, any> = {};
 
-                        const existingInitialKeywords = String(currentVariables[APPSTORE_INITIAL_KEYWORDS_KEY] || '').trim();
-                        if (!existingInitialKeywords && generatedKeywords) {
-                            nextVariablesPatch[APPSTORE_INITIAL_KEYWORDS_KEY] = generatedKeywords;
+                        if (response.descriptionStatus === 'generated' && generatedText) {
+                            nextVariablesPatch.appstore_description = generatedText;
                         }
 
-                        const existingInitialSubtitle = String(currentVariables[APPSTORE_INITIAL_SUBTITLE_KEY] || '').trim();
-                        const existingInitialSubtitleOptions = getAppstoreInitialSubtitleOptions(currentVariables);
-                        if (
-                            !existingInitialSubtitle &&
-                            existingInitialSubtitleOptions.length === 0 &&
-                            generatedSubtitleOptions.length > 0
-                        ) {
-                            nextVariablesPatch[APPSTORE_INITIAL_SUBTITLE_OPTIONS_KEY] = generatedSubtitleOptions;
+                        if (response.metadataStatus === 'generated') {
+                            const existingInitialKeywords = String(
+                                currentVariables[APPSTORE_INITIAL_KEYWORDS_KEY] || ''
+                            ).trim();
+                            if (!existingInitialKeywords && generatedKeywords) {
+                                nextVariablesPatch[APPSTORE_INITIAL_KEYWORDS_KEY] = generatedKeywords;
+                            }
+
+                            const existingInitialSubtitle = String(
+                                currentVariables[APPSTORE_INITIAL_SUBTITLE_KEY] || ''
+                            ).trim();
+                            const existingInitialSubtitleOptions = getAppstoreInitialSubtitleOptions(currentVariables);
+                            if (
+                                !existingInitialSubtitle &&
+                                existingInitialSubtitleOptions.length === 0 &&
+                                generatedSubtitleOptions.length > 0
+                            ) {
+                                nextVariablesPatch[APPSTORE_INITIAL_SUBTITLE_OPTIONS_KEY] = generatedSubtitleOptions;
+                            }
                         }
 
-                        const saved = await saveMergedVariablesPatch(nextVariablesPatch, {
-                            source: 'manual',
-                            reportError: false,
-                        });
-                        if (!saved) {
-                            throw new Error('Failed to save generated App Store description.');
+                        if (Object.keys(nextVariablesPatch).length > 0) {
+                            const saved = await saveMergedVariablesPatch(nextVariablesPatch, {
+                                source: 'manual',
+                                reportError: false,
+                            });
+                            if (!saved) {
+                                throw new Error('Failed to save generated App Store description.');
+                            }
                         }
                     }
                 } else if (response.status === 'skipped_short_spec') {

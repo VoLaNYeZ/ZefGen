@@ -18,7 +18,6 @@ const LONG_CLIENT_SPEC =
 
 const MANUAL_DESCRIPTION =
     'Manual App Store description text that should remain untouched when legal links are generated.';
-const MANUAL_SUBTITLE = 'Custom steady routine';
 
 const GENERATED_DESCRIPTION =
     'Generated App Store description from the smoke stub. This should only appear after clicking Regenerate.';
@@ -53,6 +52,8 @@ const getAccountSelect = (page: Page) => getSetupDataPanel(page).locator('select
 
 const getRegenerateDescriptionButton = (page: Page) =>
     getSetupDataPanel(page).getByTestId('connector-appstore-description-regenerate');
+const getMetadataRetryButton = (page: Page) =>
+    getSetupDataPanel(page).getByTestId('connector-appstore-metadata-retry');
 
 const createBrandAndAppInCurrentWorkspace = async (page: Page, suffix: string) => {
     const brandName = `Setup Description ${suffix}`;
@@ -130,6 +131,9 @@ test('Generate Links does not regenerate App Store description', async ({ page }
                 keywords: GENERATED_KEYWORDS_A,
                 promptKey: 'smoke-description',
                 model: 'smoke-model',
+                descriptionStatus: 'generated',
+                metadataStatus: 'generated',
+                metadataError: null,
             }),
         });
     });
@@ -238,6 +242,9 @@ test('first description generation creates subtitle options and keywords, and la
                 keywords: isFirstCall ? GENERATED_KEYWORDS_A : GENERATED_KEYWORDS_B,
                 promptKey: isFirstCall ? 'smoke-description-a' : 'smoke-description-b',
                 model: 'smoke-model',
+                descriptionStatus: 'generated',
+                metadataStatus: 'generated',
+                metadataError: null,
             }),
         });
     });
@@ -312,7 +319,9 @@ test('first description generation creates subtitle options and keywords, and la
     }
 });
 
-test('manual subtitle entry clears pending options and later regenerate skips metadata generation', async ({ page }) => {
+test('description regenerate stays successful when metadata fails and Try again backfills missing fields', async ({
+    page,
+}) => {
     const seededAccount = (await listSmokeAppstoreAccounts())[0];
     expect(seededAccount, 'Expected the smoke user to have a seeded App Store account').toBeTruthy();
 
@@ -341,11 +350,16 @@ test('manual subtitle entry clears pending options and later regenerate skips me
             contentType: 'application/json',
             body: JSON.stringify({
                 status: 'generated',
-                text: isFirstCall ? GENERATED_DESCRIPTION : GENERATED_DESCRIPTION_V2,
-                subtitleOptions: isFirstCall ? GENERATED_SUBTITLE_OPTIONS_A : [],
-                keywords: isFirstCall ? GENERATED_KEYWORDS_A : '',
-                promptKey: isFirstCall ? 'smoke-description-a' : 'smoke-description-b',
+                text: GENERATED_DESCRIPTION,
+                subtitleOptions: isFirstCall ? [] : GENERATED_SUBTITLE_OPTIONS_A,
+                keywords: isFirstCall ? '' : GENERATED_KEYWORDS_A,
+                promptKey: isFirstCall ? 'smoke-description-a' : 'metadata_only',
                 model: 'smoke-model',
+                descriptionStatus: isFirstCall ? 'generated' : 'reused',
+                metadataStatus: isFirstCall ? 'error' : 'generated',
+                metadataError: isFirstCall
+                    ? 'Generated subtitle/keywords failed quality checks: subtitle_count.'
+                    : null,
             }),
         });
     });
@@ -359,68 +373,175 @@ test('manual subtitle entry clears pending options and later regenerate skips me
 
         const clientSpecPanel = page.getByTestId('workspace-panel-client-spec');
         await clientSpecPanel.locator('textarea').fill(LONG_CLIENT_SPEC);
-        await setupDataPanel.getByTestId('connector-variable-input-appstore_name').fill('Smoke Manual Subtitle App');
+        await setupDataPanel.getByTestId('connector-variable-input-appstore_name').fill('Smoke Partial Metadata App');
 
         const descriptionTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_description');
-        const subtitleInput = setupDataPanel.getByTestId('connector-variable-input-appstore_initial_subtitle');
         const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
         await getRegenerateDescriptionButton(page).click();
-        await expect(setupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
+        await expect(
+            setupDataPanel.getByText('App Store description saved. Some App Store metadata still needs generation.')
+        ).toBeVisible();
 
         expect(descriptionApiCallCount, 'First regenerate should call the description API once').toBe(1);
-        expect(requestBodies[0]?.generateSubtitleOptions, 'First regenerate should request subtitle options').toBe(true);
-        expect(requestBodies[0]?.generateKeywords, 'First regenerate should request keywords').toBe(true);
+        expect(requestBodies[0]?.generateDescription, 'First regenerate should request description generation').toBe(true);
+        await expect(descriptionTextarea).toHaveValue(GENERATED_DESCRIPTION);
+        await expect(keywordsTextarea).toHaveValue('');
+        await expect(setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')).toHaveCount(0);
+        await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toBeVisible();
+
+        await getMetadataRetryButton(page).click();
+        await expect(setupDataPanel.getByText('Missing App Store metadata generated and saved.')).toBeVisible();
+
+        expect(descriptionApiCallCount, 'Metadata retry should call the API exactly once more').toBe(2);
+        expect(requestBodies[1]?.generateDescription, 'Metadata retry should skip description generation').toBe(false);
+        expect(requestBodies[1]?.existingDescription, 'Metadata retry should pass the saved description').toBe(
+            GENERATED_DESCRIPTION
+        );
+        expect(
+            requestBodies[1]?.generateSubtitleOptions,
+            'Metadata retry should request subtitle options when subtitle is missing'
+        ).toBe(true);
+        expect(requestBodies[1]?.generateKeywords, 'Metadata retry should request keywords when they are missing').toBe(
+            true
+        );
         await expect(descriptionTextarea).toHaveValue(GENERATED_DESCRIPTION);
         await expect(keywordsTextarea).toHaveValue(GENERATED_KEYWORDS_A);
         await expect(setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')).toHaveText(
             GENERATED_SUBTITLE_OPTIONS_A[0]
         );
+        await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toHaveCount(0);
+    } finally {
+        if (createdBrandId) {
+            await deleteBrandCascade(createdBrandId);
+        }
+        await updateSmokeAppstoreAccount(seededAccount.id, restoreAccountPatch);
+    }
+});
 
-        await subtitleInput.fill(MANUAL_SUBTITLE);
-        await expect(subtitleInput).toHaveValue(MANUAL_SUBTITLE);
-        await expect(setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')).toHaveCount(0);
-        await expect(setupDataPanel.getByText(/^Unsaved changes$/)).toBeVisible();
-        await expect(setupDataPanel.getByText(/^Saved$/)).toBeVisible();
+test('metadata-only retry requests only missing fields and preserves existing manual values', async ({ page }) => {
+    const seededAccount = (await listSmokeAppstoreAccounts())[0];
+    expect(seededAccount, 'Expected the smoke user to have a seeded App Store account').toBeTruthy();
 
-        await page.reload({ waitUntil: 'domcontentloaded' });
-        await expect(page.getByTestId('workspace-page-root')).toBeVisible();
+    const restoreAccountPatch = {
+        app_id: seededAccount.app_id,
+        usability: seededAccount.usability,
+        was_used_before: seededAccount.was_used_before,
+    };
 
-        const reloadedSetupDataPanel = getSetupDataPanel(page);
-        const reloadedSubtitleInput = reloadedSetupDataPanel.getByTestId(
-            'connector-variable-input-appstore_initial_subtitle'
-        );
-        const reloadedKeywordsTextarea = reloadedSetupDataPanel.getByTestId(
-            'connector-variable-textarea-appstore_initial_keywords'
-        );
-        const reloadedDescriptionTextarea = reloadedSetupDataPanel.getByTestId(
-            'connector-variable-textarea-appstore_description'
-        );
+    let createdBrandId: string | null = null;
+    let descriptionApiCallCount = 0;
+    const requestBodies: Array<Record<string, unknown>> = [];
 
-        await expect(reloadedSubtitleInput).toHaveValue(MANUAL_SUBTITLE);
-        await expect(reloadedKeywordsTextarea).toHaveValue(GENERATED_KEYWORDS_A);
-        await expect(
-            reloadedSetupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')
-        ).toHaveCount(0);
+    await updateSmokeAppstoreAccount(seededAccount.id, {
+        app_id: null,
+        usability: true,
+        was_used_before: false,
+    });
+
+    await page.route('**/api/generate-appstore-description', async (route) => {
+        descriptionApiCallCount += 1;
+        requestBodies.push((route.request().postDataJSON() as Record<string, unknown>) || {});
+        const callNumber = descriptionApiCallCount;
+        const responseBody =
+            callNumber === 1
+                ? {
+                      status: 'generated',
+                      text: GENERATED_DESCRIPTION,
+                      subtitleOptions: [],
+                      keywords: '',
+                      promptKey: 'smoke-description-a',
+                      model: 'smoke-model',
+                      descriptionStatus: 'generated',
+                      metadataStatus: 'error',
+                      metadataError: 'Generated subtitle/keywords failed quality checks: subtitle_count.',
+                  }
+                : callNumber === 2
+                  ? {
+                        status: 'generated',
+                        text: GENERATED_DESCRIPTION,
+                        subtitleOptions: GENERATED_SUBTITLE_OPTIONS_A,
+                        keywords: '',
+                        promptKey: 'metadata_only',
+                        model: 'smoke-model',
+                        descriptionStatus: 'reused',
+                        metadataStatus: 'generated',
+                        metadataError: null,
+                    }
+                  : {
+                        status: 'generated',
+                        text: GENERATED_DESCRIPTION,
+                        subtitleOptions: [],
+                        keywords: GENERATED_KEYWORDS_B,
+                        promptKey: 'metadata_only',
+                        model: 'smoke-model',
+                        descriptionStatus: 'reused',
+                        metadataStatus: 'generated',
+                        metadataError: null,
+                    };
+
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(responseBody),
+        });
+    });
+
+    try {
+        const created = await createBrandAndApp(page, `${Date.now()}`.slice(-6));
+        createdBrandId = created.createdBrandId;
+
+        const setupDataPanel = getSetupDataPanel(page);
+        await expect.poll(async () => getAccountSelect(page).inputValue()).not.toBe('unassigned');
+
+        const clientSpecPanel = page.getByTestId('workspace-panel-client-spec');
+        await clientSpecPanel.locator('textarea').fill(LONG_CLIENT_SPEC);
+        await setupDataPanel.getByTestId('connector-variable-input-appstore_name').fill('Smoke Metadata Retry App');
+
+        const subtitleInput = setupDataPanel.getByTestId('connector-variable-input-appstore_initial_subtitle');
+        const keywordsTextarea = setupDataPanel.getByTestId('connector-variable-textarea-appstore_initial_keywords');
 
         await getRegenerateDescriptionButton(page).click();
-        await expect(reloadedSetupDataPanel.getByText('App Store description generated and saved.')).toBeVisible();
-
-        expect(descriptionApiCallCount, 'Second regenerate should call the description API again').toBe(2);
-        expect(
-            requestBodies[1]?.generateSubtitleOptions,
-            'Second regenerate should not request subtitle options once manual subtitle exists'
-        ).toBe(false);
-        expect(
-            requestBodies[1]?.generateKeywords,
-            'Second regenerate should not request keywords once they already exist'
-        ).toBe(false);
-        await expect(reloadedDescriptionTextarea).toHaveValue(GENERATED_DESCRIPTION_V2);
-        await expect(reloadedSubtitleInput).toHaveValue(MANUAL_SUBTITLE);
-        await expect(reloadedKeywordsTextarea).toHaveValue(GENERATED_KEYWORDS_A);
         await expect(
-            reloadedSetupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')
-        ).toHaveCount(0);
+            setupDataPanel.getByText('App Store description saved. Some App Store metadata still needs generation.')
+        ).toBeVisible();
+
+        await keywordsTextarea.fill(GENERATED_KEYWORDS_A);
+        await expect(keywordsTextarea).toHaveValue(GENERATED_KEYWORDS_A);
+
+        await getMetadataRetryButton(page).click();
+        await expect(setupDataPanel.getByText('Missing App Store metadata generated and saved.')).toBeVisible();
+
+        expect(descriptionApiCallCount, 'First metadata retry should call the API again').toBe(2);
+        expect(requestBodies[1]?.generateDescription, 'Retry should skip description generation').toBe(false);
+        expect(requestBodies[1]?.generateSubtitleOptions, 'Retry should request only subtitle options').toBe(true);
+        expect(requestBodies[1]?.generateKeywords, 'Retry should preserve manual keywords').toBe(false);
+        await expect(keywordsTextarea).toHaveValue(GENERATED_KEYWORDS_A);
+        await expect(setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-2')).toHaveText(
+            GENERATED_SUBTITLE_OPTIONS_A[1]
+        );
+
+        await setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-2').click();
+        await expect(subtitleInput).toHaveValue(GENERATED_SUBTITLE_OPTIONS_A[1]);
+        await expect(setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')).toHaveCount(0);
+
+        await keywordsTextarea.fill('');
+        await expect(keywordsTextarea).toHaveValue('');
+        await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toBeVisible();
+
+        await getMetadataRetryButton(page).click();
+        await expect(setupDataPanel.getByText('Missing App Store metadata generated and saved.')).toBeVisible();
+
+        expect(descriptionApiCallCount, 'Second metadata retry should call the API a third time').toBe(3);
+        expect(requestBodies[2]?.generateDescription, 'Second retry should also skip description generation').toBe(false);
+        expect(
+            requestBodies[2]?.generateSubtitleOptions,
+            'Second retry should preserve the chosen subtitle and not request subtitle options'
+        ).toBe(false);
+        expect(requestBodies[2]?.generateKeywords, 'Second retry should request only missing keywords').toBe(true);
+        await expect(subtitleInput).toHaveValue(GENERATED_SUBTITLE_OPTIONS_A[1]);
+        await expect(keywordsTextarea).toHaveValue(GENERATED_KEYWORDS_B);
+        await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toHaveCount(0);
     } finally {
         if (createdBrandId) {
             await deleteBrandCascade(createdBrandId);
