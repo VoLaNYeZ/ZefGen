@@ -2,8 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    analyzeGeneratedAppstoreMetadata,
     analyzeGeneratedDescription,
+    APPSTORE_KEYWORDS_LENGTH,
+    APPSTORE_SUBTITLE_OPTION_COUNT,
     MIN_DESCRIPTION_LENGTH,
+    MAX_APPSTORE_SUBTITLE_LENGTH,
     sanitizeClientSpecForPrompt,
 } from '../lib/server/generate-appstore-description.shared.js';
 
@@ -74,4 +78,30 @@ test('analyzeGeneratedDescription accepts long paragraph-first descriptions', ()
     assert.ok(validDescription.length > MIN_DESCRIPTION_LENGTH);
     assert.deepEqual(analysis.issues, []);
     assert.equal(analysis.metrics.paragraphCount, 3);
+});
+
+test('analyzeGeneratedAppstoreMetadata accepts 5 short subtitles and exact-length keywords', () => {
+    const keywords = `focus,clarity,habits,routine,calm,coach,energy,journal,planner,wellness,mindset,reset,tracker,rhythm`;
+    assert.equal(keywords.length, APPSTORE_KEYWORDS_LENGTH);
+
+    const analysis = analyzeGeneratedAppstoreMetadata({
+        subtitleOptions: ['Build calmer routines', 'Track habits clearly', 'Stay steady every day', 'Plan with less stress', 'Keep progress visible'],
+        keywords,
+    });
+
+    assert.deepEqual(analysis.issues, []);
+    assert.equal(analysis.subtitleOptions.length, APPSTORE_SUBTITLE_OPTION_COUNT);
+    assert.ok(analysis.subtitleOptions.every((option) => option.length <= MAX_APPSTORE_SUBTITLE_LENGTH));
+    assert.equal(analysis.keywords.length, APPSTORE_KEYWORDS_LENGTH);
+});
+
+test('analyzeGeneratedAppstoreMetadata rejects malformed subtitle and keyword payloads', () => {
+    const analysis = analyzeGeneratedAppstoreMetadata({
+        subtitleOptions: ['This subtitle is definitely more than thirty characters long', 'Repeat me', 'Repeat me'],
+        keywords: 'Focus,clear wins,energy2,habits',
+    });
+
+    assert.match(analysis.issues.join(','), /subtitle_count/);
+    assert.match(analysis.issues.join(','), /subtitle_length/);
+    assert.match(analysis.issues.join(','), /keywords_length/);
 });

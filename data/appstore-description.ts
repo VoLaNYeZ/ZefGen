@@ -5,6 +5,8 @@ export type GenerateAppstoreDescriptionPayload = {
     appStoreName?: string;
     companyName?: string;
     appCategoryHint?: string;
+    generateSubtitleOptions?: boolean;
+    generateKeywords?: boolean;
     accessTokenHint?: string;
 };
 
@@ -12,6 +14,8 @@ export type GenerateAppstoreDescriptionResponse =
     | {
           status: 'generated';
           text: string;
+          subtitleOptions: string[];
+          keywords: string;
           promptKey: string;
           model: string;
       }
@@ -94,6 +98,8 @@ const invokeApi = async (token: string, payload: GenerateAppstoreDescriptionPayl
             appStoreName: payload.appStoreName,
             companyName: payload.companyName,
             appCategoryHint: payload.appCategoryHint,
+            generateSubtitleOptions: payload.generateSubtitleOptions !== false,
+            generateKeywords: payload.generateKeywords !== false,
         }),
     });
 
@@ -152,6 +158,10 @@ export const generateAppstoreDescription = async (
             return {
                 status: 'generated',
                 text: String(body?.text || ''),
+                subtitleOptions: Array.isArray(body?.subtitleOptions)
+                    ? body.subtitleOptions.map((item: unknown) => String(item || '')).filter(Boolean)
+                    : [],
+                keywords: String(body?.keywords || ''),
                 promptKey: String(body?.promptKey || ''),
                 model: String(body?.model || ''),
             };

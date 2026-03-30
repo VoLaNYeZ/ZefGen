@@ -21,10 +21,21 @@ const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder
 const APP_NAME_MAX_LENGTH = 30;
 const APPSTORE_DESCRIPTION_MIN_SPEC_LENGTH = 100;
 const APPSTORE_DESCRIPTION_MAX_LENGTH = 4000;
+const APPSTORE_INITIAL_SUBTITLE_MAX_LENGTH = 30;
+const APPSTORE_INITIAL_KEYWORDS_MAX_LENGTH = 100;
+const APPSTORE_INITIAL_SUBTITLE_KEY = 'appstore_initial_subtitle';
+const APPSTORE_INITIAL_SUBTITLE_OPTIONS_KEY = 'appstore_initial_subtitle_options';
+const APPSTORE_INITIAL_KEYWORDS_KEY = 'appstore_initial_keywords';
 const APP_NAME_VARIABLE_KEYS = new Set(['appstore_name', 'app_new_name', 'home_screen_name']);
 const WIDE_VARIABLE_KEYS = new Set(['appstore_description', 'firebase_plist_snippet']);
 const OPTIONAL_VARIABLE_KEYS = new Set(['id_purchases']);
 const BOOTSTRAP_LEGAL_URL_PLACEHOLDER = 'https://google.com';
+
+const getInitialSubtitleOptions = (raw: Record<string, any> | null | undefined) => {
+    const value = (raw || {})[APPSTORE_INITIAL_SUBTITLE_OPTIONS_KEY];
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+};
 
 const isUsableLegalUrl = (value: unknown) => {
     const raw = String(value ?? '').trim();
@@ -149,6 +160,18 @@ export function ConnectorVariablesSecretsPanel(props: {
 
     const resolvedAppStoreDescription = React.useMemo(() => {
         return String((connectorForm.variables as any)?.appstore_description || '').trim();
+    }, [connectorForm.variables]);
+
+    const resolvedInitialSubtitle = React.useMemo(() => {
+        return String((connectorForm.variables as any)?.[APPSTORE_INITIAL_SUBTITLE_KEY] || '').trim();
+    }, [connectorForm.variables]);
+
+    const resolvedInitialSubtitleOptions = React.useMemo(() => {
+        return getInitialSubtitleOptions(connectorForm.variables);
+    }, [connectorForm.variables]);
+
+    const resolvedInitialKeywords = React.useMemo(() => {
+        return String((connectorForm.variables as any)?.[APPSTORE_INITIAL_KEYWORDS_KEY] || '');
     }, [connectorForm.variables]);
 
     const resolvedAccountEmail = React.useMemo(() => {
@@ -297,23 +320,19 @@ export function ConnectorVariablesSecretsPanel(props: {
         setSecretValue('');
     };
 
-    const persistGeneratedDescription = React.useCallback(
-        async (descriptionText: string) => {
-            const nextText = String(descriptionText || '');
-            return connectorForm.saveMergedVariablesPatch({ appstore_description: nextText });
+    const chooseInitialSubtitle = React.useCallback(
+        async (subtitle: string) => {
+            const nextSubtitle = String(subtitle || '').slice(0, APPSTORE_INITIAL_SUBTITLE_MAX_LENGTH).trim();
+            if (!nextSubtitle) return;
+            await connectorForm.saveMergedVariablesPatch(
+                {
+                    [APPSTORE_INITIAL_SUBTITLE_KEY]: nextSubtitle,
+                    [APPSTORE_INITIAL_SUBTITLE_OPTIONS_KEY]: [],
+                },
+                { source: 'manual' }
+            );
         },
         [connectorForm]
-    );
-
-    const getDescriptionFailureNotice = React.useCallback(
-        (result?: { error?: string } | null) => {
-            const raw = String(result?.error || '').toLowerCase();
-            if (raw.includes('quality check') || raw.includes('quality checks') || raw.includes('bullet_heavy')) {
-                return text('connector_appstore_desc_failed_quality');
-            }
-            return text('connector_appstore_desc_failed');
-        },
-        [text]
     );
 
     const handleGenerateLinks = React.useCallback(async () => {
@@ -346,14 +365,7 @@ export function ConnectorVariablesSecretsPanel(props: {
             : false;
         if (precheck.requiresConfirm && !shouldRegenerate) return;
 
-        const descriptionFirstAttemptPromise = connectorForm.regenerateAppstoreDescription({
-            silentOnShortSpec: true,
-            persistGenerated: false,
-            companyName: resolvedCompanyName,
-            reportError: false,
-        });
         const first = await connectorForm.generateLegalLinks(shouldRegenerate);
-        const firstDescription = await descriptionFirstAttemptPromise;
         if (!first) return;
 
         // Race-safe fallback: backend still guards with confirm_required.
@@ -364,66 +376,18 @@ export function ConnectorVariablesSecretsPanel(props: {
                 return;
             }
 
-            // Ignore first description attempt in confirm race path and rerun after explicit confirm.
-            const descriptionConfirmedAttemptPromise = connectorForm.regenerateAppstoreDescription({
-                silentOnShortSpec: true,
-                persistGenerated: false,
-                companyName: resolvedCompanyName,
-                reportError: false,
-            });
             const second = await connectorForm.generateLegalLinks(true);
-            const secondDescription = await descriptionConfirmedAttemptPromise;
             if (!second || second.status !== 'generated') return;
-            if (secondDescription?.status === 'generated') {
-                const saved = await persistGeneratedDescription(secondDescription.text);
-                if (!saved) {
-                    setGenerateNotice(
-                        `${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`
-                    );
-                    return;
-                }
-            }
-            if (secondDescription?.status === 'skipped_short_spec') {
-                setGenerateNotice(
-                    `${text('connector_generate_links_success')} ${text('connector_appstore_desc_skipped_short_spec')}`
-                );
-                return;
-            }
-            if (secondDescription?.status === 'error') {
-                setGenerateNotice(
-                    `${text('connector_generate_links_success')} ${getDescriptionFailureNotice(secondDescription)}`
-                );
-                return;
-            }
             setGenerateNotice(text('connector_generate_links_success'));
             return;
         }
 
-        if (firstDescription?.status === 'generated') {
-            const saved = await persistGeneratedDescription(firstDescription.text);
-            if (!saved) {
-                setGenerateNotice(`${text('connector_generate_links_success')} ${text('connector_appstore_desc_failed')}`);
-                return;
-            }
-        }
-        if (firstDescription?.status === 'skipped_short_spec') {
-            setGenerateNotice(
-                `${text('connector_generate_links_success')} ${text('connector_appstore_desc_skipped_short_spec')}`
-            );
-            return;
-        }
-        if (firstDescription?.status === 'error') {
-            setGenerateNotice(`${text('connector_generate_links_success')} ${getDescriptionFailureNotice(firstDescription)}`);
-            return;
-        }
         setGenerateNotice(text('connector_generate_links_success'));
     }, [
         connectorForm,
         canEdit,
         generateBlocked,
         generateButtonTitle,
-        getDescriptionFailureNotice,
-        persistGeneratedDescription,
         resolvedAccountEmail,
         resolvedAppStoreName,
         resolvedCompanyName,
@@ -885,6 +849,10 @@ export function ConnectorVariablesSecretsPanel(props: {
                             const value = String(connectorForm.variables?.[f.key] ?? '');
                             const isAppstoreDescription = f.key === 'appstore_description';
                             const appstoreDescriptionLength = isAppstoreDescription ? value.length : 0;
+                            const initialSubtitleLength = isAppstoreDescription ? resolvedInitialSubtitle.length : 0;
+                            const initialKeywordsLength = isAppstoreDescription ? resolvedInitialKeywords.length : 0;
+                            const hasPendingInitialSubtitleOptions =
+                                isAppstoreDescription && !resolvedInitialSubtitle && resolvedInitialSubtitleOptions.length > 0;
                             return (
                                 <label key={f.key} className="grid gap-1 sm:col-span-2">
                                     <div className="flex items-center justify-between gap-2">
@@ -940,6 +908,7 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     ) : null}
                                     <div className="relative">
                                         <textarea
+                                            data-testid={`connector-variable-textarea-${f.key}`}
                                             value={value}
                                             onChange={(e) =>
                                                 connectorForm.setVariable(
@@ -964,6 +933,95 @@ export function ConnectorVariablesSecretsPanel(props: {
                                     {isAppstoreDescription ? (
                                         <div className="text-right text-[10px] text-indigo-200/55">
                                             {appstoreDescriptionLength}/{APPSTORE_DESCRIPTION_MAX_LENGTH}
+                                        </div>
+                                    ) : null}
+                                    {isAppstoreDescription ? (
+                                        <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/15 p-3 sm:p-4">
+                                            <div className="grid gap-3">
+                                                <div className="grid gap-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="text-[11px] text-indigo-200/60">
+                                                            {text('connector_appstore_initial_subtitle')}
+                                                        </div>
+                                                        <span className="text-[10px] text-indigo-200/55">
+                                                            {initialSubtitleLength}/{APPSTORE_INITIAL_SUBTITLE_MAX_LENGTH}
+                                                        </span>
+                                                    </div>
+                                                    {hasPendingInitialSubtitleOptions ? (
+                                                        <div className="grid gap-2">
+                                                            <div className="text-[10px] text-indigo-200/45">
+                                                                {text('connector_appstore_initial_subtitle_choose')}
+                                                            </div>
+                                                            <div className="grid gap-2">
+                                                                {resolvedInitialSubtitleOptions.map((option, index) => (
+                                                                    <button
+                                                                        key={`${option}-${index}`}
+                                                                        type="button"
+                                                                        data-testid={`connector-appstore-initial-subtitle-option-${index + 1}`}
+                                                                        onClick={() => void chooseInitialSubtitle(option)}
+                                                                        disabled={!canEdit || connectorForm.saving}
+                                                                        className="w-full rounded-2xl border border-indigo-400/20 bg-indigo-500/10 px-4 py-3 text-left text-xs text-indigo-50/95 hover:bg-indigo-500/15 disabled:opacity-60"
+                                                                    >
+                                                                        {option}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ) : null}
+                                                    <input
+                                                        data-testid="connector-variable-input-appstore_initial_subtitle"
+                                                        value={resolvedInitialSubtitle}
+                                                        onChange={(e) => {
+                                                            const nextSubtitle = e.target.value.slice(
+                                                                0,
+                                                                APPSTORE_INITIAL_SUBTITLE_MAX_LENGTH
+                                                            );
+                                                            if (resolvedInitialSubtitleOptions.length > 0) {
+                                                                connectorForm.setVariables((prev) => ({
+                                                                    ...prev,
+                                                                    [APPSTORE_INITIAL_SUBTITLE_KEY]: nextSubtitle,
+                                                                    [APPSTORE_INITIAL_SUBTITLE_OPTIONS_KEY]: [],
+                                                                }));
+                                                                return;
+                                                            }
+                                                            connectorForm.setVariable(
+                                                                APPSTORE_INITIAL_SUBTITLE_KEY,
+                                                                nextSubtitle
+                                                            );
+                                                        }}
+                                                        maxLength={APPSTORE_INITIAL_SUBTITLE_MAX_LENGTH}
+                                                        disabled={!canEdit}
+                                                        className="w-full rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
+                                                        placeholder={text('connector_appstore_initial_subtitle_hint')}
+                                                    />
+                                                </div>
+
+                                                <div className="grid gap-2">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="text-[11px] text-indigo-200/60">
+                                                            {text('connector_appstore_initial_keywords')}
+                                                        </div>
+                                                        <span className="text-[10px] text-indigo-200/55">
+                                                            {initialKeywordsLength}/{APPSTORE_INITIAL_KEYWORDS_MAX_LENGTH}
+                                                        </span>
+                                                    </div>
+                                                    <textarea
+                                                        data-testid="connector-variable-textarea-appstore_initial_keywords"
+                                                        value={resolvedInitialKeywords}
+                                                        onChange={(e) =>
+                                                            connectorForm.setVariable(
+                                                                APPSTORE_INITIAL_KEYWORDS_KEY,
+                                                                e.target.value.slice(0, APPSTORE_INITIAL_KEYWORDS_MAX_LENGTH)
+                                                            )
+                                                        }
+                                                        maxLength={APPSTORE_INITIAL_KEYWORDS_MAX_LENGTH}
+                                                        rows={2}
+                                                        disabled={!canEdit}
+                                                        className="w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 py-3 text-xs text-indigo-100/90 outline-none placeholder:text-indigo-200/30 focus:border-indigo-400/40 disabled:opacity-60"
+                                                        placeholder={text('connector_appstore_initial_keywords_hint')}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     ) : null}
                                 </label>

@@ -4,6 +4,11 @@
 
 import {
     analyzeGeneratedDescription,
+    analyzeGeneratedKeywords,
+    analyzeGeneratedSubtitleOptions,
+    APPSTORE_KEYWORDS_LENGTH,
+    APPSTORE_SUBTITLE_OPTION_COUNT,
+    MAX_APPSTORE_SUBTITLE_LENGTH,
     MIN_CLIENT_SPEC_LENGTH,
     sanitizeClientSpecForPrompt,
     sanitizeDescription,
@@ -14,6 +19,8 @@ type GenerateAppstoreDescriptionRequestBody = {
     appStoreName?: string;
     companyName?: string;
     appCategoryHint?: string;
+    generateSubtitleOptions?: boolean;
+    generateKeywords?: boolean;
 };
 
 type PromptTemplate = {
@@ -215,7 +222,7 @@ const normalizeOpenAIChatErrorMessage = (payload: { message: string; model: stri
     return raw;
 };
 
-const requestOpenAIChat = async (payload: {
+const requestOpenAIChatContent = async (payload: {
     apiKey: string;
     model: string;
     messages: ChatMessage[];
@@ -250,13 +257,29 @@ const requestOpenAIChat = async (payload: {
         throw err;
     }
 
-    const text = sanitizeDescription(coerceTextContent(data));
+    const text = coerceTextContent(data).trim();
+    if (!text) {
+        const err = new Error('OpenAI returned empty text.');
+        (err as any).statusCode = 502;
+        throw err;
+    }
+
+    return text;
+};
+
+const requestOpenAIChat = async (payload: {
+    apiKey: string;
+    model: string;
+    messages: ChatMessage[];
+    temperature?: number;
+    reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+}) => {
+    const text = sanitizeDescription(await requestOpenAIChatContent(payload));
     if (!text) {
         const err = new Error('OpenAI returned empty description text.');
         (err as any).statusCode = 502;
         throw err;
     }
-
     return text;
 };
 
@@ -303,6 +326,247 @@ ${payload.clientSpec}
 Draft:
 ${payload.draft}`;
 
+const extractJsonObject = (value: string) => {
+    const source = String(value || '').trim();
+    if (!source) return null;
+
+    const fenced = source.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const candidate = fenced?.[1] || source;
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) return null;
+
+    try {
+        return JSON.parse(candidate.slice(start, end + 1));
+    } catch {
+        return null;
+    }
+};
+
+const METADATA_ISSUE_GUIDANCE: Record<string, string> = {
+    metadata_json: 'Return valid JSON with exactly two keys: subtitleOptions and keywords.',
+    subtitle_count: `Return at least ${APPSTORE_SUBTITLE_OPTION_COUNT} distinct subtitle options.`,
+    subtitle_length: `Every subtitle option must be ${MAX_APPSTORE_SUBTITLE_LENGTH} characters or fewer.`,
+    keywords_empty: 'Return a non-empty keywords string.',
+    keywords_charset: 'Keywords may contain only lowercase letters and commas.',
+    keywords_format: 'Each keyword must be one word only, separated by commas, with no spaces or numbers.',
+    keywords_length: `The full keywords string must be exactly ${APPSTORE_KEYWORDS_LENGTH} characters, counting commas.`,
+};
+
+const formatMetadataIssues = (issues: string[]) =>
+    issues.map((issue) => METADATA_ISSUE_GUIDANCE[issue] || `Fix ${issue}.`).join('\n- ');
+
+const buildMetadataPrompt = (payload: {
+    clientSpec: string;
+    appStoreName: string;
+    appCategoryHint: string;
+    description: string;
+    generateSubtitleOptions: boolean;
+    generateKeywords: boolean;
+}) => `Return valid JSON with exactly these keys:
+${[
+    payload.generateSubtitleOptions
+        ? `- "subtitleOptions": an array of exactly ${APPSTORE_SUBTITLE_OPTION_COUNT} original App Store subtitles`
+        : null,
+    payload.generateKeywords ? '- "keywords": one comma-separated keywords string' : null,
+]
+    .filter(Boolean)
+    .join('\n')}
+
+${buildPromptContext({
+    appStoreName: payload.appStoreName,
+    appCategoryHint: payload.appCategoryHint,
+})}
+
+Source material:
+- Use the generated App Store description as the main source for tone and meaning.
+- Use the client spec only as supporting context.
+
+${payload.generateSubtitleOptions ? `Rules for "subtitleOptions":
+- English only.
+- Return ${APPSTORE_SUBTITLE_OPTION_COUNT} distinct options.
+- Each subtitle must be ${MAX_APPSTORE_SUBTITLE_LENGTH} characters or fewer.
+- Make them sound App Store-ready, specific, and original.` : ''}
+
+${payload.generateKeywords ? `Rules for "keywords":
+- Lowercase letters and commas only.
+- No spaces.
+- No numbers.
+- Each keyword must be one word only.
+- The full string must total exactly ${APPSTORE_KEYWORDS_LENGTH} characters, counting commas.` : ''}
+
+Return JSON only. No markdown, no commentary, no extra keys.
+
+Client spec:
+${payload.clientSpec}
+
+Generated App Store description:
+${payload.description}`;
+
+const buildMetadataRewritePrompt = (payload: {
+    clientSpec: string;
+    appStoreName: string;
+    appCategoryHint: string;
+    description: string;
+    draft: string;
+    issues: string[];
+    generateSubtitleOptions: boolean;
+    generateKeywords: boolean;
+}) => `Repair this generated App Store metadata output so it fully matches the schema and constraints.
+
+${buildPromptContext({
+    appStoreName: payload.appStoreName,
+    appCategoryHint: payload.appCategoryHint,
+})}
+
+Problems to fix:
+- ${formatMetadataIssues(payload.issues)}
+
+Return JSON with exactly these keys:
+${[
+    payload.generateSubtitleOptions
+        ? `- "subtitleOptions": ${APPSTORE_SUBTITLE_OPTION_COUNT} distinct subtitles, each ${MAX_APPSTORE_SUBTITLE_LENGTH} chars max`
+        : null,
+    payload.generateKeywords
+        ? `- "keywords": one lowercase comma-separated string with no spaces or numbers and exactly ${APPSTORE_KEYWORDS_LENGTH} characters`
+        : null,
+]
+    .filter(Boolean)
+    .join('\n')}
+
+Return JSON only. No markdown, no commentary.
+
+Client spec:
+${payload.clientSpec}
+
+Generated App Store description:
+${payload.description}
+
+Current invalid output:
+${payload.draft}`;
+
+const analyzeMetadataDraft = (
+    draft: string,
+    options: { generateSubtitleOptions: boolean; generateKeywords: boolean }
+) => {
+    const parsed = extractJsonObject(draft);
+    if (!parsed) {
+        return {
+            subtitleOptions: [],
+            keywords: '',
+            issues: ['metadata_json'],
+        };
+    }
+    const subtitleAnalysis = options.generateSubtitleOptions
+        ? analyzeGeneratedSubtitleOptions((parsed as any)?.subtitleOptions)
+        : { options: [] as string[], issues: [] as string[] };
+    const keywordsAnalysis = options.generateKeywords
+        ? analyzeGeneratedKeywords((parsed as any)?.keywords)
+        : { keywords: '', issues: [] as string[] };
+
+    return {
+        subtitleOptions: options.generateSubtitleOptions ? subtitleAnalysis.options : [],
+        keywords: options.generateKeywords ? keywordsAnalysis.keywords : '',
+        issues: Array.from(new Set([
+            ...(options.generateSubtitleOptions ? subtitleAnalysis.issues : []),
+            ...(options.generateKeywords ? keywordsAnalysis.issues : []),
+        ])),
+    };
+};
+
+const generateMetadataWithOpenAI = async (payload: {
+    clientSpec: string;
+    appStoreName: string;
+    appCategoryHint: string;
+    description: string;
+    model: string;
+    generateSubtitleOptions: boolean;
+    generateKeywords: boolean;
+}) => {
+    if (!payload.generateSubtitleOptions && !payload.generateKeywords) {
+        return {
+            subtitleOptions: [] as string[],
+            keywords: '',
+        };
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        const err = new Error('Missing OPENAI_API_KEY.');
+        (err as any).statusCode = 500;
+        throw err;
+    }
+
+    const initialDraft = await requestOpenAIChatContent({
+        apiKey,
+        model: payload.model,
+        messages: [
+            {
+                role: 'system',
+                content:
+                    'You generate App Store subtitle options and keywords. Always return valid JSON with the requested keys only.',
+            },
+            {
+                role: 'user',
+                content: buildMetadataPrompt(payload),
+            },
+        ],
+        temperature: 0.75,
+        reasoningEffort: DEFAULT_REASONING_EFFORT,
+    });
+
+    let analysis = analyzeMetadataDraft(initialDraft, {
+        generateSubtitleOptions: payload.generateSubtitleOptions,
+        generateKeywords: payload.generateKeywords,
+    });
+    let finalDraft = initialDraft;
+
+    if (analysis.issues.length > 0) {
+        finalDraft = await requestOpenAIChatContent({
+            apiKey,
+            model: payload.model,
+            messages: [
+                {
+                    role: 'system',
+                    content:
+                        'You repair invalid App Store subtitle and keyword JSON. Output valid JSON only with the requested keys.',
+                },
+                {
+                    role: 'user',
+                    content: buildMetadataRewritePrompt({
+                        clientSpec: payload.clientSpec,
+                        appStoreName: payload.appStoreName,
+                        appCategoryHint: payload.appCategoryHint,
+                        description: payload.description,
+                        draft: finalDraft,
+                        issues: analysis.issues,
+                        generateSubtitleOptions: payload.generateSubtitleOptions,
+                        generateKeywords: payload.generateKeywords,
+                    }),
+                },
+            ],
+            temperature: 0.4,
+            reasoningEffort: DEFAULT_REASONING_EFFORT,
+        });
+
+        analysis = analyzeMetadataDraft(finalDraft, {
+            generateSubtitleOptions: payload.generateSubtitleOptions,
+            generateKeywords: payload.generateKeywords,
+        });
+    }
+
+    if (analysis.issues.length > 0) {
+        const err = new Error(`Generated subtitle/keywords failed quality checks: ${analysis.issues.join(', ')}.`);
+        (err as any).statusCode = 502;
+        throw err;
+    }
+
+    return {
+        subtitleOptions: analysis.subtitleOptions,
+        keywords: analysis.keywords,
+    };
+};
+
 const generateWithOpenAI = async (payload: {
     clientSpec: string;
     appStoreName: string;
@@ -310,6 +574,8 @@ const generateWithOpenAI = async (payload: {
     model: string;
     promptKey: PromptTemplate['key'];
     prompt: string;
+    generateSubtitleOptions: boolean;
+    generateKeywords: boolean;
 }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -374,9 +640,21 @@ const generateWithOpenAI = async (payload: {
         throw err;
     }
 
+    const metadata = await generateMetadataWithOpenAI({
+        clientSpec: payload.clientSpec,
+        appStoreName: payload.appStoreName,
+        appCategoryHint: payload.appCategoryHint,
+        description: finalText,
+        model: payload.model,
+        generateSubtitleOptions: payload.generateSubtitleOptions,
+        generateKeywords: payload.generateKeywords,
+    });
+
     return {
         status: 'generated' as const,
         text: finalText,
+        subtitleOptions: metadata.subtitleOptions,
+        keywords: metadata.keywords,
         promptKey: payload.promptKey,
         model: payload.model,
     };
@@ -416,6 +694,8 @@ export default async function handler(req: any, res: any) {
 
         const appStoreName = String(parsed.appStoreName || '').trim();
         const appCategoryHint = String(parsed.appCategoryHint || '').trim();
+        const generateSubtitleOptions = parsed.generateSubtitleOptions !== false;
+        const generateKeywords = parsed.generateKeywords !== false;
         const sanitizedClientSpec = sanitizeClientSpecForPrompt(clientSpec);
 
         const model = String(process.env.OPENAI_APPSTORE_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
@@ -433,6 +713,8 @@ export default async function handler(req: any, res: any) {
             model,
             promptKey: promptTemplate.key,
             prompt,
+            generateSubtitleOptions,
+            generateKeywords,
         });
 
         return json(res, 200, generated);
