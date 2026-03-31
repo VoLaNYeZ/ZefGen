@@ -5,12 +5,17 @@ import { motion, useReducedMotion } from 'motion/react';
 import type { TranslationKey } from '../../i18n';
 import type { AppItem } from '../../types/zefgen';
 import {
+    buildConnectorExecutionPanelSnapshot,
+    getConnectorExecutionPanelSnapshotSignature,
+    type ConnectorExecutionPanelSnapshot,
+} from '../../types/connector-execution-snapshot';
+import {
     DEFAULT_RUNNER_CAPTURE_MODE,
     RUNNER_SUPPORTED_CAPTURE_MODES,
     type ConnectorJob,
     type RunnerSupportedCaptureMode,
 } from '../../data/connector-jobs';
-import { useConnectorJobs } from '../../hooks/use-connector-jobs';
+import type { ConnectorJobsController } from '../../hooks/use-connector-jobs';
 import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { useConnectorJobArtifacts } from '../../hooks/use-connector-job-artifacts';
 import { MatrixTerminal } from './MatrixTerminal';
@@ -111,13 +116,28 @@ export function ConnectorRunnerPanel(props: {
     session: Session | null;
     selectedApp: AppItem | null;
     githubRepoUrl?: string | null;
+    connectorExecution: ConnectorJobsController;
     connectorForm: ConnectorForm;
+    hydrationSnapshot?: ConnectorExecutionPanelSnapshot | null;
+    onSnapshotChange?: (snapshot: ConnectorExecutionPanelSnapshot | null) => void;
     pickedIcon: boolean;
     text: (key: TranslationKey) => string;
     reportError?: (msg: string) => void;
     isReadOnly?: boolean;
 }) {
-    const { session, selectedApp, githubRepoUrl, connectorForm, pickedIcon, text, reportError, isReadOnly = false } = props;
+    const {
+        session,
+        selectedApp,
+        githubRepoUrl,
+        connectorExecution,
+        connectorForm,
+        hydrationSnapshot = null,
+        onSnapshotChange,
+        pickedIcon,
+        text,
+        reportError,
+        isReadOnly = false,
+    } = props;
     const [bugReport, setBugReport] = React.useState('');
     const [busy, setBusy] = React.useState(false);
     const [localError, setLocalError] = React.useState<string | null>(null);
@@ -128,8 +148,21 @@ export function ConnectorRunnerPanel(props: {
     const [captureMode, setCaptureMode] = React.useState<RunnerSupportedCaptureMode>(DEFAULT_RUNNER_CAPTURE_MODE);
     const [fixHistoryExpanded, setFixHistoryExpanded] = React.useState(false);
     const [expandedFixJobId, setExpandedFixJobId] = React.useState<string | null>(null);
+    const emittedSnapshotSignatureRef = React.useRef('');
+    const hydrationSnapshotAppIdRef = React.useRef('');
+    const hydrationSnapshotRef = React.useRef<ConnectorExecutionPanelSnapshot | null>(null);
     const prefersReducedMotion = useReducedMotion();
-
+    const selectedAppId = String(selectedApp?.id || '').trim();
+    const matchingHydrationSnapshot =
+        hydrationSnapshot && String(hydrationSnapshot.appId || '').trim() === selectedAppId ? hydrationSnapshot : null;
+    if (hydrationSnapshotAppIdRef.current !== selectedAppId) {
+        hydrationSnapshotAppIdRef.current = selectedAppId;
+        hydrationSnapshotRef.current = matchingHydrationSnapshot;
+    }
+    const stableHydrationSnapshot =
+        hydrationSnapshotRef.current && String(hydrationSnapshotRef.current.appId || '').trim() === selectedAppId
+            ? hydrationSnapshotRef.current
+            : null;
     const {
         jobs,
         latestJob,
@@ -142,14 +175,7 @@ export function ConnectorRunnerPanel(props: {
         createQaJob,
         createScreenshotsJob,
         requestCancel,
-    } = useConnectorJobs({
-        session,
-        selectedApp,
-        githubRepoUrl,
-        baseBranch: MAIN_BRANCH,
-        pollMs: 3000,
-        idlePollMs: 15_000,
-    });
+    } = connectorExecution;
 
     const isLatestJobLive =
         latestJob?.status === 'queued' || latestJob?.status === 'running' || latestJob?.status === 'waiting_for_user';
@@ -158,6 +184,7 @@ export function ConnectorRunnerPanel(props: {
         jobId: latestJob?.id || null,
         pollMs: 2500,
         live: isLatestJobLive,
+        hydrationSnapshot: stableHydrationSnapshot,
     });
 
     const selectedJob = React.useMemo(
@@ -178,6 +205,7 @@ export function ConnectorRunnerPanel(props: {
         jobId: selectedJob?.id || null,
         pollMs: 5000,
         live: isSelectedJobLive,
+        hydrationSnapshot: stableHydrationSnapshot,
     });
 
     const groupedArtifacts = React.useMemo(() => groupConnectorArtifacts(artifacts), [artifacts]);
@@ -189,11 +217,12 @@ export function ConnectorRunnerPanel(props: {
         setPanelsRevealed(false);
         setStartingGenerate(false);
         setAnimateTerminalAccent(false);
-        setSelectedJobId(null);
+        setSelectedJobId(String(stableHydrationSnapshot?.selectedJobId || '').trim() || null);
         setCaptureMode(DEFAULT_RUNNER_CAPTURE_MODE);
         setFixHistoryExpanded(false);
         setExpandedFixJobId(null);
-    }, [selectedApp?.id]);
+        emittedSnapshotSignatureRef.current = '';
+    }, [selectedAppId]);
 
     React.useEffect(() => {
         if (jobs.length === 0) return;
@@ -631,6 +660,64 @@ export function ConnectorRunnerPanel(props: {
     }, [expandedFixJobId, previousFixJobs]);
 
     const combinedError = localError || connectorForm.error || error || artifactsError;
+    const connectorExecutionSnapshot = React.useMemo(
+        () =>
+            buildConnectorExecutionPanelSnapshot({
+                appId: selectedAppId,
+                jobs,
+                selectedJobId,
+                latestJobId: latestJob?.id || null,
+                latestJobMessages: messages,
+                selectedJobArtifactJobId: selectedJob?.id || null,
+                selectedJobArtifacts: artifacts,
+                artifactUrlsById,
+                artifactJsonById,
+            }),
+        [
+            artifactJsonById,
+            artifactUrlsById,
+            artifacts,
+            jobs,
+            latestJob?.id,
+            messages,
+            selectedAppId,
+            selectedJob?.id,
+            selectedJobId,
+        ]
+    );
+    const connectorExecutionSnapshotSignature = React.useMemo(
+        () => getConnectorExecutionPanelSnapshotSignature(connectorExecutionSnapshot),
+        [connectorExecutionSnapshot]
+    );
+
+    React.useEffect(() => {
+        if (!onSnapshotChange) return;
+        if (!selectedAppId) {
+            if (emittedSnapshotSignatureRef.current) {
+                emittedSnapshotSignatureRef.current = '';
+                onSnapshotChange(null);
+            }
+            return;
+        }
+        if (!connectorExecutionSnapshot) return;
+        if (loading && !stableHydrationSnapshot && jobs.length === 0) return;
+        if (
+            connectorExecutionSnapshotSignature &&
+            emittedSnapshotSignatureRef.current === connectorExecutionSnapshotSignature
+        ) {
+            return;
+        }
+        emittedSnapshotSignatureRef.current = connectorExecutionSnapshotSignature;
+        onSnapshotChange(connectorExecutionSnapshot);
+    }, [
+        connectorExecutionSnapshot,
+        connectorExecutionSnapshotSignature,
+        jobs.length,
+        loading,
+        onSnapshotChange,
+        selectedAppId,
+        stableHydrationSnapshot,
+    ]);
 
     return (
         <section className="rounded-[28px] bg-slate-900 ring-1 ring-white/5 p-6">

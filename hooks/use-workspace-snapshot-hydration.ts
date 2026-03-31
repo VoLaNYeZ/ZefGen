@@ -150,6 +150,7 @@ export function useWorkspaceSnapshotHydration({ sessionUserId, text, workspaceSn
                     expanded: false,
                     quickSetupEditing: false,
                 },
+                connectorExecution: null,
             };
 
             workspaceSnapshotsRef.current[app.id] = snapshot;

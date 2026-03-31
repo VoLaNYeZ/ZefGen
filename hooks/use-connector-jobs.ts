@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { AppItem } from '../types/zefgen';
+import type { ConnectorExecutionPanelSnapshot } from '../types/connector-execution-snapshot';
 import type { ConnectorJobStatus, DownstreamCaptureMode } from '../data/connector-jobs.ts';
 import {
     assertRunnerSupportedCaptureMode,
+    type ConnectorJob,
     createConnectorJob,
     DEFAULT_RUNNER_CAPTURE_MODE,
     fetchConnectorJobs,
@@ -13,6 +15,9 @@ import {
 const normalizeDownstreamSource = (value: string) => String(value || '').trim();
 const isActiveConnectorJobStatus = (status: ConnectorJobStatus | string | null | undefined) =>
     status === 'queued' || status === 'running' || status === 'waiting_for_user';
+const EMPTY_CONNECTOR_JOBS: ConnectorJob[] = [];
+const getJobsSignature = (jobs: ConnectorJob[]) =>
+    jobs.map((job) => `${String(job?.id || '')}:${String(job?.updated_at || job?.created_at || '')}`).join('|');
 
 export const buildVisualQaConnectorJobInput = (payload: { sourceJobId: string; sourceRef: string }) => {
     const sourceJobId = normalizeDownstreamSource(payload.sourceJobId);
@@ -44,54 +49,123 @@ export const buildScreenshotsConnectorJobInput = (payload: {
     };
 };
 
+export type ConnectorJobsController = {
+    jobs: ConnectorJob[];
+    latestJob: ConnectorJob | null;
+    loading: boolean;
+    error: string | null;
+    refresh: () => Promise<void>;
+    createGenerateJob: () => Promise<ConnectorJob | null>;
+    createContinueJob: (fromJobId: string) => Promise<ConnectorJob | null>;
+    createFixJob: (bugReport: string) => Promise<ConnectorJob | null>;
+    createIntegrationJob: () => Promise<ConnectorJob | null>;
+    createQaJob: (payload: { sourceJobId: string; sourceRef: string }) => Promise<ConnectorJob | null>;
+    createScreenshotsJob: (payload: { sourceJobId: string; sourceRef: string; captureMode: DownstreamCaptureMode }) => Promise<ConnectorJob | null>;
+    requestCancel: (jobId: string) => Promise<ConnectorJob | null>;
+};
+
 export const useConnectorJobs = (payload: {
     session: Session | null;
     selectedApp: AppItem | null;
     githubRepoUrl?: string | null;
     baseBranch?: string | null;
     pollMs?: number;
-    idlePollMs?: number;
-}) => {
+    idlePollMs?: number | null;
+    hydrationSnapshot?: ConnectorExecutionPanelSnapshot | null;
+}): ConnectorJobsController => {
     const { session, selectedApp, githubRepoUrl } = payload;
     const activePollMs = Math.max(1200, Math.floor(payload.pollMs ?? 3000));
-    const idlePollMs = Math.max(activePollMs, Math.floor(payload.idlePollMs ?? activePollMs));
+    const idlePollMs =
+        payload.idlePollMs == null ? null : Math.max(activePollMs, Math.floor(payload.idlePollMs));
     const baseBranch = String(payload.baseBranch || '').trim() || 'main';
+    const sessionUserId = String(session?.user?.id || '').trim();
+    const selectedAppId = String(selectedApp?.id || '').trim();
+    const selectedAppRepoFullName = String((selectedApp as any)?.github_repo_full_name || '').trim();
+    const selectedAppRepoUrl = String((selectedApp as any)?.github_repo_url || '').trim();
+    const scopeKey = sessionUserId && selectedAppId ? `${sessionUserId}:${selectedAppId}` : '';
+    const matchingHydrationSnapshot =
+        payload.hydrationSnapshot && String(payload.hydrationSnapshot.appId || '').trim() === selectedAppId
+            ? payload.hydrationSnapshot
+            : null;
+    const hydrationJobs = Array.isArray(matchingHydrationSnapshot?.jobs)
+        ? (matchingHydrationSnapshot?.jobs as ConnectorJob[])
+        : EMPTY_CONNECTOR_JOBS;
+    const hydrationJobsSignature = getJobsSignature(hydrationJobs);
+    const hasMatchingHydrationSnapshot = Boolean(matchingHydrationSnapshot);
 
-    const [jobs, setJobs] = useState<any[]>([]);
+    const [jobs, setJobs] = useState<ConnectorJob[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const timerRef = useRef<number | null>(null);
     const jobsSignatureRef = useRef('');
     const scopeKeyRef = useRef('');
+    const requestScopeKeyRef = useRef('');
+    const hydrationStateRef = useRef('');
+
+    useLayoutEffect(() => {
+        requestScopeKeyRef.current = scopeKey;
+
+        if (!scopeKey) {
+            if (scopeKeyRef.current !== '') {
+                setJobs((current) => (current.length === 0 ? current : EMPTY_CONNECTOR_JOBS));
+            }
+            setLoading((current) => (current ? false : current));
+            setError((current) => (current === null ? current : null));
+            jobsSignatureRef.current = '';
+            scopeKeyRef.current = '';
+            hydrationStateRef.current = '';
+            return;
+        }
+
+        const nextHydrationState = hasMatchingHydrationSnapshot
+            ? `${scopeKey}:hydrated:${hydrationJobsSignature}`
+            : `${scopeKey}:cold`;
+        if (scopeKeyRef.current === scopeKey && hydrationStateRef.current === nextHydrationState) return;
+
+        scopeKeyRef.current = scopeKey;
+        hydrationStateRef.current = nextHydrationState;
+        setError((current) => (current === null ? current : null));
+        if (hasMatchingHydrationSnapshot) {
+            jobsSignatureRef.current = hydrationJobsSignature;
+            setJobs((current) => (getJobsSignature(current) === hydrationJobsSignature ? current : hydrationJobs));
+            setLoading((current) => (current ? false : current));
+            return;
+        }
+
+        jobsSignatureRef.current = '';
+        setJobs((current) => (current.length === 0 ? current : EMPTY_CONNECTOR_JOBS));
+        setLoading((current) => (current ? current : true));
+    }, [hasMatchingHydrationSnapshot, hydrationJobsSignature, scopeKey]);
 
     const runRefresh = useCallback(async (background = false) => {
-        if (!session || !selectedApp) return;
+        if (!sessionUserId || !selectedAppId) return;
+        const requestScopeKey = requestScopeKeyRef.current;
         if (!background) {
             setLoading(true);
             setError(null);
         }
         try {
             const { data, error: e } = await fetchConnectorJobs({
-                userId: session.user.id,
-                appId: selectedApp.id,
+                userId: sessionUserId,
+                appId: selectedAppId,
                 limit: 15,
             });
             if (e) throw e;
-            const nextJobs = data || [];
-            const nextSignature = nextJobs
-                .map((job) => `${String(job?.id || '')}:${String(job?.updated_at || job?.created_at || '')}`)
-                .join('|');
+            if (requestScopeKeyRef.current !== requestScopeKey) return;
+            const nextJobs = (data || []) as ConnectorJob[];
+            const nextSignature = getJobsSignature(nextJobs);
             if (jobsSignatureRef.current !== nextSignature) {
                 jobsSignatureRef.current = nextSignature;
                 setJobs(nextJobs);
             }
             if (background) setError(null);
         } catch (e: any) {
+            if (requestScopeKeyRef.current !== requestScopeKey) return;
             setError(String(e?.message || e));
         } finally {
-            if (!background) setLoading(false);
+            if (!background && requestScopeKeyRef.current === requestScopeKey) setLoading(false);
         }
-    }, [session, selectedApp]);
+    }, [selectedAppId, sessionUserId]);
 
     const refresh = useCallback(async () => {
         await runRefresh(false);
@@ -107,31 +181,23 @@ export const useConnectorJobs = (payload: {
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
 
-        const scopeKey = session?.user?.id && selectedApp?.id ? `${session.user.id}:${selectedApp.id}` : '';
+        if (!scopeKey) return;
 
-        if (!session || !selectedApp) {
-            setJobs([]);
-            setLoading(false);
-            setError(null);
-            jobsSignatureRef.current = '';
-            scopeKeyRef.current = '';
-            return;
+        const hasCachedSnapshot = hasMatchingHydrationSnapshot;
+        if (!hasCachedSnapshot) {
+            void runRefresh(false);
+        } else if (hasActiveJob) {
+            void runRefresh(true);
         }
 
-        if (scopeKeyRef.current !== scopeKey) {
-            scopeKeyRef.current = scopeKey;
-            setJobs([]);
-            setError(null);
-            jobsSignatureRef.current = '';
+        if (typeof effectivePollMs === 'number' && effectivePollMs > 0) {
+            timerRef.current = window.setInterval(() => void runRefresh(true), effectivePollMs);
         }
-
-        void runRefresh(false);
-        timerRef.current = window.setInterval(() => void runRefresh(true), effectivePollMs);
         return () => {
             if (timerRef.current) window.clearInterval(timerRef.current);
             timerRef.current = null;
         };
-    }, [effectivePollMs, runRefresh, selectedApp?.id, session?.user?.id]);
+    }, [effectivePollMs, hasActiveJob, hasMatchingHydrationSnapshot, runRefresh, scopeKey]);
 
     const latestJob = useMemo(() => jobs[0] ?? null, [jobs]);
 
@@ -145,23 +211,23 @@ export const useConnectorJobs = (payload: {
     }, []);
 
     const getRepoFullName = useCallback(() => {
-        const direct = String((selectedApp as any)?.github_repo_full_name || '').trim();
+        const direct = selectedAppRepoFullName;
         if (direct) return direct;
-        const fromRowUrl = toRepoFullNameFromUrl((selectedApp as any)?.github_repo_url);
+        const fromRowUrl = toRepoFullNameFromUrl(selectedAppRepoUrl);
         if (fromRowUrl) return fromRowUrl;
         const fromStateUrl = toRepoFullNameFromUrl(githubRepoUrl);
         if (fromStateUrl) return fromStateUrl;
         return '';
-    }, [selectedApp, githubRepoUrl, toRepoFullNameFromUrl]);
+    }, [githubRepoUrl, selectedAppRepoFullName, selectedAppRepoUrl, toRepoFullNameFromUrl]);
 
     const createGenerateJob = useCallback(async () => {
-        if (!session || !selectedApp) throw new Error('No session/app selected.');
+        if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
         const repoFullName = getRepoFullName();
         if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
         const { data, error: e } = await createConnectorJob({
-            userId: session.user.id,
-            appId: selectedApp.id,
+            userId: sessionUserId,
+            appId: selectedAppId,
             kind: 'generate',
             repoFullName,
             baseBranch,
@@ -169,12 +235,12 @@ export const useConnectorJobs = (payload: {
         });
         if (e) throw e;
         await refresh();
-        return data;
-    }, [baseBranch, session, selectedApp, refresh, getRepoFullName]);
+        return (data as ConnectorJob | null) ?? null;
+    }, [baseBranch, sessionUserId, selectedAppId, refresh, getRepoFullName]);
 
     const createContinueJob = useCallback(
         async (fromJobId: string) => {
-            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
@@ -182,8 +248,8 @@ export const useConnectorJobs = (payload: {
             if (!srcId) throw new Error('Missing fromJobId for continue.');
 
             const { data, error: e } = await createConnectorJob({
-                userId: session.user.id,
-                appId: selectedApp.id,
+                userId: sessionUserId,
+                appId: selectedAppId,
                 kind: 'generate',
                 repoFullName,
                 baseBranch,
@@ -191,20 +257,20 @@ export const useConnectorJobs = (payload: {
             });
             if (e) throw e;
             await refresh();
-            return data;
+            return (data as ConnectorJob | null) ?? null;
         },
-        [baseBranch, session, selectedApp, refresh, getRepoFullName]
+        [baseBranch, sessionUserId, selectedAppId, refresh, getRepoFullName]
     );
 
     const createFixJob = useCallback(
         async (bugReport: string) => {
-            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
             const { data, error: e } = await createConnectorJob({
-                userId: session.user.id,
-                appId: selectedApp.id,
+                userId: sessionUserId,
+                appId: selectedAppId,
                 kind: 'fix',
                 repoFullName,
                 baseBranch,
@@ -212,19 +278,19 @@ export const useConnectorJobs = (payload: {
             });
             if (e) throw e;
             await refresh();
-            return data;
+            return (data as ConnectorJob | null) ?? null;
         },
-        [baseBranch, session, selectedApp, refresh, getRepoFullName]
+        [baseBranch, sessionUserId, selectedAppId, refresh, getRepoFullName]
     );
 
     const createIntegrationJob = useCallback(async () => {
-        if (!session || !selectedApp) throw new Error('No session/app selected.');
+        if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
         const repoFullName = getRepoFullName();
         if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
         const { data, error: e } = await createConnectorJob({
-            userId: session.user.id,
-            appId: selectedApp.id,
+            userId: sessionUserId,
+            appId: selectedAppId,
             kind: 'integration',
             repoFullName,
             baseBranch,
@@ -232,18 +298,18 @@ export const useConnectorJobs = (payload: {
         });
         if (e) throw e;
         await refresh();
-        return data;
-    }, [baseBranch, getRepoFullName, refresh, selectedApp, session]);
+        return (data as ConnectorJob | null) ?? null;
+    }, [baseBranch, getRepoFullName, refresh, selectedAppId, sessionUserId]);
 
     const createQaJob = useCallback(
         async (payload: { sourceJobId: string; sourceRef: string }) => {
-            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
             const { data, error: e } = await createConnectorJob({
-                userId: session.user.id,
-                appId: selectedApp.id,
+                userId: sessionUserId,
+                appId: selectedAppId,
                 kind: 'visual_qa',
                 repoFullName,
                 baseBranch,
@@ -251,20 +317,20 @@ export const useConnectorJobs = (payload: {
             });
             if (e) throw e;
             await refresh();
-            return data;
+            return (data as ConnectorJob | null) ?? null;
         },
-        [baseBranch, getRepoFullName, refresh, selectedApp, session]
+        [baseBranch, getRepoFullName, refresh, selectedAppId, sessionUserId]
     );
 
     const createScreenshotsJob = useCallback(
         async (payload: { sourceJobId: string; sourceRef: string; captureMode: DownstreamCaptureMode }) => {
-            if (!session || !selectedApp) throw new Error('No session/app selected.');
+            if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');
 
             const { data, error: e } = await createConnectorJob({
-                userId: session.user.id,
-                appId: selectedApp.id,
+                userId: sessionUserId,
+                appId: selectedAppId,
                 kind: 'screenshots',
                 repoFullName,
                 baseBranch,
@@ -272,16 +338,16 @@ export const useConnectorJobs = (payload: {
             });
             if (e) throw e;
             await refresh();
-            return data;
+            return (data as ConnectorJob | null) ?? null;
         },
-        [baseBranch, getRepoFullName, refresh, selectedApp, session]
+        [baseBranch, getRepoFullName, refresh, selectedAppId, sessionUserId]
     );
 
     const requestCancel = useCallback(
         async (jobId: string) => {
-            if (!session) throw new Error('No session.');
+            if (!sessionUserId) throw new Error('No session.');
             const cancelRequestedAt = new Date().toISOString();
-            let previousJob: any = null;
+            let previousJob: ConnectorJob | null = null;
             setJobs((prev) =>
                 prev.map((job) => {
                     if (String(job?.id || '') !== String(jobId)) return job;
@@ -293,10 +359,10 @@ export const useConnectorJobs = (payload: {
                 })
             );
             try {
-                const { data, error: e } = await requestCancelConnectorJob({ userId: session.user.id, jobId });
+                const { data, error: e } = await requestCancelConnectorJob({ userId: sessionUserId, jobId });
                 if (e) throw e;
                 await refresh();
-                return data;
+                return (data as ConnectorJob | null) ?? null;
             } catch (error) {
                 if (previousJob) {
                     setJobs((prev) =>
@@ -306,7 +372,7 @@ export const useConnectorJobs = (payload: {
                 throw error;
             }
         },
-        [session, refresh]
+        [sessionUserId, refresh]
     );
 
     return {

@@ -55,6 +55,7 @@ import { AppShellPageContent } from './AppShellPageContent';
 import { HELP_CENTER_RUNTIME_LANG } from './help-center-content';
 import { Sidebar } from './Sidebar';
 import type { AppStoreReviewPanelSnapshot } from '../../types/appstore-review-panel-snapshot';
+import type { ConnectorExecutionPanelSnapshot } from '../../types/connector-execution-snapshot';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';
@@ -286,6 +287,22 @@ export function AppShell({ session }: AppShellProps) {
         selectedAppId,
         workspaceSnapshotsRef,
     });
+    const connectorExecutionHydrationSnapshotAppIdRef = useRef('');
+    const connectorExecutionHydrationSnapshotRef = useRef<ConnectorExecutionPanelSnapshot | null>(null);
+    const matchingConnectorExecutionHydrationSnapshot =
+        selectedAppSnapshot?.connectorExecution &&
+        String(selectedAppSnapshot.connectorExecution.appId || '').trim() === String(selectedApp?.id || '').trim()
+            ? selectedAppSnapshot.connectorExecution
+            : null;
+    if (connectorExecutionHydrationSnapshotAppIdRef.current !== String(selectedApp?.id || '').trim()) {
+        connectorExecutionHydrationSnapshotAppIdRef.current = String(selectedApp?.id || '').trim();
+        connectorExecutionHydrationSnapshotRef.current = matchingConnectorExecutionHydrationSnapshot;
+    }
+    const stableConnectorExecutionHydrationSnapshot =
+        connectorExecutionHydrationSnapshotRef.current &&
+        String(connectorExecutionHydrationSnapshotRef.current.appId || '').trim() === String(selectedApp?.id || '').trim()
+            ? connectorExecutionHydrationSnapshotRef.current
+            : null;
     const handleBrandReleaseInfoGuardChange = useCallback((guard: WorkspaceSwitchGuard | null) => {
         brandReleaseInfoGuardRef.current = guard;
     }, []);
@@ -854,7 +871,7 @@ export function AppShell({ session }: AppShellProps) {
         text,
     });
 
-    const { handleAppStoreReviewSnapshotChange } = useWorkspaceSnapshotCache({
+    const { handleAppStoreReviewSnapshotChange, handleConnectorExecutionSnapshotChange } = useWorkspaceSnapshotCache({
         workspaceSnapshotsRef,
         selectedBrand,
         selectedApp,
@@ -888,13 +905,20 @@ export function AppShell({ session }: AppShellProps) {
         [handleAppStoreReviewSnapshotChange]
     );
 
-    // Used only for Step 5 "Runner" completion badge (read-only polling; does not affect runner behavior).
-    const { jobs: connectorRunnerJobs, refresh: refreshConnectorRunnerJobs } = useConnectorJobs({
+    const handleConnectorExecutionSnapshotChangeWithCache = useCallback(
+        (snapshot: ConnectorExecutionPanelSnapshot | null) => {
+            handleConnectorExecutionSnapshotChange(snapshot);
+        },
+        [handleConnectorExecutionSnapshotChange]
+    );
+
+    const connectorExecution = useConnectorJobs({
         session,
         selectedApp,
         githubRepoUrl,
-        pollMs: 10_000,
-        idlePollMs: 30_000,
+        hydrationSnapshot: stableConnectorExecutionHydrationSnapshot,
+        pollMs: 3_000,
+        idlePollMs: null,
     });
 
     const connectorJobQueue = useConnectorJobQueue({
@@ -1114,7 +1138,7 @@ export function AppShell({ session }: AppShellProps) {
     } = useWorkspaceStepReadiness({
         brandScreenshotReferences,
         connectorEnabled,
-        connectorRunnerJobs,
+        connectorRunnerJobs: connectorExecution.jobs,
         enhancedScreenshotSlots,
         exportStatus,
         generatedScreenshotSlots,
@@ -1266,11 +1290,13 @@ export function AppShell({ session }: AppShellProps) {
             appIdeas,
             brands,
             appStoreReviewHydrationSnapshot: selectedAppSnapshot?.appStoreReviewPanel ?? null,
+            connectorExecutionHydrationSnapshot: stableConnectorExecutionHydrationSnapshot,
             allAccounts: appstoreAccounts,
             canAddApp,
             connectorEnabled,
+            connectorExecution,
             connectorForm,
-            connectorRunnerJobs,
+            connectorRunnerJobs: connectorExecution.jobs,
             githubRepoUrl,
             githubStepDone,
             iconStepNumber,
@@ -1283,6 +1309,7 @@ export function AppShell({ session }: AppShellProps) {
             onAppStoreLinkGuardChange: handleAppStoreLinkGuardChange,
             onAppStoreReviewGuardChange: handleAppStoreReviewGuardChange,
             onAppStoreReviewSnapshotChange: handleAppStoreReviewSnapshotChangeWithSummary,
+            onConnectorExecutionSnapshotChange: handleConnectorExecutionSnapshotChangeWithCache,
             onCreateGithubRepo: handleCreateGithubRepo,
             onDeleteGithubRepo: handleDeleteGithubRepo,
             onOpenAccounts: openAccounts,
@@ -1291,7 +1318,7 @@ export function AppShell({ session }: AppShellProps) {
             onPatchApp: patchApp,
             onPickAccount: pickAccountForSelectedApp,
             onReadOnlyBlocked: reportReadOnlyBlocked,
-            onRefreshIntegrationJobs: refreshConnectorRunnerJobs,
+            onRefreshIntegrationJobs: connectorExecution.refresh,
             onReportActionError: reportActionError,
             onRunWriteAction: runWriteAction,
             pickedIcon: Boolean(pickedIconAssetId),

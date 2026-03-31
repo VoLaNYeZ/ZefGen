@@ -5,7 +5,6 @@ import type { AppstoreReviewWebhook, AppstoreReviewWebhookStatus } from '../../t
 
 const nowIso = () => new Date().toISOString();
 const TEAM_ISSUER_ID = '57246542-96fe-1a63-e053-0824d011072a';
-const INTERNAL_SERVER_ERROR_PATTERN = /Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)/;
 
 const primaryCandidate = {
     id: 'primary-asc-app',
@@ -114,7 +113,15 @@ const switchToApp = async (page: Page, appId: string, alias: string) => {
     await expect(page.getByTestId('active-app-pill')).toContainText(alias.toUpperCase());
 };
 
-const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?: string | null }) => {
+const installWebhookMocks = async (
+    page: Page,
+    options?: {
+        failFallbackForAppId?: string | null;
+        delayStatusMsByAppId?: Record<string, number>;
+        delayConnectorConfigMsByAppId?: Record<string, number>;
+        delayAppleAppsMsByPublicSubdomain?: Record<string, number>;
+    }
+) => {
     const primaryAppId = smokeEnv.seed.primaryApp.id;
     const secondaryAppId = smokeEnv.seed.accountsTargetApp.id;
 
@@ -177,6 +184,7 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
         [primaryAppId, primaryStatuses.initial],
         [secondaryAppId, secondaryStatuses.initial],
     ]);
+    const statusRequestCountByAppId = new Map<string, number>();
 
     const fulfillJson = async (route: Route, payload: unknown, status = 200) => {
         await route.fulfill({
@@ -189,6 +197,7 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
     await page.route('**/api/appstore-review-webhook-status*', async (route) => {
         const requestUrl = new URL(route.request().url());
         const appId = String(requestUrl.searchParams.get('appId') || '').trim();
+        statusRequestCountByAppId.set(appId, (statusRequestCountByAppId.get(appId) || 0) + 1);
         const inFailurePhase =
             options?.failFallbackForAppId &&
             appId === options.failFallbackForAppId &&
@@ -218,6 +227,10 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
 
         if (appId === primaryAppId && primaryPhase === 'afterSwitchBack') {
             await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+        const extraDelayMs = Number(options?.delayStatusMsByAppId?.[appId] || 0);
+        if (extraDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, extraDelayMs));
         }
 
         await fulfillJson(route, nextStatus);
@@ -267,6 +280,10 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
             await fulfillJson(route, null);
             return;
         }
+        const extraDelayMs = Number(options?.delayConnectorConfigMsByAppId?.[appId] || 0);
+        if (extraDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, extraDelayMs));
+        }
         await fulfillJson(route, buildConnectorConfigRow(currentStatus));
     });
 
@@ -287,6 +304,11 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
 
     await page.route('**/_bridge/appstore/apps*', async (route) => {
         const requestUrl = new URL(route.request().url());
+        const publicSubdomain = String(requestUrl.host.split('.')[0] || '').trim();
+        const extraDelayMs = Number(options?.delayAppleAppsMsByPublicSubdomain?.[publicSubdomain] || 0);
+        if (extraDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, extraDelayMs));
+        }
         if (requestUrl.host.startsWith('primary-review.')) {
             await fulfillJson(route, {
                 candidates: [primaryCandidate],
@@ -306,7 +328,25 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
         await route.continue();
     });
 
+    await page.route('**/_bridge/appstore/sync*', async (route) => {
+        const requestUrl = new URL(route.request().url());
+        const publicSubdomain = String(requestUrl.host.split('.')[0] || '').trim();
+        const appId =
+            publicSubdomain === 'primary-review'
+                ? primaryAppId
+                : publicSubdomain === 'secondary-review'
+                  ? secondaryAppId
+                  : '';
+        const currentStatus = currentStatusByAppId.get(appId) || null;
+        await fulfillJson(route, {
+            ok: true,
+            webhook: currentStatus?.webhook || null,
+            effective_public_webhook_url: currentStatus?.effective_public_webhook_url || null,
+        });
+    });
+
     return {
+        getStatusRequestCount: (appId: string) => statusRequestCountByAppId.get(appId) || 0,
         setPrimaryPhase: (next: keyof typeof primaryStatuses) => {
             primaryPhase = next;
             currentStatusByAppId.set(primaryAppId, primaryStatuses[next]);
@@ -318,7 +358,7 @@ const installWebhookMocks = async (page: Page, options?: { failFallbackForAppId?
     };
 };
 
-test('webhook panel restores cached app state instantly and revalidates in the background', async ({ page }) => {
+test('webhook panel restores cached app state without auto-refreshing on switch or focus', async ({ page }) => {
     const webhookMocks = await installWebhookMocks(page);
     await gotoWorkspace(page);
     await claimWorkspaceEditLockIfPrompted(page);
@@ -328,6 +368,7 @@ test('webhook panel restores cached app state instantly and revalidates in the b
     await panel.getByRole('button', { name: /load apple apps/i }).click();
     await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
     await page.waitForTimeout(100);
+    const primaryRequestsAfterManualLoad = webhookMocks.getStatusRequestCount(smokeEnv.seed.primaryApp.id);
 
     await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
     webhookMocks.setPrimaryPhase('afterSwitchBack');
@@ -336,34 +377,85 @@ test('webhook panel restores cached app state instantly and revalidates in the b
     await expect(panel.getByLabel(/^Key ID$/)).toBeVisible();
     await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
     await expect(panel.getByText(/^Loading\.\.\.$/)).toHaveCount(0);
+    await expect(panel).toContainText(/in review/i);
+    expect(webhookMocks.getStatusRequestCount(smokeEnv.seed.primaryApp.id)).toBe(primaryRequestsAfterManualLoad);
+
+    await page.evaluate(() => {
+        window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(200);
+    expect(webhookMocks.getStatusRequestCount(smokeEnv.seed.primaryApp.id)).toBe(primaryRequestsAfterManualLoad);
+
+    await panel.getByRole('button', { name: /load apple apps/i }).click();
     await expect(panel).toContainText(/ready for sale/i);
+    expect(webhookMocks.getStatusRequestCount(smokeEnv.seed.primaryApp.id)).toBeGreaterThan(primaryRequestsAfterManualLoad);
 });
 
-test.describe('webhook background refresh fallback', () => {
-    test.use({
-        allowedConsoleErrors: [INTERNAL_SERVER_ERROR_PATTERN],
+test('webhook panel clears previous app state while a different uncached app loads', async ({ page }) => {
+    const webhookMocks = await installWebhookMocks(page, {
+        delayStatusMsByAppId: {
+            [smokeEnv.seed.accountsTargetApp.id]: 1200,
+        },
     });
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
 
-    test('webhook panel keeps cached state visible and shows a warning when background refresh fails', async ({ page }) => {
-        const webhookMocks = await installWebhookMocks(page, { failFallbackForAppId: smokeEnv.seed.primaryApp.id });
-        await gotoWorkspace(page);
-        await claimWorkspaceEditLockIfPrompted(page);
+    const panel = await openWebhookSetup(page);
+    webhookMocks.setPrimaryPhase('afterLoad');
+    await panel.getByRole('button', { name: /load apple apps/i }).click();
+    await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
 
-        const panel = await openWebhookSetup(page);
-        webhookMocks.setPrimaryPhase('afterLoad');
-        await panel.getByRole('button', { name: /load apple apps/i }).click();
-        await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
-        await page.waitForTimeout(100);
+    await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
+    await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(0);
+    await expect(panel).not.toContainText(/key-primary/i);
+    await expect(panel).not.toContainText(/in review/i);
 
-        await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
-        webhookMocks.setPrimaryPhase('afterSwitchBack');
-        await switchToApp(page, smokeEnv.seed.primaryApp.id, smokeEnv.seed.primaryApp.alias);
+    await expect(panel.getByText(/^Loading\.\.\.$/)).toHaveCount(0);
+    await expect(panel).toContainText(/waiting for review/i);
+    const secondaryPanel = await openWebhookSetup(page);
+    await expect(secondaryPanel.getByLabel(/^Key ID$/)).toHaveValue('KEY-SECONDARY');
+});
 
-        await expect(panel.getByLabel(/^Key ID$/)).toBeVisible();
-        await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
-        await expect(panel).toContainText(/server status route warning/i);
-        await expect(panel.locator('option').filter({ hasText: 'Primary Cached App' })).toHaveCount(1);
+test('load apple apps ignores stale writes after switching apps mid-request', async ({ page }) => {
+    await installWebhookMocks(page, {
+        delayAppleAppsMsByPublicSubdomain: {
+            'primary-review': 1200,
+        },
     });
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const panel = await openWebhookSetup(page);
+    await panel.getByRole('button', { name: /load apple apps/i }).click();
+    await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
+
+    const secondaryPanel = await openWebhookSetup(page);
+    await expect(secondaryPanel.getByLabel(/^Key ID$/)).toHaveValue('KEY-SECONDARY');
+    await page.waitForTimeout(1500);
+    await expect(secondaryPanel.getByLabel(/^Key ID$/)).toHaveValue('KEY-SECONDARY');
+    await expect(secondaryPanel).not.toContainText(/key-primary/i);
+    await expect(secondaryPanel).not.toContainText(/primary cached app/i);
+});
+
+test('sync refresh ignores stale writes after switching apps mid-request', async ({ page }) => {
+    await installWebhookMocks(page, {
+        delayConnectorConfigMsByAppId: {
+            [smokeEnv.seed.primaryApp.id]: 1200,
+        },
+    });
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const panel = await openWebhookSetup(page);
+    await panel.locator('summary').filter({ hasText: /advanced/i }).click();
+    await panel.getByRole('button', { name: /sync/i }).click();
+    await switchToApp(page, smokeEnv.seed.accountsTargetApp.id, smokeEnv.seed.accountsTargetApp.alias);
+
+    const secondaryPanel = await openWebhookSetup(page);
+    await expect(secondaryPanel.getByLabel(/^Key ID$/)).toHaveValue('KEY-SECONDARY');
+    await page.waitForTimeout(1500);
+    await expect(secondaryPanel.getByLabel(/^Key ID$/)).toHaveValue('KEY-SECONDARY');
+    await expect(secondaryPanel).not.toContainText(/key-primary/i);
 });
 
 test('webhook switch guard keeps dirty edits on cancel and discards them on leave anyway', async ({ page }) => {

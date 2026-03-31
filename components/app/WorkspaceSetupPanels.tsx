@@ -2,7 +2,9 @@ import React from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../../i18n';
 import type { ConnectorJob } from '../../data/connector-jobs';
+import type { ConnectorExecutionPanelSnapshot } from '../../types/connector-execution-snapshot';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
+import type { ConnectorJobsController } from '../../hooks/use-connector-jobs';
 import type {
     AppIdea,
     AppIdeaCategory,
@@ -29,7 +31,9 @@ type WorkspaceSetupPanelsProps = {
     appIdeas: AppIdea[];
     brands: Brand[];
     appStoreReviewHydrationSnapshot: React.ComponentProps<typeof AppStoreReviewWebhookRow>['hydrationSnapshot'];
+    connectorExecutionHydrationSnapshot: ConnectorExecutionPanelSnapshot | null;
     connectorEnabled: boolean;
+    connectorExecution: ConnectorJobsController;
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     connectorRunnerJobs: ConnectorJob[];
     generationModuleProps: React.ComponentProps<typeof IconGenerationModule>;
@@ -45,6 +49,7 @@ type WorkspaceSetupPanelsProps = {
     onAppStoreLinkGuardChange: React.ComponentProps<typeof AppStoreLinkRow>['onSwitchGuardChange'];
     onAppStoreReviewGuardChange: React.ComponentProps<typeof AppStoreReviewWebhookRow>['onSwitchGuardChange'];
     onAppStoreReviewSnapshotChange: React.ComponentProps<typeof AppStoreReviewWebhookRow>['onSnapshotChange'];
+    onConnectorExecutionSnapshotChange: (snapshot: ConnectorExecutionPanelSnapshot | null) => void;
     onCreateRepo: () => void;
     onDeleteRepo: () => void;
     onNotImplementedAutoRelease: () => void;
@@ -77,7 +82,9 @@ export function WorkspaceSetupPanels({
     appIdeas,
     brands,
     appStoreReviewHydrationSnapshot,
+    connectorExecutionHydrationSnapshot,
     connectorEnabled,
+    connectorExecution,
     connectorForm,
     connectorRunnerJobs,
     generationModuleProps,
@@ -93,6 +100,7 @@ export function WorkspaceSetupPanels({
     onAppStoreLinkGuardChange,
     onAppStoreReviewGuardChange,
     onAppStoreReviewSnapshotChange,
+    onConnectorExecutionSnapshotChange,
     onCreateRepo,
     onDeleteRepo,
     onNotImplementedAutoRelease,
@@ -233,7 +241,10 @@ export function WorkspaceSetupPanels({
                         session={session}
                         selectedApp={selectedApp}
                         githubRepoUrl={githubRepoUrl}
+                        connectorExecution={connectorExecution}
                         connectorForm={connectorForm}
+                        hydrationSnapshot={connectorExecutionHydrationSnapshot}
+                        onSnapshotChange={onConnectorExecutionSnapshotChange}
                         pickedIcon={pickedIcon}
                         text={text}
                         reportError={onReportError}

@@ -209,6 +209,8 @@ const toLegalLinksState = (raw: CurrentConnectorLegalLinks | null | undefined): 
     created_at: String(raw?.created_at || '').trim() || null,
 });
 
+const normalizeIdeaId = (value: unknown) => String(value || '').trim() || null;
+
 export const useConnectorConfigForm = (payload: {
     session: Session | null;
     selectedApp: AppItem | null;
@@ -228,8 +230,8 @@ export const useConnectorConfigForm = (payload: {
     const [lastSaveAt, setLastSaveAt] = React.useState<number | null>(null);
     const [lastSaveError, setLastSaveError] = React.useState<string | null>(null);
 
-    const [projectBrief, setProjectBrief] = React.useState('');
-    const [ideaId, setIdeaId] = React.useState<string | null>(null);
+    const [projectBrief, setProjectBriefState] = React.useState('');
+    const [ideaId, setIdeaIdState] = React.useState<string | null>(null);
     const [baseBranch, setBaseBranchState] = React.useState(DEFAULT_BASE_BRANCH);
     const [variables, setVariablesState] = React.useState<Record<string, any>>({});
     const [configUpdatedAt, setConfigUpdatedAt] = React.useState<string | null>(null);
@@ -248,12 +250,31 @@ export const useConnectorConfigForm = (payload: {
     const queueJobsRef = React.useRef(queueJobs);
     const activeAppIdRef = React.useRef<string>('');
     const appContextVersionRef = React.useRef(0);
+    const projectBriefRef = React.useRef('');
+    const ideaIdRef = React.useRef<string | null>(null);
+    const baseBranchRef = React.useRef(DEFAULT_BASE_BRANCH);
     const variablesRef = React.useRef<Record<string, any>>({});
     const isDirtyRef = React.useRef(false);
     const hydrationSnapshotRef = React.useRef<ConnectorConfigFormSnapshot | null>(payload.hydrationSnapshot ?? null);
     const legalLinksRef = React.useRef<ConnectorLegalLinksState>(emptyLegalLinks());
     const configUpdatedAtRef = React.useRef<string | null>(null);
     const staleConflictRef = React.useRef<ConnectorSaveConflictState | null>(null);
+
+    const setProjectBrief = React.useCallback((next: React.SetStateAction<string>) => {
+        setProjectBriefState((prev) => {
+            const resolved = String(typeof next === 'function' ? next(prev) : next ?? '');
+            projectBriefRef.current = resolved;
+            return resolved;
+        });
+    }, []);
+
+    const setIdeaId = React.useCallback((next: React.SetStateAction<string | null>) => {
+        setIdeaIdState((prev) => {
+            const resolved = normalizeIdeaId(typeof next === 'function' ? next(prev) : next);
+            ideaIdRef.current = resolved;
+            return resolved;
+        });
+    }, []);
 
     const setVariables = React.useCallback((next: React.SetStateAction<Record<string, any>>) => {
         setVariablesState((prev) => {
@@ -270,6 +291,18 @@ export const useConnectorConfigForm = (payload: {
     React.useEffect(() => {
         hydrationSnapshotRef.current = payload.hydrationSnapshot ?? null;
     }, [payload.hydrationSnapshot]);
+
+    React.useEffect(() => {
+        projectBriefRef.current = String(projectBrief || '');
+    }, [projectBrief]);
+
+    React.useEffect(() => {
+        ideaIdRef.current = normalizeIdeaId(ideaId);
+    }, [ideaId]);
+
+    React.useEffect(() => {
+        baseBranchRef.current = normalizeBaseBranch(baseBranch);
+    }, [baseBranch]);
 
     React.useEffect(() => {
         variablesRef.current = normalizeVariables(variables);
@@ -542,7 +575,7 @@ export const useConnectorConfigForm = (payload: {
             reportError?.(msg);
         } finally {
             if (isCurrentRequestContext(requestContext)) {
-                if (!isBackground) setLoading(false);
+                setLoading(false);
             }
         }
     }, [
@@ -589,22 +622,44 @@ export const useConnectorConfigForm = (payload: {
     );
 
     const applySavedConfigRow = React.useCallback(
-        (row: ConnectorAppConfig | null | undefined) => {
+        (
+            row: ConnectorAppConfig | null | undefined,
+            options?: {
+                pendingSnapshot?: ConnectorEditableSnapshot;
+            }
+        ) => {
             if (!row) return;
             const normalizedBrief = String((row as any).project_brief || '');
-            const normalizedIdeaId = String((row as any).idea_id || '').trim() || null;
+            const normalizedIdeaId = normalizeIdeaId((row as any).idea_id);
             const normalizedBaseBranch = normalizeBaseBranch((row as any).base_branch);
             const normalizedVars = normalizeVariables((row as any).variables || {});
-            setProjectBrief(normalizedBrief);
-            setIdeaId(normalizedIdeaId);
-            setBaseBranchState(normalizedBaseBranch);
-            setVariables(normalizedVars);
+            const pendingSnapshot = options?.pendingSnapshot;
+            const pendingBrief = pendingSnapshot ? String(pendingSnapshot.projectBrief || '') : normalizedBrief;
+            const pendingIdeaId = pendingSnapshot ? normalizeIdeaId(pendingSnapshot.ideaId) : normalizedIdeaId;
+            const pendingBaseBranch = pendingSnapshot
+                ? normalizeBaseBranch(pendingSnapshot.baseBranch)
+                : normalizedBaseBranch;
+            const pendingVars = pendingSnapshot ? normalizeVariables(pendingSnapshot.variables || {}) : normalizedVars;
+
+            if (String(projectBriefRef.current || '') === pendingBrief) {
+                setProjectBrief(normalizedBrief);
+            }
+            if (normalizeIdeaId(ideaIdRef.current) === pendingIdeaId) {
+                setIdeaId(normalizedIdeaId);
+            }
+            if (normalizeBaseBranch(baseBranchRef.current) === pendingBaseBranch) {
+                setBaseBranchState(normalizedBaseBranch);
+                baseBranchRef.current = normalizedBaseBranch;
+            }
+            if (hashVariables(variablesRef.current) === hashVariables(pendingVars)) {
+                setVariables(normalizedVars);
+            }
             setConfigUpdatedAt(String((row as any).updated_at || '').trim() || null);
             lastSavedProjectBriefRef.current = normalizedBrief;
             lastSavedBaseBranchRef.current = normalizedBaseBranch;
             lastSavedVariablesHashRef.current = hashVariables(normalizedVars);
         },
-        [setVariables]
+        [setIdeaId, setProjectBrief, setVariables]
     );
 
     const savePatch = React.useCallback(
@@ -660,7 +715,9 @@ export const useConnectorConfigForm = (payload: {
                     return false;
                 }
 
-                applySavedConfigRow(data.row || null);
+                applySavedConfigRow(data.row || null, {
+                    pendingSnapshot: nextSnapshot,
+                });
                 setStaleConflict(null);
 
                 resetAutosaveBackoff();
@@ -793,6 +850,7 @@ export const useConnectorConfigForm = (payload: {
     }, []);
 
     const setBaseBranch = React.useCallback((value: string) => {
+        baseBranchRef.current = normalizeBaseBranch(value);
         setBaseBranchState(String(value ?? ''));
     }, []);
 

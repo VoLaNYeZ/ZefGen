@@ -429,6 +429,7 @@ test('metadata-only retry requests only missing fields and preserves existing ma
     let createdBrandId: string | null = null;
     let descriptionApiCallCount = 0;
     const requestBodies: Array<Record<string, unknown>> = [];
+    let delayedSubtitleChoiceSave = false;
 
     await updateSmokeAppstoreAccount(seededAccount.id, {
         app_id: null,
@@ -484,6 +485,28 @@ test('metadata-only retry requests only missing fields and preserves existing ma
         });
     });
 
+    await page.route('**/rest/v1/rpc/connector_save_app_config', async (route) => {
+        const body = (route.request().postDataJSON() as Record<string, any>) || {};
+        const variables = (body.p_variables as Record<string, any> | undefined) || {};
+        const subtitle = String(variables.appstore_initial_subtitle || '').trim();
+        const keywords = String(variables.appstore_initial_keywords || '');
+        const subtitleOptions = Array.isArray(variables.appstore_initial_subtitle_options)
+            ? variables.appstore_initial_subtitle_options
+            : [];
+
+        if (
+            !delayedSubtitleChoiceSave &&
+            subtitle === GENERATED_SUBTITLE_OPTIONS_A[1] &&
+            keywords === GENERATED_KEYWORDS_A &&
+            subtitleOptions.length === 0
+        ) {
+            delayedSubtitleChoiceSave = true;
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+
+        await route.continue();
+    });
+
     try {
         const created = await createBrandAndApp(page, `${Date.now()}`.slice(-6));
         createdBrandId = created.createdBrandId;
@@ -519,6 +542,7 @@ test('metadata-only retry requests only missing fields and preserves existing ma
         await expect(setupDataPanel.getByTestId('connector-appstore-initial-subtitle-option-1')).toHaveCount(0);
 
         await keywordsTextarea.fill('');
+        await page.waitForTimeout(1300);
         await expect(keywordsTextarea).toHaveValue('');
         await expect(setupDataPanel.getByTestId('connector-appstore-metadata-warning')).toBeVisible();
 

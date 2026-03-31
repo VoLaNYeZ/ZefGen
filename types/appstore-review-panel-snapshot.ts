@@ -26,6 +26,8 @@ export const buildAppStoreReviewPanelSnapshot = (payload: {
 }): AppStoreReviewPanelSnapshot | null => {
     const appId = String(payload.appId || '').trim();
     if (!appId || payload.hasDraftChanges) return null;
+    const statusAppId = String(payload.status?.webhook?.app_id || '').trim();
+    if (statusAppId && statusAppId !== appId) return null;
 
     return {
         appId,
