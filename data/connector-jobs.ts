@@ -70,6 +70,14 @@ export const fetchConnectorJobs = async (payload: { userId: string; appId: strin
         .order('created_at', { ascending: false })
         .limit(payload.limit ?? 15);
 
+export const fetchConnectorJobById = async (payload: { userId: string; jobId: string }) =>
+    (await getSupabase())
+        .from('connector_jobs')
+        .select('*')
+        .eq('user_id', payload.userId)
+        .eq('id', payload.jobId)
+        .maybeSingle();
+
 export const fetchConnectorJobsForUser = async (payload: {
     userId: string;
     limit?: number;

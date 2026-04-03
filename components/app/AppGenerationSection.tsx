@@ -1185,7 +1185,10 @@ export const AppGenerationSection = ({
                                                 <option value="">{text('no_screenshots_yet')}</option>
                                                 {selectedAppScreenshots.map((shot, shotIndex) => (
                                                     <option key={shot.id} value={shot.id}>
-                                                        {text('simulator_short')} {shotIndex + 1}
+                                                        {text('simulator_short')} {shotIndex + 1} ·{' '}
+                                                        {shot.source_kind === 'runner' || shot.artifact_id
+                                                            ? text('simulator_screenshot_source_runner')
+                                                            : text('simulator_screenshot_source_manual')}
                                                     </option>
                                                 ))}
                                             </select>

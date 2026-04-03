@@ -38,6 +38,7 @@ import {
 import { downloadBlob, downloadUrlAsFile, triggerDownload } from '../utils/download';
 import { useSignedUrlCache } from './use-signed-url-cache';
 import { useGenerationJobs } from './use-generation-jobs';
+import { fetchConnectorArtifactSignedUrl } from '../data/connector-job-artifacts';
 import {
     createGeneratedAsset,
     deleteGeneratedAsset,
@@ -2890,9 +2891,18 @@ export const useGeneratedAssets = ({
             throw new Error(text('select_sim_screenshot'));
         }
 
-        const simulatorImageUrl =
-            appScreenshotUrls[sourceShot.id] ??
-            (await getSignedUrl(APP_SCREENSHOT_BUCKET, sourceShot.image_path));
+        let simulatorImageUrl = appScreenshotUrls[sourceShot.id] ?? '';
+        if (!simulatorImageUrl && sourceShot.artifact_id && session?.access_token) {
+            simulatorImageUrl = await fetchConnectorArtifactSignedUrl({
+                token: session.access_token,
+                artifactId: sourceShot.artifact_id,
+                appId: sourceShot.app_id,
+                jobId: sourceShot.imported_from_job_id ?? null,
+            });
+        }
+        if (!simulatorImageUrl) {
+            simulatorImageUrl = await getSignedUrl(APP_SCREENSHOT_BUCKET, sourceShot.image_path);
+        }
 
         const existingSlot = generatedScreenshotSlots.find((item) => item.slotIndex === slotIndex) || null;
         if (existingSlot && existingSlot.versions.length >= MAX_SCREENSHOT_VERSIONS) {

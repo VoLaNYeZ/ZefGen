@@ -15,6 +15,7 @@ union all select 'app_ideas', to_regclass('public.app_ideas') is not null
 union all select 'brand_references', to_regclass('public.brand_references') is not null
 union all select 'app_screenshot_prompts', to_regclass('public.app_screenshot_prompts') is not null
 union all select 'app_screenshots', to_regclass('public.app_screenshots') is not null
+union all select 'app_screenshot_artifact_ignores', to_regclass('public.app_screenshot_artifact_ignores') is not null
 union all select 'app_generated_assets', to_regclass('public.app_generated_assets') is not null
 union all select 'connector_app_configs', to_regclass('public.connector_app_configs') is not null
 union all select 'connector_legal_links', to_regclass('public.connector_legal_links') is not null;
@@ -104,6 +105,10 @@ union all select 'app_screenshot_prompts_app_id_idx', to_regclass('public.app_sc
 union all select 'app_screenshots_user_id_idx', to_regclass('public.app_screenshots_user_id_idx') is not null
 union all select 'app_screenshots_brand_id_idx', to_regclass('public.app_screenshots_brand_id_idx') is not null
 union all select 'app_screenshots_app_id_idx', to_regclass('public.app_screenshots_app_id_idx') is not null
+union all select 'app_screenshots_artifact_id_unique', to_regclass('public.app_screenshots_artifact_id_unique') is not null
+union all select 'app_screenshot_artifact_ignores_user_app_artifact_key', to_regclass('public.app_screenshot_artifact_ignores_user_app_artifact_key') is not null
+union all select 'app_screenshot_artifact_ignores_user_id_idx', to_regclass('public.app_screenshot_artifact_ignores_user_id_idx') is not null
+union all select 'app_screenshot_artifact_ignores_app_id_idx', to_regclass('public.app_screenshot_artifact_ignores_app_id_idx') is not null
 union all select 'app_generated_assets_user_id_idx', to_regclass('public.app_generated_assets_user_id_idx') is not null
 union all select 'app_generated_assets_brand_id_idx', to_regclass('public.app_generated_assets_brand_id_idx') is not null
 union all select 'app_generated_assets_app_id_idx', to_regclass('public.app_generated_assets_app_id_idx') is not null
@@ -144,6 +149,10 @@ union all
 select 'app_screenshots', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relname = 'app_screenshots'
+union all
+select 'app_screenshot_artifact_ignores', c.relrowsecurity
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'app_screenshot_artifact_ignores'
 union all
 select 'app_generated_assets', c.relrowsecurity
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -278,6 +287,18 @@ union all select 'app_screenshots_update_own', exists(
 union all select 'app_screenshots_delete_own', exists(
     select 1 from pg_policies
     where schemaname = 'public' and tablename = 'app_screenshots' and policyname = 'app_screenshots_delete_own'
+)
+union all select 'app_screenshot_artifact_ignores_select_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_screenshot_artifact_ignores' and policyname = 'app_screenshot_artifact_ignores_select_own'
+)
+union all select 'app_screenshot_artifact_ignores_insert_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_screenshot_artifact_ignores' and policyname = 'app_screenshot_artifact_ignores_insert_own'
+)
+union all select 'app_screenshot_artifact_ignores_delete_own', exists(
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'app_screenshot_artifact_ignores' and policyname = 'app_screenshot_artifact_ignores_delete_own'
 )
 union all select 'app_generated_assets_select_own', exists(
     select 1 from pg_policies

@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 
 type ConnectorArtifactUrlRequestBody = {
     artifactId?: string;
+    appId?: string | null;
+    jobId?: string | null;
     expiresIn?: number;
 };
 
@@ -97,11 +99,13 @@ export default async function handler(req: any, res: any) {
             json(res, 400, { message: 'Missing field: artifactId' });
             return;
         }
+        const appId = String(body.appId || '').trim();
+        const jobId = String(body.jobId || '').trim();
 
         const userSupabase = createUserSupabaseClient(token);
         const { data: artifact, error: artifactError } = await userSupabase
             .from('connector_job_artifacts')
-            .select('id, bucket, object_path')
+            .select('id, bucket, object_path, app_id, job_id')
             .eq('id', artifactId)
             .maybeSingle();
 
@@ -117,8 +121,18 @@ export default async function handler(req: any, res: any) {
 
         const bucket = String((artifact as any).bucket || '').trim();
         const objectPath = String((artifact as any).object_path || '').trim();
+        const artifactAppId = String((artifact as any).app_id || '').trim();
+        const artifactJobId = String((artifact as any).job_id || '').trim();
         if (!bucket || !objectPath) {
             json(res, 404, { message: 'Artifact file reference is missing.' });
+            return;
+        }
+        if (appId && artifactAppId !== appId) {
+            json(res, 409, { message: 'Artifact does not belong to the expected app.' });
+            return;
+        }
+        if (jobId && artifactJobId !== jobId) {
+            json(res, 409, { message: 'Artifact does not belong to the expected job.' });
             return;
         }
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { GripVertical, ImagePlus, Trash2 } from 'lucide-react';
-import type { AppItem, AppScreenshot } from '../../types/zefgen';
+import type { AppItem, AppScreenshot, AppScreenshotImportWarning } from '../../types/zefgen';
 import { TranslationKey } from '../../i18n';
 import { SortableGrid, useSortableTile } from './dnd/sortable-grid';
 import { ConfirmIconButton } from './ConfirmIconButton';
@@ -9,6 +9,7 @@ type AppSimulatorSectionProps = {
     selectedApp: AppItem | null;
     selectedAppScreenshots: AppScreenshot[];
     appScreenshotUrls: Record<string, string>;
+    runnerImportWarnings: AppScreenshotImportWarning[];
     handleReorderAppScreenshot: (fromIndex: number, toIndex: number) => void;
     handleDeleteAppScreenshot: (shot: AppScreenshot) => void;
     handleScreenshotDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -31,6 +32,7 @@ export const AppSimulatorSection = ({
     selectedApp,
     selectedAppScreenshots,
     appScreenshotUrls,
+    runnerImportWarnings,
     handleReorderAppScreenshot,
     handleDeleteAppScreenshot,
     handleScreenshotDragOver,
@@ -61,6 +63,17 @@ export const AppSimulatorSection = ({
                 </div>
                 <span className="text-[11px] text-indigo-200/60">{text('drag_to_reorder')}</span>
             </div>
+
+            {runnerImportWarnings.length ? (
+                <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-50/90">
+                    <p className="font-semibold text-amber-100">{text('simulator_screenshots_import_warning_title')}</p>
+                    <div className="mt-2 space-y-1 text-amber-50/85">
+                        {runnerImportWarnings.map((warning) => (
+                            <p key={`${warning.jobId}:${warning.code}`}>{warning.message}</p>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
 
             {!selectedApp ? (
                 <p className="mt-4 text-sm text-indigo-200/60">{text('select_app_to_view')}</p>
@@ -188,6 +201,17 @@ function SortableSimulatorShotTile({
     text: (key: TranslationKey) => string;
 }) {
     const { attributes, listeners, setNodeRef, setActivatorNodeRef, style } = useSortableTile(id, isReadOnly);
+    const isRunnerBacked = shot.source_kind === 'runner' || Boolean(shot.artifact_id);
+    const sourceLabel = isRunnerBacked
+        ? text('simulator_screenshot_source_runner')
+        : text('simulator_screenshot_source_manual');
+    const importedFromJobLabel =
+        isRunnerBacked && shot.imported_from_job_id
+            ? String(text('simulator_screenshot_runner_job') || '').replace(
+                  '{jobId}',
+                  String(shot.imported_from_job_id).slice(0, 8)
+              )
+            : '';
 
     return (
         <div
@@ -218,29 +242,44 @@ function SortableSimulatorShotTile({
                     <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
                         {index + 1}
                     </span>
-                    <button
-                        type="button"
-                        ref={setActivatorNodeRef}
-                        {...attributes}
-                        {...listeners}
-                        className="touch-none appearance-none bg-transparent border-0 inline-flex items-center justify-center cursor-grab active:cursor-grabbing rounded-md p-0.5 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
-                        aria-label={text('drag_to_reorder')}
-                    >
-                        <GripVertical size={12} />
-                    </button>
+                    {!isReadOnly ? (
+                        <button
+                            type="button"
+                            ref={setActivatorNodeRef}
+                            {...attributes}
+                            {...listeners}
+                            className="touch-none appearance-none bg-transparent border-0 inline-flex items-center justify-center cursor-grab active:cursor-grabbing rounded-md p-0.5 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40"
+                            aria-label={text('drag_to_reorder')}
+                        >
+                            <GripVertical size={12} />
+                        </button>
+                    ) : null}
                 </div>
-                <ConfirmIconButton
-                    label={text('delete')}
-                    question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
-                    confirmLabel={text('delete')}
-                    cancelLabel={text('cancel')}
-                    disabled={isReadOnly}
-                    onConfirm={() => onDelete(shot)}
-                >
-                    <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">
-                        <Trash2 size={10} />
+                {!isReadOnly ? (
+                    <ConfirmIconButton
+                        label={text('delete')}
+                        question={`${text('confirm_delete')} ${text('confirm_delete_hint')}`}
+                        confirmLabel={text('delete')}
+                        cancelLabel={text('cancel')}
+                        disabled={isReadOnly}
+                        onConfirm={() => onDelete(shot)}
+                    >
+                        <span className="inline-flex items-center justify-center rounded-full border border-white/10 p-1 text-indigo-200/70 hover:border-indigo-400/40 hover:text-white">
+                            <Trash2 size={10} />
+                        </span>
+                    </ConfirmIconButton>
+                ) : null}
+            </div>
+
+            <div className="flex min-h-[24px] flex-wrap items-center gap-1 text-[9px] text-indigo-100/80">
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-semibold uppercase tracking-[0.08em]">
+                    {sourceLabel}
+                </span>
+                {importedFromJobLabel ? (
+                    <span className="truncate text-indigo-200/60" title={String(shot.imported_from_job_id || '')}>
+                        {importedFromJobLabel}
                     </span>
-                </ConfirmIconButton>
+                ) : null}
             </div>
         </div>
     );

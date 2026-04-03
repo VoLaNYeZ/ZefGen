@@ -59,6 +59,24 @@ export type AppScreenshot = {
     image_path: string;
     order_index: number | null;
     created_at?: string;
+    source_kind?: 'upload' | 'runner';
+    artifact_id?: string | null;
+    imported_from_job_id?: string | null;
+    theme?: string | null;
+    viewport?: string | null;
+    capture_variant?: 'render' | 'simulator' | null;
+    target_id?: string | null;
+};
+
+export type AppScreenshotImportWarningCode =
+    | 'job_app_mismatch'
+    | 'source_job_app_mismatch'
+    | 'artifact_app_mismatch';
+
+export type AppScreenshotImportWarning = {
+    jobId: string;
+    code: AppScreenshotImportWarningCode;
+    message: string;
 };
 
 export type TextLayer = {

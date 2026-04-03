@@ -203,6 +203,8 @@ export function ConnectorRunnerPanel(props: {
     } = useConnectorJobArtifacts({
         session,
         jobId: selectedJob?.id || null,
+        expectedAppId: selectedJob?.app_id || null,
+        appMismatchMessage: text('connector_artifacts_app_mismatch'),
         pollMs: 5000,
         live: isSelectedJobLive,
         hydrationSnapshot: stableHydrationSnapshot,

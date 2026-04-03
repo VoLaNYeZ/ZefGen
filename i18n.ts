@@ -261,6 +261,21 @@ export const translations = {
         upload_failed: 'Upload failed. Please try again.',
         simulator_screenshots: 'Simulator screenshots',
         simulator_screenshots_subtitle: 'Upload in order and rearrange as needed.',
+        simulator_screenshot_source_manual: 'Manual',
+        simulator_screenshot_source_runner: 'Runner',
+        simulator_screenshot_runner_job: 'Job {jobId}',
+        simulator_screenshots_import_warning_title: 'Some runner screenshots were blocked from Step 08.',
+        simulator_screenshots_import_warning_job_app_mismatch:
+            'Skipped screenshots job {jobId}: it belongs to a different app than the one currently open.',
+        simulator_screenshots_import_warning_source_job_mismatch:
+            'Skipped screenshots job {jobId}: its source job belongs to a different app or could not be verified.',
+        simulator_screenshots_import_warning_artifact_app_mismatch:
+            'Skipped screenshots job {jobId}: one or more uploaded screenshots belong to a different app.',
+        simulator_screenshots_import_sync_failed:
+            'Failed to sync runner screenshots into Step 08. Retry the job or refresh the workspace.',
+        simulator_screenshots_validation_failed:
+            'Unable to verify imported runner screenshots right now. Keeping the last known Step 08 results.',
+        connector_artifacts_app_mismatch: 'Some runner artifacts were ignored because they belong to a different app than the selected job.',
         drag_to_reorder: 'Drag to reorder.',
         drag: 'Drag',
         drop_screenshots_title: 'Drop screenshots here',
@@ -1015,6 +1030,22 @@ export const translations = {
         upload_failed: 'Не удалось загрузить. Попробуйте снова.',
         simulator_screenshots: 'Скриншоты симулятора',
         simulator_screenshots_subtitle: 'Загрузите по порядку и при необходимости переставьте.',
+        simulator_screenshot_source_manual: 'Manual',
+        simulator_screenshot_source_runner: 'Runner',
+        simulator_screenshot_runner_job: 'Job {jobId}',
+        simulator_screenshots_import_warning_title: 'Часть runner-скриншотов заблокирована для Шага 08.',
+        simulator_screenshots_import_warning_job_app_mismatch:
+            'Пропустили job скриншотов {jobId}: она относится к другому приложению.',
+        simulator_screenshots_import_warning_source_job_mismatch:
+            'Пропустили job скриншотов {jobId}: её source job относится к другому приложению или не прошла проверку.',
+        simulator_screenshots_import_warning_artifact_app_mismatch:
+            'Пропустили job скриншотов {jobId}: один или несколько артефактов принадлежат другому приложению.',
+        simulator_screenshots_import_sync_failed:
+            'Не удалось синхронизировать runner-скриншоты в Шаг 08. Повторите job или обновите workspace.',
+        simulator_screenshots_validation_failed:
+            'Сейчас не удалось проверить импортированные runner-скриншоты. Оставляем последние подтверждённые результаты Шага 08.',
+        connector_artifacts_app_mismatch:
+            'Часть runner-артефактов скрыта, потому что они относятся к другому приложению, а не к выбранной job.',
         drag_to_reorder: 'Перетаскивайте для изменения порядка.',
         drag: 'Тяните',
         drop_screenshots_title: 'Перетащите скриншоты сюда',

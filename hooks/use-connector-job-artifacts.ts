@@ -23,6 +23,8 @@ const getRecordSignature = (record: Record<string, any>) =>
 export const useConnectorJobArtifacts = (payload: {
     session: Session | null;
     jobId: string | null;
+    expectedAppId?: string | null;
+    appMismatchMessage?: string | null;
     pollMs?: number;
     live?: boolean;
     hydrationSnapshot?: ConnectorExecutionPanelSnapshot | null;
@@ -33,15 +35,30 @@ export const useConnectorJobArtifacts = (payload: {
     const sessionUserId = String(session?.user?.id || '').trim();
     const sessionAccessToken = String(session?.access_token || '').trim();
     const normalizedJobId = String(jobId || '').trim() || null;
+    const normalizedExpectedAppId = String(payload.expectedAppId || '').trim() || null;
     const scopeKey = sessionUserId && normalizedJobId ? `${sessionUserId}:${normalizedJobId}` : '';
     const matchingHydrationSnapshot =
         payload.hydrationSnapshot &&
         String(payload.hydrationSnapshot.selectedJobArtifactJobId || '').trim() === String(normalizedJobId || '')
             ? payload.hydrationSnapshot
             : null;
-    const hydrationArtifacts = Array.isArray(matchingHydrationSnapshot?.selectedJobArtifacts)
-        ? (matchingHydrationSnapshot.selectedJobArtifacts as ConnectorJobArtifact[])
-        : EMPTY_CONNECTOR_ARTIFACTS;
+    const hydrationArtifacts = (
+        Array.isArray(matchingHydrationSnapshot?.selectedJobArtifacts)
+            ? (matchingHydrationSnapshot.selectedJobArtifacts as ConnectorJobArtifact[])
+            : EMPTY_CONNECTOR_ARTIFACTS
+    ).filter((artifact) =>
+        normalizedExpectedAppId ? String(artifact?.app_id || '').trim() === normalizedExpectedAppId : true
+    );
+    const hydrationMismatchedArtifactCount = normalizedExpectedAppId
+        ? Math.max(
+              0,
+              (
+                  Array.isArray(matchingHydrationSnapshot?.selectedJobArtifacts)
+                      ? (matchingHydrationSnapshot.selectedJobArtifacts as ConnectorJobArtifact[])
+                      : EMPTY_CONNECTOR_ARTIFACTS
+              ).length - hydrationArtifacts.length
+          )
+        : 0;
     const hydrationArtifactsSignature = getArtifactsSignature(hydrationArtifacts);
     const hydrationArtifactUrlsById = matchingHydrationSnapshot?.artifactUrlsById || EMPTY_STRING_RECORD;
     const hydrationArtifactJsonById = matchingHydrationSnapshot?.artifactJsonById || EMPTY_JSON_RECORD;
@@ -56,6 +73,7 @@ export const useConnectorJobArtifacts = (payload: {
     const [loading, setLoading] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [urlError, setUrlError] = useState<string | null>(null);
+    const [integrityError, setIntegrityError] = useState<string | null>(null);
     const artifactsSignatureRef = useRef('');
     const artifactUrlSignatureRef = useRef('');
     const artifactJsonSignatureRef = useRef('');
@@ -77,6 +95,7 @@ export const useConnectorJobArtifacts = (payload: {
             setLoading((current) => (current ? false : current));
             setFetchError((current) => (current === null ? current : null));
             setUrlError((current) => (current === null ? current : null));
+            setIntegrityError((current) => (current === null ? current : null));
             artifactsSignatureRef.current = '';
             artifactUrlSignatureRef.current = '';
             artifactJsonSignatureRef.current = '';
@@ -94,6 +113,7 @@ export const useConnectorJobArtifacts = (payload: {
         hydrationStateRef.current = nextHydrationState;
         setFetchError((current) => (current === null ? current : null));
         setUrlError((current) => (current === null ? current : null));
+        setIntegrityError((current) => (current === null ? current : null));
         if (hasMatchingHydrationSnapshot) {
             artifactsSignatureRef.current = hydrationArtifactsSignature;
             artifactUrlSignatureRef.current = hydrationArtifactUrlsSignature;
@@ -106,6 +126,11 @@ export const useConnectorJobArtifacts = (payload: {
             );
             setArtifactJsonById((current) =>
                 getRecordSignature(current) === hydrationArtifactJsonSignature ? current : hydrationArtifactJsonById
+            );
+            setIntegrityError(
+                hydrationMismatchedArtifactCount > 0
+                    ? String(payload.appMismatchMessage || 'Some artifacts were ignored because they belong to a different app.')
+                    : null
             );
             setLoading((current) => (current ? false : current));
             return;
@@ -123,6 +148,8 @@ export const useConnectorJobArtifacts = (payload: {
         hydrationArtifactJsonSignature,
         hydrationArtifactUrlsSignature,
         hydrationArtifactsSignature,
+        hydrationMismatchedArtifactCount,
+        payload.appMismatchMessage,
         scopeKey,
     ]);
 
@@ -134,6 +161,7 @@ export const useConnectorJobArtifacts = (payload: {
             setLoading(false);
             setFetchError(null);
             setUrlError(null);
+            setIntegrityError(null);
             artifactsSignatureRef.current = '';
             artifactUrlSignatureRef.current = '';
             artifactJsonSignatureRef.current = '';
@@ -159,11 +187,23 @@ export const useConnectorJobArtifacts = (payload: {
             }
             const nextArtifacts = await fetchPromise;
             if (requestScopeKeyRef.current !== requestScopeKey) return;
-            const nextSignature = getArtifactsSignature(nextArtifacts);
+            const mismatchedArtifacts = normalizedExpectedAppId
+                ? nextArtifacts.filter((artifact) => String(artifact?.app_id || '').trim() !== normalizedExpectedAppId)
+                : [];
+            const scopedArtifacts =
+                mismatchedArtifacts.length > 0
+                    ? nextArtifacts.filter((artifact) => String(artifact?.app_id || '').trim() === normalizedExpectedAppId)
+                    : nextArtifacts;
+            const nextSignature = getArtifactsSignature(scopedArtifacts);
             if (artifactsSignatureRef.current !== nextSignature) {
                 artifactsSignatureRef.current = nextSignature;
-                setArtifacts(nextArtifacts);
+                setArtifacts(scopedArtifacts);
             }
+            setIntegrityError(
+                mismatchedArtifacts.length > 0
+                    ? String(payload.appMismatchMessage || 'Some artifacts were ignored because they belong to a different app.')
+                    : null
+            );
             if (background) setFetchError(null);
         } catch (e: any) {
             if (requestScopeKeyRef.current !== requestScopeKey) return;
@@ -174,7 +214,7 @@ export const useConnectorJobArtifacts = (payload: {
             }
             if (!background && requestScopeKeyRef.current === requestScopeKey) setLoading(false);
         }
-    }, [normalizedJobId, scopeKey, sessionUserId]);
+    }, [normalizedExpectedAppId, normalizedJobId, payload.appMismatchMessage, scopeKey, sessionUserId]);
 
     const refresh = useCallback(async () => {
         await runRefresh(false);
@@ -212,6 +252,8 @@ export const useConnectorJobArtifacts = (payload: {
                         nextUrls[id] = await fetchConnectorArtifactSignedUrl({
                             token: sessionAccessToken,
                             artifactId: id,
+                            appId: normalizedExpectedAppId,
+                            jobId: normalizedJobId,
                         });
                     } catch (fallbackError: any) {
                         if (!nextUrlError) {
@@ -237,7 +279,7 @@ export const useConnectorJobArtifacts = (payload: {
         return () => {
             canceled = true;
         };
-    }, [artifacts, getSignedUrl, sessionAccessToken]);
+    }, [artifacts, getSignedUrl, normalizedExpectedAppId, normalizedJobId, sessionAccessToken]);
 
     useEffect(() => {
         let canceled = false;
@@ -277,7 +319,7 @@ export const useConnectorJobArtifacts = (payload: {
         artifactJsonById,
         artifactUrlCount,
         loading,
-        error: fetchError || urlError,
+        error: fetchError || urlError || integrityError,
         refresh,
     };
 };

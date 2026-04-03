@@ -83,6 +83,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     isCurrentBrandReadOnly: boolean;
     isNoBrandMode: boolean;
     isScreenshotDropActive: SimulatorProps['isScreenshotDropActive'];
+    runnerImportWarnings: SimulatorProps['runnerImportWarnings'];
     moveTargetBrandId: string;
     moveToBrandLoading: boolean;
     noBrandIconPromptAutogenBusy: GenerationModuleProps['noBrandIconPromptAutogenBusy'];
@@ -209,6 +210,7 @@ export function useWorkspaceGenerationViewModel({
     isCurrentBrandReadOnly,
     isNoBrandMode,
     isScreenshotDropActive,
+    runnerImportWarnings,
     moveTargetBrandId,
     moveToBrandLoading,
     noBrandIconPromptAutogenBusy,
@@ -390,6 +392,7 @@ export function useWorkspaceGenerationViewModel({
                                   selectedApp={selectedApp}
                                   selectedAppScreenshots={selectedAppScreenshots}
                                   appScreenshotUrls={appScreenshotUrls}
+                                  runnerImportWarnings={runnerImportWarnings}
                                   handleReorderAppScreenshot={(fromIndex, toIndex) => {
                                       void runWriteAction(() => handleReorderAppScreenshot(fromIndex, toIndex));
                                   }}

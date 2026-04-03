@@ -226,12 +226,33 @@ create table if not exists public.app_screenshots (
     app_id uuid not null references public.apps(id) on delete cascade,
     image_path text not null,
     order_index integer,
+    source_kind text not null default 'upload' check (source_kind in ('upload', 'runner')),
+    artifact_id uuid,
+    imported_from_job_id uuid,
+    capture_variant text check (capture_variant is null or capture_variant in ('render', 'simulator')),
+    theme text,
+    viewport text,
+    target_id text,
     created_at timestamptz not null default now()
 );
 
 create index if not exists app_screenshots_user_id_idx on public.app_screenshots (user_id);
 create index if not exists app_screenshots_brand_id_idx on public.app_screenshots (brand_id);
 create index if not exists app_screenshots_app_id_idx on public.app_screenshots (app_id);
+create unique index if not exists app_screenshots_artifact_id_unique on public.app_screenshots (artifact_id) where artifact_id is not null;
+
+create table if not exists public.app_screenshot_artifact_ignores (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users(id) on delete cascade,
+    app_id uuid not null references public.apps(id) on delete cascade,
+    artifact_id uuid not null,
+    created_at timestamptz not null default now()
+);
+
+create unique index if not exists app_screenshot_artifact_ignores_user_app_artifact_key
+    on public.app_screenshot_artifact_ignores (user_id, app_id, artifact_id);
+create index if not exists app_screenshot_artifact_ignores_user_id_idx on public.app_screenshot_artifact_ignores (user_id);
+create index if not exists app_screenshot_artifact_ignores_app_id_idx on public.app_screenshot_artifact_ignores (app_id);
 
 create table if not exists public.app_screenshot_sets (
     id uuid primary key default gen_random_uuid(),
@@ -313,6 +334,7 @@ alter table public.app_ideas enable row level security;
 alter table public.brand_references enable row level security;
 alter table public.app_screenshot_prompts enable row level security;
 alter table public.app_screenshots enable row level security;
+alter table public.app_screenshot_artifact_ignores enable row level security;
 alter table public.app_screenshot_sets enable row level security;
 alter table public.app_generated_assets enable row level security;
 alter table public.app_asset_picks enable row level security;
@@ -425,6 +447,13 @@ create policy "app_screenshots_insert_own" on public.app_screenshots
 create policy "app_screenshots_update_own" on public.app_screenshots
     for update using (auth.uid() = user_id);
 create policy "app_screenshots_delete_own" on public.app_screenshots
+    for delete using (auth.uid() = user_id);
+
+create policy "app_screenshot_artifact_ignores_select_own" on public.app_screenshot_artifact_ignores
+    for select using (auth.uid() = user_id);
+create policy "app_screenshot_artifact_ignores_insert_own" on public.app_screenshot_artifact_ignores
+    for insert with check (auth.uid() = user_id);
+create policy "app_screenshot_artifact_ignores_delete_own" on public.app_screenshot_artifact_ignores
     for delete using (auth.uid() = user_id);
 
 create policy "app_generated_assets_select_own" on public.app_generated_assets

@@ -17,6 +17,8 @@ export type ConnectorJobArtifact = {
     created_at: string;
 };
 
+export type ConnectorJobArtifactIdentity = Pick<ConnectorJobArtifact, 'id' | 'job_id' | 'app_id'>;
+
 export const fetchConnectorJobArtifactsByJob = async (payload: {
     jobId: string;
     limit?: number;
@@ -39,9 +41,25 @@ export const fetchConnectorJobArtifactsByApp = async (payload: {
         .order('created_at', { ascending: false })
         .limit(payload.limit ?? 200);
 
+export const fetchConnectorJobArtifactsByIds = async (payload: {
+    artifactIds: string[];
+}) => {
+    const normalizedIds = [...new Set(payload.artifactIds.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!normalizedIds.length) {
+        return { data: [] as ConnectorJobArtifactIdentity[], error: null };
+    }
+
+    return supabase
+        .from('connector_job_artifacts')
+        .select('id, job_id, app_id')
+        .in('id', normalizedIds);
+};
+
 export const fetchConnectorArtifactSignedUrl = async (payload: {
     token: string;
     artifactId: string;
+    appId?: string | null;
+    jobId?: string | null;
     expiresIn?: number;
 }) => {
     const response = await fetch('/api/connector-artifact-url', {
@@ -52,6 +70,8 @@ export const fetchConnectorArtifactSignedUrl = async (payload: {
         },
         body: JSON.stringify({
             artifactId: payload.artifactId,
+            appId: payload.appId,
+            jobId: payload.jobId,
             expiresIn: payload.expiresIn,
         }),
     });
