@@ -303,6 +303,21 @@ export function AppShell({ session }: AppShellProps) {
         String(connectorExecutionHydrationSnapshotRef.current.appId || '').trim() === String(selectedApp?.id || '').trim()
             ? connectorExecutionHydrationSnapshotRef.current
             : null;
+    const connectorJobRepoUrl = useMemo(() => {
+        const fromDb = String((selectedApp as any)?.github_repo_url || '').trim();
+        if (fromDb) return fromDb;
+        const appId = String(selectedApp?.id || '').trim();
+        if (!appId || typeof window === 'undefined') return null;
+        return String(window.localStorage.getItem(`zefgen.githubRepoUrl.${appId}`) || '').trim() || null;
+    }, [selectedApp?.id, (selectedApp as any)?.github_repo_url]);
+    const connectorExecution = useConnectorJobs({
+        session,
+        selectedApp,
+        githubRepoUrl: connectorJobRepoUrl,
+        hydrationSnapshot: stableConnectorExecutionHydrationSnapshot,
+        pollMs: 3_000,
+        idlePollMs: null,
+    });
     const handleBrandReleaseInfoGuardChange = useCallback((guard: WorkspaceSwitchGuard | null) => {
         brandReleaseInfoGuardRef.current = guard;
     }, []);
@@ -487,6 +502,7 @@ export function AppShell({ session }: AppShellProps) {
         session,
         selectedBrand,
         selectedApp,
+        connectorJobs: connectorExecution.jobs,
         text,
         reportError: reportActionError,
         onDataError: setDataError,
@@ -912,15 +928,6 @@ export function AppShell({ session }: AppShellProps) {
         },
         [handleConnectorExecutionSnapshotChange]
     );
-
-    const connectorExecution = useConnectorJobs({
-        session,
-        selectedApp,
-        githubRepoUrl,
-        hydrationSnapshot: stableConnectorExecutionHydrationSnapshot,
-        pollMs: 3_000,
-        idlePollMs: null,
-    });
 
     const connectorJobQueue = useConnectorJobQueue({
         session,

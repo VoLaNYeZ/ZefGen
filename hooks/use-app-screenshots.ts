@@ -3,6 +3,7 @@ import type { ChangeEvent, DragEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { TranslationKey } from '../i18n';
 import type { AppItem, AppScreenshot, AppScreenshotImportWarning, AppScreenshotImportWarningCode, Brand } from '../types/zefgen';
+import type { ConnectorJob } from '../data/connector-jobs';
 import {
     createAppScreenshotArtifactIgnore,
     createAppScreenshot,
@@ -82,6 +83,7 @@ type Params = {
     session: Session | null;
     selectedBrand: Brand | null;
     selectedApp: AppItem | null;
+    connectorJobs?: ConnectorJob[] | null;
     text: (key: TranslationKey) => string;
     reportError: (message: string) => void;
     onDataError?: (message: string) => void;
@@ -91,6 +93,7 @@ export const useAppScreenshots = ({
     session,
     selectedBrand,
     selectedApp,
+    connectorJobs,
     text,
     reportError,
     onDataError,
@@ -114,6 +117,7 @@ export const useAppScreenshots = ({
     const sessionAccessToken = String(session?.access_token || '').trim();
     const selectedAppId = String(selectedApp?.id || '').trim() || null;
     const selectedBrandId = String(selectedBrand?.id || '').trim() || null;
+    const providedConnectorJobs = Array.isArray(connectorJobs) ? connectorJobs : null;
 
     const updateAppScreenshotsState = useCallback(
         (next: AppScreenshot[] | ((current: AppScreenshot[]) => AppScreenshot[])) => {
@@ -276,11 +280,13 @@ export const useAppScreenshots = ({
         const syncRunnerScreenshotsIntoStep08 = async () => {
             try {
                 let didEncounterSyncError = false;
-                const { data: jobs, error: jobsError } = await fetchConnectorJobs({
-                    userId: sessionUserId,
-                    appId: selectedAppId,
-                    limit: MAX_SCREENSHOT_JOB_IMPORTS,
-                });
+                const { data: jobs, error: jobsError } = providedConnectorJobs
+                    ? { data: providedConnectorJobs, error: null }
+                    : await fetchConnectorJobs({
+                          userId: sessionUserId,
+                          appId: selectedAppId,
+                          limit: MAX_SCREENSHOT_JOB_IMPORTS,
+                      });
                 if (jobsError) throw jobsError;
 
                 const successfulScreenshotJobs = (jobs || [])
@@ -461,6 +467,12 @@ export const useAppScreenshots = ({
         };
 
         void syncRunnerScreenshotsIntoStep08();
+        if (providedConnectorJobs) {
+            return () => {
+                canceled = true;
+            };
+        }
+
         const timer = window.setInterval(() => void syncRunnerScreenshotsIntoStep08(), RUNNER_IMPORT_POLL_MS);
         return () => {
             canceled = true;
@@ -469,6 +481,7 @@ export const useAppScreenshots = ({
     }, [
         enqueueAppScreenshotMutation,
         loading,
+        providedConnectorJobs,
         refresh,
         selectedAppId,
         selectedBrandId,

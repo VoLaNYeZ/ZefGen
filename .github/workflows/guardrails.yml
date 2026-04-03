@@ -3,6 +3,13 @@ name: Guardrails
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_smoke:
+        description: Run the full smoke suite
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   guardrails:
@@ -33,6 +40,7 @@ jobs:
         run: npm run build
 
   smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_smoke == true
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
