@@ -1256,8 +1256,7 @@ function ConnectorArtifactSection(props: {
         ? artifactUrlsById[String(groupedArtifacts.screenshotManifest.id)]
         : '';
 
-    const shouldRenderVisualArtifacts =
-        String(job.kind || '') === 'visual_qa' || String(job.kind || '') === 'screenshots';
+    const shouldRenderVisualArtifacts = String(job.kind || '') === 'visual_qa';
 
     if (!shouldRenderVisualArtifacts) return null;
 
@@ -1314,59 +1313,6 @@ function ConnectorArtifactSection(props: {
                 </>
             ) : null}
 
-            {String(job.kind || '') === 'screenshots' ? (
-                <>
-                    {groupedArtifacts?.screenshotManifest ? (
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-3 text-[11px] text-indigo-100/85">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="font-semibold">{text('connector_screenshot_manifest')}</div>
-                                {manifestUrl ? (
-                                    <a
-                                        href={manifestUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1.5 font-semibold text-indigo-100 hover:bg-indigo-500/15"
-                                    >
-                                        {text('connector_open_artifact')}
-                                        <ExternalLink size={14} />
-                                    </a>
-                                ) : null}
-                            </div>
-                            {artifactJson.screenshotManifest ? (
-                                <div className="mt-2 grid gap-1 text-indigo-200/70">
-                                    <div>
-                                        image_count{' '}
-                                        <span className="font-semibold text-indigo-100">
-                                            {Array.isArray(artifactJson.screenshotManifest.images)
-                                                ? artifactJson.screenshotManifest.images.length
-                                                : 0}
-                                        </span>
-                                    </div>
-                                    <div>
-                                        source_ref{' '}
-                                        <span className="font-semibold text-indigo-100">
-                                            {artifactJson.screenshotManifest.source_ref || '-'}
-                                        </span>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-                    {Array.isArray(groupedArtifacts?.screenshotGroups) && groupedArtifacts.screenshotGroups.length > 0 ? (
-                        groupedArtifacts.screenshotGroups.map((group: any) => (
-                            <React.Fragment key={group.key}>
-                                <ArtifactImageGroup
-                                    group={group}
-                                    urlsById={artifactUrlsById}
-                                    title={`${text('connector_screenshots')} · ${group.variant} · ${group.theme} · ${group.viewport}`}
-                                />
-                            </React.Fragment>
-                        ))
-                    ) : !loading ? (
-                        <div className="text-[11px] text-indigo-200/50">{text('connector_no_artifacts')}</div>
-                    ) : null}
-                </>
-            ) : null}
         </div>
     );
 }
