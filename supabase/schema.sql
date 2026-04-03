@@ -47,6 +47,9 @@ create table if not exists public.apps (
     github_repo_full_name text,
     github_repo_created_at timestamptz,
     github_repo_updated_at timestamptz,
+    -- Trusted GitHub main SHA adopted for direct-mode QA/screenshots. (2026-04-03)
+    trusted_main_source_sha text,
+    trusted_main_source_synced_at timestamptz,
     -- App-level App Store URL for geo-normalized links. (2026-02-18)
     appstore_url text,
     order_index integer,

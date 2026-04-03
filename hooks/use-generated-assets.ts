@@ -96,6 +96,7 @@ type Params = {
     session: Session | null;
     selectedBrand: Brand | null;
     selectedApp: AppItem | null;
+    patchApp?: (appId: string, patch: Partial<AppItem>) => Promise<AppItem | null>;
     metadataSnapshot?: GeneratedAssetsAppSnapshot | null;
     selectedAppScreenshots: AppScreenshot[];
     appScreenshotUrls: Record<string, string>;
@@ -113,6 +114,7 @@ export const useGeneratedAssets = ({
     session,
     selectedBrand,
     selectedApp,
+    patchApp,
     metadataSnapshot,
     selectedAppScreenshots,
     appScreenshotUrls,
@@ -3803,22 +3805,34 @@ export const useGeneratedAssets = ({
 
             // Persist globally (cross-device). If schema isn't applied yet, keep localStorage fallback.
             const nowIso = new Date().toISOString();
-            const { error: appUpdateError } = await updateApp({
-                id: selectedApp.id,
-                userId: session.user.id,
-                patch: {
+            if (patchApp) {
+                const patched = await patchApp(selectedApp.id, {
                     github_repo_url: repoUrl,
                     github_repo_full_name: repoFullName || null,
                     github_repo_created_at: nowIso,
                     github_repo_updated_at: nowIso,
-                } as any,
-            });
-            if (appUpdateError) {
-                const msg = String((appUpdateError as any)?.message || appUpdateError);
-                if (msg.toLowerCase().includes('github_repo')) {
-                    reportError(
-                        `DB schema missing GitHub repo columns. Run supabase/migrations/20260208000001_app_github_repo.sql in Supabase SQL editor to persist repo links across devices.`
-                    );
+                } as any);
+                if (!patched) {
+                    reportError('Repo created, but failed to refresh app repo state locally.');
+                }
+            } else {
+                const { error: appUpdateError } = await updateApp({
+                    id: selectedApp.id,
+                    userId: session.user.id,
+                    patch: {
+                        github_repo_url: repoUrl,
+                        github_repo_full_name: repoFullName || null,
+                        github_repo_created_at: nowIso,
+                        github_repo_updated_at: nowIso,
+                    } as any,
+                });
+                if (appUpdateError) {
+                    const msg = String((appUpdateError as any)?.message || appUpdateError);
+                    if (msg.toLowerCase().includes('github_repo')) {
+                        reportError(
+                            `DB schema missing GitHub repo columns. Run supabase/migrations/20260208000001_app_github_repo.sql in Supabase SQL editor to persist repo links across devices.`
+                        );
+                    }
                 }
             }
 
@@ -3832,7 +3846,7 @@ export const useGeneratedAssets = ({
         } finally {
             delete abortByJobIdRef.current[jobId];
         }
-    }, [session, selectedBrand, selectedApp, createJob, setJobProgress, setJobMessage, finishJob, reportError, text]);
+    }, [session, selectedBrand, selectedApp, patchApp, createJob, setJobProgress, setJobMessage, finishJob, reportError, text]);
 
     const handleDeleteGithubRepo = useCallback(async () => {
         if (!session || !selectedApp) return;
@@ -3878,6 +3892,19 @@ export const useGeneratedAssets = ({
             const key = `zefgen.githubRepoUrl.${selectedApp.id}`;
             window.localStorage.removeItem(key);
             setGithubRepoUrl(null);
+            if (patchApp) {
+                const nowIso = new Date().toISOString();
+                const patched = await patchApp(selectedApp.id, {
+                    github_repo_url: null,
+                    github_repo_full_name: null,
+                    github_repo_updated_at: nowIso,
+                    trusted_main_source_sha: null,
+                    trusted_main_source_synced_at: null,
+                } as any);
+                if (!patched) {
+                    reportError('Repo deleted, but failed to refresh app repo state locally.');
+                }
+            }
 
             setJobMessage(jobId, 'Done');
             setJobProgress(jobId, { current: 2, total: 2 });
@@ -3889,7 +3916,7 @@ export const useGeneratedAssets = ({
         } finally {
             delete abortByJobIdRef.current[jobId];
         }
-    }, [session, selectedApp, githubRepoUrl, createJob, setJobProgress, setJobMessage, finishJob, reportError]);
+    }, [session, selectedApp, githubRepoUrl, patchApp, createJob, setJobProgress, setJobMessage, finishJob, reportError]);
 
     return {
         screenshotSets,

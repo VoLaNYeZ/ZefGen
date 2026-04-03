@@ -15,6 +15,7 @@ import {
     type ConnectorJob,
     type RunnerSupportedCaptureMode,
 } from '../../data/connector-jobs';
+import { fetchGithubMainHead, type GithubMainHead } from '../../data/github-main-head';
 import type { ConnectorJobsController } from '../../hooks/use-connector-jobs';
 import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { useConnectorJobArtifacts } from '../../hooks/use-connector-job-artifacts';
@@ -31,6 +32,35 @@ import {
 const SPINNER = ['|', '/', '-', '\\'];
 const PANEL_TRANSITION_EASE = [0.22, 1, 0.36, 1] as const;
 const MAIN_BRANCH = 'main';
+const GITHUB_MAIN_HEAD_CACHE_TTL_MS = 60_000;
+const GITHUB_MAIN_HEAD_CACHE = new Map<
+    string,
+    {
+        sha: string;
+        repoFullName: string;
+        fetchedAt: number;
+    }
+>();
+const GITHUB_MAIN_HEAD_INFLIGHT = new Map<string, Promise<GithubMainHead>>();
+
+const toRepoFullNameFromUrl = (url: string | null | undefined) => {
+    let value = String(url || '').trim();
+    if (!value) return '';
+    value = value.replace(/#.*$/g, '').replace(/\?.*$/g, '').replace(/\/+$/g, '');
+    const match = value.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)$/i);
+    return match ? `${match[1]}/${match[2]}` : '';
+};
+
+const resolveRepoFullName = (selectedApp: AppItem | null, githubRepoUrl?: string | null) => {
+    const direct = String((selectedApp as any)?.github_repo_full_name || '').trim();
+    if (direct) return direct;
+    const fromRowUrl = toRepoFullNameFromUrl((selectedApp as any)?.github_repo_url);
+    if (fromRowUrl) return fromRowUrl;
+    return toRepoFullNameFromUrl(githubRepoUrl);
+};
+
+const isGithubMainHeadCacheFresh = (entry: { fetchedAt: number } | null | undefined) =>
+    Boolean(entry && Number.isFinite(entry.fetchedAt) && Date.now() - entry.fetchedAt < GITHUB_MAIN_HEAD_CACHE_TTL_MS);
 
 const formatElapsed = (ms: number) => {
     const total = Math.max(0, Math.floor(ms / 1000));
@@ -76,17 +106,22 @@ const panelMotionProps = (delay: number, reducedMotion: boolean) => {
 };
 
 const getQaDisabledMessage = (reason: string, text: (key: TranslationKey) => string) => {
+    if (reason === 'main_lookup_failed') return text('connector_live_main_lookup_failed');
+    if (reason === 'stale_main') return text('connector_main_sync_required');
     if (reason === 'missing_code_sha') return text('connector_qa_missing_sha');
     if (reason === 'missing_code_job') return text('connector_qa_missing_source');
     return '';
 };
 
 const getScreenshotsDisabledMessage = (reason: string, text: (key: TranslationKey) => string) => {
+    if (reason === 'main_lookup_failed') return text('connector_live_main_lookup_failed');
     if (reason === 'missing_qa_job') return text('connector_screenshots_missing_qa');
     if (reason === 'missing_qa_sha') return text('connector_screenshots_missing_qa_sha');
     if (reason === 'missing_code_job') return text('connector_screenshots_missing_code');
     if (reason === 'missing_code_sha') return text('connector_screenshots_missing_code_sha');
+    if (reason === 'stale_main') return text('connector_main_sync_required');
     if (reason === 'stale_qa') return text('connector_screenshots_stale_qa');
+    if (reason === 'qa_not_passed') return text('connector_screenshots_qa_not_passed');
     return '';
 };
 
@@ -118,6 +153,7 @@ export function ConnectorRunnerPanel(props: {
     githubRepoUrl?: string | null;
     connectorExecution: ConnectorJobsController;
     connectorForm: ConnectorForm;
+    onPatchApp?: (appId: string, patch: Partial<AppItem>) => Promise<AppItem | null>;
     hydrationSnapshot?: ConnectorExecutionPanelSnapshot | null;
     onSnapshotChange?: (snapshot: ConnectorExecutionPanelSnapshot | null) => void;
     pickedIcon: boolean;
@@ -131,6 +167,7 @@ export function ConnectorRunnerPanel(props: {
         githubRepoUrl,
         connectorExecution,
         connectorForm,
+        onPatchApp,
         hydrationSnapshot = null,
         onSnapshotChange,
         pickedIcon,
@@ -141,6 +178,7 @@ export function ConnectorRunnerPanel(props: {
     const [bugReport, setBugReport] = React.useState('');
     const [busy, setBusy] = React.useState(false);
     const [localError, setLocalError] = React.useState<string | null>(null);
+    const [localNotice, setLocalNotice] = React.useState<string | null>(null);
     const [panelsRevealed, setPanelsRevealed] = React.useState(false);
     const [startingGenerate, setStartingGenerate] = React.useState(false);
     const [animateTerminalAccent, setAnimateTerminalAccent] = React.useState(false);
@@ -148,11 +186,25 @@ export function ConnectorRunnerPanel(props: {
     const [captureMode, setCaptureMode] = React.useState<RunnerSupportedCaptureMode>(DEFAULT_RUNNER_CAPTURE_MODE);
     const [fixHistoryExpanded, setFixHistoryExpanded] = React.useState(false);
     const [expandedFixJobId, setExpandedFixJobId] = React.useState<string | null>(null);
+    const [liveMainSha, setLiveMainSha] = React.useState<string | null>(null);
+    const [liveMainFetchError, setLiveMainFetchError] = React.useState<string | null>(null);
+    const [liveMainLoading, setLiveMainLoading] = React.useState(false);
+    const [liveMainFetchedAt, setLiveMainFetchedAt] = React.useState<number | null>(null);
     const emittedSnapshotSignatureRef = React.useRef('');
     const hydrationSnapshotAppIdRef = React.useRef('');
     const hydrationSnapshotRef = React.useRef<ConnectorExecutionPanelSnapshot | null>(null);
+    const liveMainRequestKeyRef = React.useRef('');
     const prefersReducedMotion = useReducedMotion();
     const selectedAppId = String(selectedApp?.id || '').trim();
+    const resolvedRepoFullName = React.useMemo(
+        () => resolveRepoFullName(selectedApp, githubRepoUrl),
+        [githubRepoUrl, selectedApp]
+    );
+    const liveMainCacheKey = React.useMemo(
+        () => (selectedAppId && resolvedRepoFullName ? `${selectedAppId}:${resolvedRepoFullName}` : ''),
+        [resolvedRepoFullName, selectedAppId]
+    );
+    const trustedMainSourceSha = String((selectedApp as any)?.trusted_main_source_sha || '').trim() || null;
     const matchingHydrationSnapshot =
         hydrationSnapshot && String(hydrationSnapshot.appId || '').trim() === selectedAppId ? hydrationSnapshot : null;
     if (hydrationSnapshotAppIdRef.current !== selectedAppId) {
@@ -210,12 +262,88 @@ export function ConnectorRunnerPanel(props: {
         hydrationSnapshot: stableHydrationSnapshot,
     });
 
+    const loadLiveMainHead = React.useCallback(
+        async (options?: { force?: boolean; silent?: boolean }) => {
+            const force = Boolean(options?.force);
+            const silent = Boolean(options?.silent);
+            if (!session?.access_token || !selectedAppId || !liveMainCacheKey) {
+                setLiveMainSha(null);
+                setLiveMainFetchError(null);
+                setLiveMainLoading(false);
+                setLiveMainFetchedAt(null);
+                return null;
+            }
+
+            const requestKey = `${liveMainCacheKey}:${force ? 'force' : 'cache'}`;
+            liveMainRequestKeyRef.current = requestKey;
+            if (!silent) setLiveMainLoading(true);
+            if (force) setLiveMainFetchError(null);
+
+            const cached = !force ? GITHUB_MAIN_HEAD_CACHE.get(liveMainCacheKey) : null;
+            if (cached && isGithubMainHeadCacheFresh(cached)) {
+                setLiveMainSha(cached.sha || null);
+                setLiveMainFetchError(null);
+                setLiveMainFetchedAt(cached.fetchedAt || null);
+                if (!silent) setLiveMainLoading(false);
+                return cached;
+            }
+
+            let request = GITHUB_MAIN_HEAD_INFLIGHT.get(liveMainCacheKey);
+            if (!request || force) {
+                request = fetchGithubMainHead({
+                    accessToken: session.access_token,
+                    appId: selectedAppId,
+                });
+                GITHUB_MAIN_HEAD_INFLIGHT.set(liveMainCacheKey, request);
+            }
+
+            try {
+                const data = await request;
+                GITHUB_MAIN_HEAD_CACHE.set(liveMainCacheKey, {
+                    sha: data.sha,
+                    repoFullName: data.repoFullName,
+                    fetchedAt: Date.now(),
+                });
+                const fetchedAt = GITHUB_MAIN_HEAD_CACHE.get(liveMainCacheKey)?.fetchedAt || Date.now();
+                if (liveMainRequestKeyRef.current === requestKey) {
+                    setLiveMainSha(data.sha || null);
+                    setLiveMainFetchError(null);
+                    setLiveMainFetchedAt(fetchedAt);
+                }
+                return data;
+            } catch (error: any) {
+                if (liveMainRequestKeyRef.current === requestKey) {
+                    setLiveMainSha(null);
+                    setLiveMainFetchError(String(error?.message || error));
+                    setLiveMainFetchedAt(null);
+                }
+                return null;
+            } finally {
+                if (GITHUB_MAIN_HEAD_INFLIGHT.get(liveMainCacheKey) === request) {
+                    GITHUB_MAIN_HEAD_INFLIGHT.delete(liveMainCacheKey);
+                }
+                if (liveMainRequestKeyRef.current === requestKey && !silent) {
+                    setLiveMainLoading(false);
+                }
+            }
+        },
+        [liveMainCacheKey, selectedAppId, session?.access_token]
+    );
+
     const groupedArtifacts = React.useMemo(() => groupConnectorArtifacts(artifacts), [artifacts]);
-    const connectorJobState = React.useMemo(() => deriveConnectorJobState(jobs), [jobs]);
+    const connectorJobState = React.useMemo(
+        () =>
+            deriveConnectorJobState(jobs, {
+                liveMainSha,
+                trustedMainSourceSha,
+            }),
+        [jobs, liveMainSha, trustedMainSourceSha]
+    );
 
     React.useEffect(() => {
         setBugReport('');
         setLocalError(null);
+        setLocalNotice(null);
         setPanelsRevealed(false);
         setStartingGenerate(false);
         setAnimateTerminalAccent(false);
@@ -223,8 +351,44 @@ export function ConnectorRunnerPanel(props: {
         setCaptureMode(DEFAULT_RUNNER_CAPTURE_MODE);
         setFixHistoryExpanded(false);
         setExpandedFixJobId(null);
+        setLiveMainSha(null);
+        setLiveMainFetchError(null);
+        setLiveMainLoading(false);
+        setLiveMainFetchedAt(null);
         emittedSnapshotSignatureRef.current = '';
     }, [selectedAppId]);
+
+    React.useEffect(() => {
+        if (!liveMainCacheKey) {
+            setLiveMainSha(null);
+            setLiveMainFetchError(null);
+            setLiveMainLoading(false);
+            setLiveMainFetchedAt(null);
+            liveMainRequestKeyRef.current = '';
+            return;
+        }
+        const cached = GITHUB_MAIN_HEAD_CACHE.get(liveMainCacheKey);
+        if (cached) {
+            setLiveMainSha(cached.sha || null);
+            setLiveMainFetchError(null);
+            setLiveMainFetchedAt(cached.fetchedAt || null);
+            setLiveMainLoading(false);
+            if (!isGithubMainHeadCacheFresh(cached)) {
+                void loadLiveMainHead();
+            }
+            return;
+        }
+        void loadLiveMainHead();
+    }, [liveMainCacheKey, loadLiveMainHead]);
+
+    React.useEffect(() => {
+        if (!liveMainCacheKey || !liveMainFetchedAt) return;
+        const msUntilRefresh = Math.max(0, GITHUB_MAIN_HEAD_CACHE_TTL_MS - (Date.now() - liveMainFetchedAt));
+        const timer = window.setTimeout(() => {
+            void loadLiveMainHead({ silent: true });
+        }, msUntilRefresh);
+        return () => window.clearTimeout(timer);
+    }, [liveMainCacheKey, liveMainFetchedAt, loadLiveMainHead]);
 
     React.useEffect(() => {
         if (jobs.length === 0) return;
@@ -396,13 +560,9 @@ export function ConnectorRunnerPanel(props: {
         const vars = (connectorForm.variables ?? {}) as any;
         if (String(vars?.home_screen_name || '').trim().length === 0) missing.push(text('connector_missing_home_screen_name'));
 
-        const repoFullName =
-            String((selectedApp as any)?.github_repo_full_name || '').trim() ||
-            String((selectedApp as any)?.github_repo_url || '').trim() ||
-            String(githubRepoUrl || '').trim();
-        if (!repoFullName) missing.push(text('connector_missing_repo'));
+        if (!resolvedRepoFullName) missing.push(text('connector_missing_repo'));
         return missing;
-    }, [connectorForm.projectBrief, connectorForm.variables, githubRepoUrl, pickedIcon, selectedApp, text]);
+    }, [connectorForm.projectBrief, connectorForm.variables, pickedIcon, resolvedRepoFullName, text]);
 
     const generateBlocked = missingGeneratePrereqs.length > 0;
     const generateBlockedMessage = React.useMemo(() => {
@@ -410,13 +570,28 @@ export function ConnectorRunnerPanel(props: {
         return String(text('connector_generate_blocked_missing') || '').replace('{items}', missingGeneratePrereqs.join(', '));
     }, [generateBlocked, missingGeneratePrereqs, text]);
 
-    const qaDisabledMessage = getQaDisabledMessage(connectorJobState.qaDisabledReason, text);
-    const screenshotsDisabledMessage = getScreenshotsDisabledMessage(connectorJobState.screenshotsDisabledReason, text);
+    const awaitingLiveMain = Boolean(liveMainCacheKey) && !liveMainSha && !liveMainFetchError;
+    const qaDisabledMessage =
+        (liveMainLoading || awaitingLiveMain) && !liveMainSha ? '' : getQaDisabledMessage(connectorJobState.qaDisabledReason, text);
+    const screenshotsDisabledMessage =
+        ((liveMainLoading || awaitingLiveMain) && !liveMainSha)
+            ? ''
+            : getScreenshotsDisabledMessage(connectorJobState.screenshotsDisabledReason, text);
     const screenshotsModeHint = text('connector_screenshots_ready_hint');
+    const refreshing = loading || liveMainLoading;
     const generateButtonDisabled = loading || isReadOnly || generateBlocked || busy || !session || !selectedApp;
+    const syncMainButtonDisabled =
+        isReadOnly || busy || !session || !selectedApp || !resolvedRepoFullName || !onPatchApp || liveMainLoading;
+    const qaButtonDisabled =
+        isReadOnly || busy || !session || !selectedApp || liveMainLoading || !connectorJobState.canRunQa;
+    const screenshotsButtonDisabled =
+        isReadOnly || busy || !session || !selectedApp || liveMainLoading || !connectorJobState.canRunScreenshots;
     const latestActiveJob = connectorJobState.latestActiveJob;
     const latestActiveJobCancelRequested = connectorJobState.activeJobCancelRequested;
     const selectedJobCancelRequested = isCancelRequestedConnectorJob(selectedJob);
+    const staleMainWarningVisible =
+        connectorJobState.qaDisabledReason === 'stale_main' ||
+        connectorJobState.screenshotsDisabledReason === 'stale_main';
 
     const runGenerate = async () => {
         if (isReadOnly) return;
@@ -435,6 +610,7 @@ export function ConnectorRunnerPanel(props: {
 
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
             const saved = await connectorForm.savePatch({
                 project_brief: String(connectorForm.projectBrief || ''),
@@ -509,18 +685,61 @@ export function ConnectorRunnerPanel(props: {
         );
     };
 
-    const runQa = async () => {
-        if (isReadOnly) return;
-        if (!connectorJobState.qaSourceJob || !connectorJobState.canRunQa) {
-            setLocalError(qaDisabledMessage || text('connector_qa_missing_source'));
-            return;
-        }
+    const refreshAll = async () => {
+        setLocalError(null);
+        setLocalNotice(null);
+        await Promise.all([refresh(), loadLiveMainHead({ force: true })]);
+    };
+
+    const runSyncMain = async () => {
+        if (isReadOnly || !session || !selectedApp || !onPatchApp) return;
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
+            const mainHead = await loadLiveMainHead({ force: true });
+            if (!mainHead?.sha) {
+                throw new Error(text('connector_live_main_lookup_failed'));
+            }
+
+            const patched = await onPatchApp(selectedApp.id, {
+                trusted_main_source_sha: mainHead.sha,
+                trusted_main_source_synced_at: new Date().toISOString(),
+            });
+            if (!patched) {
+                throw new Error(text('connector_main_sync_failed'));
+            }
+
+            setLocalNotice(String(text('connector_main_sync_success') || '').replace('{sha}', mainHead.sha.slice(0, 12)));
+        } catch (e: any) {
+            const msg = String(e?.message || e);
+            setLocalError(msg);
+            reportError?.(msg);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const runQa = async () => {
+        if (isReadOnly) return;
+        setBusy(true);
+        setLocalError(null);
+        setLocalNotice(null);
+        try {
+            const mainHead = await loadLiveMainHead({ force: true });
+            const refreshedState = deriveConnectorJobState(jobs, {
+                liveMainSha: mainHead?.sha || null,
+                trustedMainSourceSha: String((selectedApp as any)?.trusted_main_source_sha || '').trim() || null,
+            });
+            if (!mainHead?.sha || !refreshedState.canRunQa || !refreshedState.effectiveCurrentSourceSha) {
+                setLocalError(getQaDisabledMessage(refreshedState.qaDisabledReason, text) || text('connector_qa_missing_source'));
+                return;
+            }
             const created = await createQaJob({
-                sourceJobId: String(connectorJobState.qaSourceJob.id),
-                sourceRef: String(connectorJobState.qaSourceJob.result_commit_sha || ''),
+                sourceJobId:
+                    refreshedState.qaSourceKind === 'job' ? String(refreshedState.qaSourceJob?.id || '') : null,
+                sourceRef: String(refreshedState.effectiveCurrentSourceSha || ''),
+                sourceKind: refreshedState.qaSourceKind === 'github_main_sync' ? 'github_main_sync' : 'job',
             });
             if (created?.id) setSelectedJobId(String(created.id));
         } catch (e: any) {
@@ -534,16 +753,25 @@ export function ConnectorRunnerPanel(props: {
 
     const runScreenshots = async () => {
         if (isReadOnly) return;
-        if (!connectorJobState.screenshotsSourceJob || !connectorJobState.canRunScreenshots) {
-            setLocalError(screenshotsDisabledMessage || text('connector_screenshots_missing_qa'));
-            return;
-        }
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
+            const mainHead = await loadLiveMainHead({ force: true });
+            const refreshedState = deriveConnectorJobState(jobs, {
+                liveMainSha: mainHead?.sha || null,
+                trustedMainSourceSha: String((selectedApp as any)?.trusted_main_source_sha || '').trim() || null,
+            });
+            if (!mainHead?.sha || !refreshedState.screenshotsSourceJob || !refreshedState.canRunScreenshots) {
+                setLocalError(
+                    getScreenshotsDisabledMessage(refreshedState.screenshotsDisabledReason, text) ||
+                        text('connector_screenshots_missing_qa')
+                );
+                return;
+            }
             const created = await createScreenshotsJob({
-                sourceJobId: String(connectorJobState.screenshotsSourceJob.id),
-                sourceRef: String(connectorJobState.screenshotsSourceJob.result_commit_sha || ''),
+                sourceJobId: String(refreshedState.screenshotsSourceJob.id),
+                sourceRef: String(refreshedState.screenshotsSourceJob.result_commit_sha || ''),
                 captureMode,
             });
             if (created?.id) setSelectedJobId(String(created.id));
@@ -560,6 +788,7 @@ export function ConnectorRunnerPanel(props: {
         if (isReadOnly) return;
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
             const created = await createFixJob(bugReport);
             if (created?.id) setSelectedJobId(String(created.id));
@@ -583,6 +812,7 @@ export function ConnectorRunnerPanel(props: {
         if (isReadOnly || !latestJob?.id) return;
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
             const created = await createContinueJob(String(latestJob.id));
             if (created?.id) setSelectedJobId(String(created.id));
@@ -599,6 +829,7 @@ export function ConnectorRunnerPanel(props: {
         if (isReadOnly) return;
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
             await requestCancel(jobId);
         } catch (e: any) {
@@ -614,6 +845,7 @@ export function ConnectorRunnerPanel(props: {
         if (isReadOnly) return;
         setBusy(true);
         setLocalError(null);
+        setLocalNotice(null);
         try {
             await answerQuestion(questionId, content);
         } catch (e: any) {
@@ -733,11 +965,13 @@ export function ConnectorRunnerPanel(props: {
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        onClick={refresh}
-                        disabled={!session || !selectedApp || loading}
+                        onClick={() => {
+                            void refreshAll();
+                        }}
+                        disabled={!session || !selectedApp || refreshing}
                         className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-100 hover:border-indigo-400/40 disabled:opacity-60"
                     >
-                        {loading ? text('loading') : text('refresh')}
+                        {refreshing ? text('loading') : text('refresh')}
                     </button>
                 </div>
             </div>
@@ -747,6 +981,16 @@ export function ConnectorRunnerPanel(props: {
                     {combinedError}
                 </div>
             )}
+            {localNotice ? (
+                <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-xs text-emerald-100/90">
+                    {localNotice}
+                </div>
+            ) : null}
+            {staleMainWarningVisible ? (
+                <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3 text-xs text-amber-100/90">
+                    {text('connector_main_sync_required')}
+                </div>
+            ) : null}
             <ConnectorSaveConflictBanner connectorForm={connectorForm} text={text} />
 
             <div className="mt-5 grid gap-3">
@@ -852,6 +1096,16 @@ export function ConnectorRunnerPanel(props: {
                                                 : text('connector_cancel_active_job')}
                                         </button>
                                     ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={runSyncMain}
+                                        disabled={syncMainButtonDisabled}
+                                        data-testid="runner-sync-main-button"
+                                        className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/20 px-4 py-2 text-xs font-semibold text-indigo-200/70 hover:border-indigo-400/40 hover:text-white disabled:opacity-60"
+                                    >
+                                        {busy ? <Loader2 className="animate-spin" size={14} /> : null}
+                                        {text('connector_sync_main')}
+                                    </button>
                                     {canContinue ? (
                                         <button
                                             type="button"
@@ -866,7 +1120,7 @@ export function ConnectorRunnerPanel(props: {
                                     <button
                                         type="button"
                                         onClick={runQa}
-                                        disabled={isReadOnly || busy || !session || !selectedApp || !connectorJobState.canRunQa}
+                                        disabled={qaButtonDisabled}
                                         className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15 disabled:opacity-60"
                                     >
                                         {busy ? <Loader2 className="animate-spin" size={14} /> : null}
@@ -891,7 +1145,7 @@ export function ConnectorRunnerPanel(props: {
                                         <button
                                             type="button"
                                             onClick={runScreenshots}
-                                            disabled={isReadOnly || busy || !session || !selectedApp || !connectorJobState.canRunScreenshots}
+                                            disabled={screenshotsButtonDisabled}
                                             className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-60"
                                         >
                                             {busy ? <Loader2 className="animate-spin" size={14} /> : null}
@@ -920,13 +1174,31 @@ export function ConnectorRunnerPanel(props: {
                                     {canContinue ? (
                                         <div className="text-indigo-200/45">{text('connector_continue_hint')}</div>
                                     ) : null}
+                                    <div>
+                                        {text('connector_latest_code_sha')}{' '}
+                                        <span className="font-semibold text-indigo-100">
+                                            {connectorJobState.latestSuccessfulCodeSha || '-'}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        {text('connector_synced_main_sha')}{' '}
+                                        <span className="font-semibold text-indigo-100">
+                                            {trustedMainSourceSha || '-'}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        {text('connector_live_main_sha')}{' '}
+                                        <span className="font-semibold text-indigo-100">
+                                            {liveMainLoading ? text('loading') : liveMainSha || '-'}
+                                        </span>
+                                    </div>
                                     {!connectorJobState.canRunQa ? (
                                         <div className="font-semibold text-amber-100/90">{qaDisabledMessage}</div>
-                                    ) : connectorJobState.qaSourceJob?.result_commit_sha ? (
+                                    ) : connectorJobState.effectiveCurrentSourceSha ? (
                                         <div>
                                             {text('connector_qa_targets_sha')}{' '}
                                             <span className="font-semibold text-indigo-100">
-                                                {connectorJobState.qaSourceJob.result_commit_sha}
+                                                {connectorJobState.effectiveCurrentSourceSha}
                                             </span>
                                         </div>
                                     ) : null}

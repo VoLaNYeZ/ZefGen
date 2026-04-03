@@ -243,6 +243,7 @@ export function WorkspaceSetupPanels({
                         githubRepoUrl={githubRepoUrl}
                         connectorExecution={connectorExecution}
                         connectorForm={connectorForm}
+                        onPatchApp={onPatchApp}
                         hydrationSnapshot={connectorExecutionHydrationSnapshot}
                         onSnapshotChange={onConnectorExecutionSnapshotChange}
                         pickedIcon={pickedIcon}

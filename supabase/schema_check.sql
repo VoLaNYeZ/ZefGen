@@ -37,6 +37,14 @@ union all select 'apps.appstore_url', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'apps' and column_name = 'appstore_url'
 )
+union all select 'apps.trusted_main_source_sha', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'apps' and column_name = 'trusted_main_source_sha'
+)
+union all select 'apps.trusted_main_source_synced_at', exists(
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'apps' and column_name = 'trusted_main_source_synced_at'
+)
 union all select 'appstore_accounts.id', exists(
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'appstore_accounts' and column_name = 'id'

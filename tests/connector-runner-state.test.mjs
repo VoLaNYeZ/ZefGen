@@ -10,14 +10,17 @@ import {
 } from '../utils/connector-runner-state.js';
 
 test('deriveConnectorJobState enables QA from the latest successful code-producing SHA', () => {
-    const state = deriveConnectorJobState([
-        {
-            id: 'integration-1',
-            kind: 'integration',
-            status: 'succeeded',
-            result_commit_sha: 'ABC123',
-        },
-    ]);
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'integration-1',
+                kind: 'integration',
+                status: 'succeeded',
+                result_commit_sha: 'ABC123',
+            },
+        ],
+        { liveMainSha: 'abc123' }
+    );
 
     assert.equal(state.canRunQa, true);
     assert.equal(state.qaDisabledReason, '');
@@ -55,20 +58,24 @@ test('step 5 completion only counts successful generate jobs', () => {
 });
 
 test('deriveConnectorJobState blocks screenshots when the latest QA SHA is stale', () => {
-    const state = deriveConnectorJobState([
-        {
-            id: 'integration-2',
-            kind: 'integration',
-            status: 'succeeded',
-            result_commit_sha: 'def456',
-        },
-        {
-            id: 'qa-1',
-            kind: 'visual_qa',
-            status: 'succeeded',
-            result_commit_sha: 'abc123',
-        },
-    ]);
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'integration-2',
+                kind: 'integration',
+                status: 'succeeded',
+                result_commit_sha: 'def456',
+            },
+            {
+                id: 'qa-1',
+                kind: 'visual_qa',
+                status: 'succeeded',
+                verify_status: 'pass',
+                result_commit_sha: 'abc123',
+            },
+        ],
+        { liveMainSha: 'def456' }
+    );
 
     assert.equal(state.canRunQa, true);
     assert.equal(state.canRunScreenshots, false);
@@ -93,6 +100,97 @@ test('deriveConnectorJobState exposes cancel-requested active jobs', () => {
 
     assert.equal(state.latestActiveJob?.id, 'fix-1');
     assert.equal(state.activeJobCancelRequested, true);
+});
+
+test('deriveConnectorJobState blocks QA until GitHub main is synced', () => {
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'generate-1',
+                kind: 'generate',
+                status: 'succeeded',
+                result_commit_sha: 'abc123',
+            },
+        ],
+        { liveMainSha: 'def456' }
+    );
+
+    assert.equal(state.canRunQa, false);
+    assert.equal(state.qaDisabledReason, 'stale_main');
+    assert.equal(state.effectiveCurrentSourceSha, null);
+});
+
+test('deriveConnectorJobState enables QA from a trusted synced main SHA', () => {
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'generate-1',
+                kind: 'generate',
+                status: 'succeeded',
+                result_commit_sha: 'abc123',
+            },
+        ],
+        {
+            liveMainSha: 'def456',
+            trustedMainSourceSha: 'def456',
+        }
+    );
+
+    assert.equal(state.canRunQa, true);
+    assert.equal(state.qaDisabledReason, '');
+    assert.equal(state.qaSourceKind, 'github_main_sync');
+    assert.equal(state.qaSourceJob, null);
+    assert.equal(state.effectiveCurrentSourceSha, 'def456');
+});
+
+test('deriveConnectorJobState blocks screenshots when the latest QA for the current SHA did not pass', () => {
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'generate-1',
+                kind: 'generate',
+                status: 'succeeded',
+                result_commit_sha: 'def456',
+            },
+            {
+                id: 'qa-2',
+                kind: 'visual_qa',
+                status: 'succeeded',
+                verify_status: 'fail',
+                result_commit_sha: 'def456',
+            },
+        ],
+        { liveMainSha: 'def456' }
+    );
+
+    assert.equal(state.canRunScreenshots, false);
+    assert.equal(state.screenshotsDisabledReason, 'qa_not_passed');
+    assert.equal(state.screenshotsSourceJob, null);
+});
+
+test('deriveConnectorJobState enables screenshots only when QA passed on the live current SHA', () => {
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'integration-1',
+                kind: 'integration',
+                status: 'succeeded',
+                result_commit_sha: 'fedcba',
+            },
+            {
+                id: 'qa-3',
+                kind: 'visual_qa',
+                status: 'succeeded',
+                verify_status: 'pass',
+                result_commit_sha: 'fedcba',
+            },
+        ],
+        { liveMainSha: 'fedcba' }
+    );
+
+    assert.equal(state.canRunScreenshots, true);
+    assert.equal(state.screenshotsDisabledReason, '');
+    assert.equal(state.screenshotsSourceJob?.id, 'qa-3');
 });
 
 test('integration readiness uses CRM variables including Apphud and Firebase fields', () => {

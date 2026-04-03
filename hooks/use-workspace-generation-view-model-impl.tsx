@@ -51,6 +51,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     handleBrandPromptChange: GenerationModuleProps['handleBrandPromptChange'];
     handleBrandPromptSave: GenerationModuleProps['handleBrandPromptSave'];
     handleDeleteAppScreenshot: SimulatorProps['handleDeleteAppScreenshot'];
+    handleDownloadSimulatorScreenshotsZip: SimulatorProps['onDownloadSimulatorScreenshotsZip'];
     handleDeleteGeneratedAsset: GenerationModuleProps['handleDeleteGeneratedAsset'];
     handleDeleteScreenshotSet: GenerationModuleProps['handleDeleteScreenshotSet'];
     handleDownloadAllScreenshots: GenerationModuleProps['handleDownloadAllScreenshots'];
@@ -178,6 +179,7 @@ export function useWorkspaceGenerationViewModel({
     handleBrandPromptChange,
     handleBrandPromptSave,
     handleDeleteAppScreenshot,
+    handleDownloadSimulatorScreenshotsZip,
     handleDeleteGeneratedAsset,
     handleDeleteScreenshotSet,
     handleDownloadAllScreenshots,
@@ -393,6 +395,7 @@ export function useWorkspaceGenerationViewModel({
                                   selectedAppScreenshots={selectedAppScreenshots}
                                   appScreenshotUrls={appScreenshotUrls}
                                   runnerImportWarnings={runnerImportWarnings}
+                                  onDownloadSimulatorScreenshotsZip={handleDownloadSimulatorScreenshotsZip}
                                   handleReorderAppScreenshot={(fromIndex, toIndex) => {
                                       void runWriteAction(() => handleReorderAppScreenshot(fromIndex, toIndex));
                                   }}

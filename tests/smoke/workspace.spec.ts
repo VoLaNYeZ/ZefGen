@@ -89,6 +89,7 @@ const installPrimaryWorkspaceRunnerMocks = async (page: Page, initialJobs: Conne
     let rows = [...initialJobs];
     let createCallCount = 0;
     let finishCanceled = false;
+    const createdPayloads: Record<string, unknown>[] = [];
 
     await page.addInitScript(
         ({ appId, repoUrl }) => {
@@ -154,6 +155,7 @@ const installPrimaryWorkspaceRunnerMocks = async (page: Page, initialJobs: Conne
             const rawBody = readRequestJson(route.request()) as Record<string, unknown> | Record<string, unknown>[] | null;
             const payload = Array.isArray(rawBody) ? rawBody[0] ?? {} : rawBody ?? {};
             createCallCount += 1;
+            createdPayloads.push(payload);
             const created = buildConnectorJobRow({
                 id: smokeJobId(1000 + createCallCount),
                 user_id: String(payload.user_id ?? 'smoke-user'),
@@ -210,6 +212,7 @@ const installPrimaryWorkspaceRunnerMocks = async (page: Page, initialJobs: Conne
 
     return {
         getCreateCallCount: () => createCallCount,
+        getCreatedPayloads: () => [...createdPayloads],
         setFinishCanceled: (next: boolean) => {
             finishCanceled = next;
         },
@@ -440,6 +443,145 @@ test('step 5 generate asks for confirmation before re-running after a successful
     await generateButton.click();
     await runnerPanel.getByTestId('runner-generate-button-confirm').click();
     await expect.poll(() => runnerMock.getCreateCallCount()).toBe(1);
+});
+
+test('step 5 blocks QA on stale main until Sync Main adopts the live SHA', async ({ page }) => {
+    const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
+        buildConnectorJobRow({
+            id: smokeJobId(41),
+            kind: 'generate',
+            status: 'succeeded',
+            result_commit_sha: 'abc123',
+            created_at: isoAt(-10),
+            updated_at: isoAt(-9),
+            started_at: isoAt(-10),
+            ended_at: isoAt(-9),
+        }),
+    ]);
+
+    await page.route('**/api/github-main-head', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                ok: true,
+                branch: 'main',
+                repoFullName: 'example/smoke-primary',
+                sha: 'def456',
+            }),
+        });
+    });
+
+    await page.route('**/rest/v1/apps*', async (route) => {
+        if (route.request().method() !== 'PATCH') {
+            await route.continue();
+            return;
+        }
+
+        const requestUrl = new URL(route.request().url());
+        const appId = String(requestUrl.searchParams.get('id') || '').replace(/^eq\./, '').trim();
+        if (appId !== smokeEnv.seed.primaryApp.id) {
+            await route.continue();
+            return;
+        }
+
+        const payload = (readRequestJson(route.request()) as Record<string, unknown> | null) ?? {};
+        const now = isoAt();
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                id: smokeEnv.seed.primaryApp.id,
+                brand_id: smokeEnv.seed.brand.id,
+                name: smokeEnv.seed.primaryApp.name,
+                alias: smokeEnv.seed.primaryApp.alias,
+                github_repo_url: 'https://github.com/example/smoke-primary',
+                github_repo_full_name: 'example/smoke-primary',
+                trusted_main_source_sha: String(payload.trusted_main_source_sha || ''),
+                trusted_main_source_synced_at: String(payload.trusted_main_source_synced_at || now),
+                github_repo_updated_at: now,
+                created_at: now,
+            }),
+        });
+    });
+
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const runnerPanel = page.getByTestId('workspace-panel-runner');
+    const qaButton = runnerPanel.getByRole('button', { name: /^QA$/i });
+    const syncMainButton = runnerPanel.getByTestId('runner-sync-main-button');
+
+    await expect(
+        runnerPanel.getByText(/GitHub main changed outside ZefGen\. Sync main first\./i).first()
+    ).toBeVisible();
+    await expect(qaButton).toBeDisabled();
+
+    await syncMainButton.click();
+    await expect(runnerPanel.getByText(/Synced GitHub main SHA def456\./i)).toBeVisible();
+    await expect(qaButton).toBeEnabled();
+
+    await qaButton.click();
+    await expect.poll(() => runnerMock.getCreateCallCount()).toBe(1);
+    await expect(runnerMock.getCreatedPayloads()[0]).toMatchObject({
+        kind: 'visual_qa',
+        input: {
+            source_job_id: null,
+            source_ref: 'def456',
+            source_kind: 'github_main_sync',
+            capture_mode: 'renders',
+        },
+    });
+});
+
+test('step 5 keeps screenshots blocked until QA passed on the live main SHA', async ({ page }) => {
+    await installPrimaryWorkspaceRunnerMocks(page, [
+        buildConnectorJobRow({
+            id: smokeJobId(51),
+            kind: 'visual_qa',
+            status: 'succeeded',
+            verify_status: 'fail',
+            result_commit_sha: 'def456',
+            created_at: isoAt(-2),
+            updated_at: isoAt(-1),
+            started_at: isoAt(-2),
+            ended_at: isoAt(-1),
+        }),
+        buildConnectorJobRow({
+            id: smokeJobId(52),
+            kind: 'generate',
+            status: 'succeeded',
+            result_commit_sha: 'def456',
+            created_at: isoAt(-10),
+            updated_at: isoAt(-9),
+            started_at: isoAt(-10),
+            ended_at: isoAt(-9),
+        }),
+    ]);
+
+    await page.route('**/api/github-main-head', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                ok: true,
+                branch: 'main',
+                repoFullName: 'example/smoke-primary',
+                sha: 'def456',
+            }),
+        });
+    });
+
+    await gotoWorkspace(page);
+    await claimWorkspaceEditLockIfPrompted(page);
+
+    const runnerPanel = page.getByTestId('workspace-panel-runner');
+    const screenshotsButton = runnerPanel.getByRole('button', { name: /^Screenshots$/i });
+
+    await expect(screenshotsButton).toBeDisabled();
+    await expect(
+        runnerPanel.getByText(/QA must pass on the current main SHA before screenshots are enabled\./i)
+    ).toBeVisible();
 });
 
 test('step 5 cancel shows cancel requested and then terminal canceled after refresh', async ({ page }) => {

@@ -19,14 +19,21 @@ const EMPTY_CONNECTOR_JOBS: ConnectorJob[] = [];
 const getJobsSignature = (jobs: ConnectorJob[]) =>
     jobs.map((job) => `${String(job?.id || '')}:${String(job?.updated_at || job?.created_at || '')}`).join('|');
 
-export const buildVisualQaConnectorJobInput = (payload: { sourceJobId: string; sourceRef: string }) => {
-    const sourceJobId = normalizeDownstreamSource(payload.sourceJobId);
+export const buildVisualQaConnectorJobInput = (payload: {
+    sourceJobId?: string | null;
+    sourceRef: string;
+    sourceKind?: 'job' | 'github_main_sync';
+}) => {
+    const sourceJobId = normalizeDownstreamSource(String(payload.sourceJobId || ''));
     const sourceRef = normalizeDownstreamSource(payload.sourceRef);
-    if (!sourceJobId || !sourceRef) throw new Error('Missing source job id or source ref for QA.');
+    const sourceKind = payload.sourceKind === 'github_main_sync' ? 'github_main_sync' : 'job';
+    if (!sourceRef) throw new Error('Missing source ref for QA.');
+    if (sourceKind === 'job' && !sourceJobId) throw new Error('Missing source job id for QA.');
 
     return {
-        source_job_id: sourceJobId,
+        source_job_id: sourceJobId || null,
         source_ref: sourceRef,
+        source_kind: sourceKind,
         capture_mode: DEFAULT_RUNNER_CAPTURE_MODE,
     };
 };
@@ -59,7 +66,11 @@ export type ConnectorJobsController = {
     createContinueJob: (fromJobId: string) => Promise<ConnectorJob | null>;
     createFixJob: (bugReport: string) => Promise<ConnectorJob | null>;
     createIntegrationJob: () => Promise<ConnectorJob | null>;
-    createQaJob: (payload: { sourceJobId: string; sourceRef: string }) => Promise<ConnectorJob | null>;
+    createQaJob: (payload: {
+        sourceJobId?: string | null;
+        sourceRef: string;
+        sourceKind?: 'job' | 'github_main_sync';
+    }) => Promise<ConnectorJob | null>;
     createScreenshotsJob: (payload: { sourceJobId: string; sourceRef: string; captureMode: DownstreamCaptureMode }) => Promise<ConnectorJob | null>;
     requestCancel: (jobId: string) => Promise<ConnectorJob | null>;
 };
@@ -302,7 +313,7 @@ export const useConnectorJobs = (payload: {
     }, [baseBranch, getRepoFullName, refresh, selectedAppId, sessionUserId]);
 
     const createQaJob = useCallback(
-        async (payload: { sourceJobId: string; sourceRef: string }) => {
+        async (payload: { sourceJobId?: string | null; sourceRef: string; sourceKind?: 'job' | 'github_main_sync' }) => {
             if (!sessionUserId || !selectedAppId) throw new Error('No session/app selected.');
             const repoFullName = getRepoFullName();
             if (!repoFullName) throw new Error('Create a GitHub repo first (missing github_repo_full_name).');

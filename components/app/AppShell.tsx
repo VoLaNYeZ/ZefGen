@@ -708,6 +708,7 @@ export function AppShell({ session }: AppShellProps) {
         session,
         selectedBrand,
         selectedApp,
+        patchApp,
         metadataSnapshot: selectedAppSnapshot?.generatedAssets ?? null,
         selectedAppScreenshots,
         appScreenshotUrls,
@@ -1382,6 +1383,9 @@ export function AppShell({ session }: AppShellProps) {
             handleBrandPromptChange,
             handleBrandPromptSave,
             handleDeleteAppScreenshot,
+            handleDownloadSimulatorScreenshotsZip: () => {
+                void handleDownloadSimulatorScreenshotsZip();
+            },
             handleDeleteGeneratedAsset,
             handleDeleteScreenshotSet,
             handleDownloadAllScreenshots,

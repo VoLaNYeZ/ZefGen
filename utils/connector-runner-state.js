@@ -57,7 +57,7 @@ export const isCancelRequestedConnectorJob = (job) =>
 export const findLatestActiveConnectorJob = (jobs) =>
     normalizeList(jobs).find((job) => isActiveConnectorJob(job)) || null;
 
-export const deriveConnectorJobState = (jobs) => {
+export const deriveConnectorJobState = (jobs, options = {}) => {
     const list = normalizeList(jobs);
     const latestJob = list[0] || null;
     const latestSuccessfulGenerateJob = findLatestSuccessfulGenerateJob(list);
@@ -66,19 +66,55 @@ export const deriveConnectorJobState = (jobs) => {
     const latestSuccessfulIntegrationJob = findLatestSuccessfulJob(list, (job) => String(job?.kind ?? '') === 'integration');
     const latestActiveJob = findLatestActiveConnectorJob(list);
 
+    const liveMainSha = normalizeCommitSha(options?.liveMainSha);
+    const trustedMainSourceSha = normalizeCommitSha(options?.trustedMainSourceSha);
     const latestCodeSha = normalizeCommitSha(latestSuccessfulCodeJob?.result_commit_sha);
     const latestQaSha = normalizeCommitSha(latestSuccessfulQaJob?.result_commit_sha);
+    const effectiveCurrentSourceSha = liveMainSha
+        ? trustedMainSourceSha && trustedMainSourceSha === liveMainSha
+            ? trustedMainSourceSha
+            : latestCodeSha && latestCodeSha === liveMainSha
+              ? latestCodeSha
+              : ''
+        : '';
+    const latestSuccessfulQaJobForCurrentSource = effectiveCurrentSourceSha
+        ? findLatestSuccessfulJob(
+              list,
+              (job) =>
+                  String(job?.kind ?? '') === 'visual_qa' &&
+                  normalizeCommitSha(job?.result_commit_sha) === effectiveCurrentSourceSha
+          )
+        : null;
+    const latestPassedQaJobForCurrentSource = effectiveCurrentSourceSha
+        ? findLatestSuccessfulJob(
+              list,
+              (job) =>
+                  String(job?.kind ?? '') === 'visual_qa' &&
+                  String(job?.verify_status ?? '') === 'pass' &&
+                  normalizeCommitSha(job?.result_commit_sha) === effectiveCurrentSourceSha
+          )
+        : null;
 
     let qaDisabledReason = '';
-    if (!latestSuccessfulCodeJob) qaDisabledReason = 'missing_code_job';
-    else if (!latestCodeSha) qaDisabledReason = 'missing_code_sha';
+    if (!liveMainSha) qaDisabledReason = 'main_lookup_failed';
+    else if (!effectiveCurrentSourceSha) {
+        if (trustedMainSourceSha && trustedMainSourceSha !== liveMainSha) qaDisabledReason = 'stale_main';
+        else if (latestSuccessfulCodeJob && latestCodeSha && latestCodeSha !== liveMainSha) qaDisabledReason = 'stale_main';
+        else if (latestSuccessfulCodeJob && !latestCodeSha) qaDisabledReason = 'missing_code_sha';
+        else qaDisabledReason = 'missing_code_job';
+    }
 
     let screenshotsDisabledReason = '';
-    if (!latestSuccessfulQaJob) screenshotsDisabledReason = 'missing_qa_job';
+    if (!liveMainSha) screenshotsDisabledReason = 'main_lookup_failed';
+    else if (!effectiveCurrentSourceSha) {
+        if (trustedMainSourceSha && trustedMainSourceSha !== liveMainSha) screenshotsDisabledReason = 'stale_main';
+        else if (latestSuccessfulCodeJob && latestCodeSha && latestCodeSha !== liveMainSha) screenshotsDisabledReason = 'stale_main';
+        else if (latestSuccessfulCodeJob && !latestCodeSha) screenshotsDisabledReason = 'missing_code_sha';
+        else screenshotsDisabledReason = 'missing_code_job';
+    } else if (!latestSuccessfulQaJob) screenshotsDisabledReason = 'missing_qa_job';
     else if (!latestQaSha) screenshotsDisabledReason = 'missing_qa_sha';
-    else if (!latestSuccessfulCodeJob) screenshotsDisabledReason = 'missing_code_job';
-    else if (!latestCodeSha) screenshotsDisabledReason = 'missing_code_sha';
-    else if (latestQaSha !== latestCodeSha) screenshotsDisabledReason = 'stale_qa';
+    else if (!latestSuccessfulQaJobForCurrentSource) screenshotsDisabledReason = 'stale_qa';
+    else if (String(latestSuccessfulQaJobForCurrentSource?.verify_status ?? '') !== 'pass') screenshotsDisabledReason = 'qa_not_passed';
 
     return {
         latestJob,
@@ -86,15 +122,24 @@ export const deriveConnectorJobState = (jobs) => {
         hasSuccessfulGenerateJob: Boolean(latestSuccessfulGenerateJob),
         latestSuccessfulCodeJob,
         latestSuccessfulQaJob,
+        latestSuccessfulQaJobForCurrentSource,
+        latestPassedQaJobForCurrentSource,
         latestSuccessfulIntegrationJob,
         latestActiveJob,
         activeJobCancelRequested: isCancelRequestedConnectorJob(latestActiveJob),
+        liveMainSha: liveMainSha || null,
+        trustedMainSourceSha: trustedMainSourceSha || null,
         latestSuccessfulCodeSha: latestCodeSha || null,
         latestSuccessfulQaSha: latestQaSha || null,
-        qaSourceJob: qaDisabledReason ? null : latestSuccessfulCodeJob,
+        effectiveCurrentSourceSha: effectiveCurrentSourceSha || null,
+        qaSourceKind: qaDisabledReason ? null : latestSuccessfulCodeJob && latestCodeSha === effectiveCurrentSourceSha ? 'job' : 'github_main_sync',
+        qaSourceJob:
+            qaDisabledReason || !latestSuccessfulCodeJob || latestCodeSha !== effectiveCurrentSourceSha
+                ? null
+                : latestSuccessfulCodeJob,
         qaDisabledReason,
         canRunQa: !qaDisabledReason,
-        screenshotsSourceJob: screenshotsDisabledReason ? null : latestSuccessfulQaJob,
+        screenshotsSourceJob: screenshotsDisabledReason ? null : latestPassedQaJobForCurrentSource,
         screenshotsDisabledReason,
         canRunScreenshots: !screenshotsDisabledReason,
     };

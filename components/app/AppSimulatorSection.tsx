@@ -10,6 +10,7 @@ type AppSimulatorSectionProps = {
     selectedAppScreenshots: AppScreenshot[];
     appScreenshotUrls: Record<string, string>;
     runnerImportWarnings: AppScreenshotImportWarning[];
+    onDownloadSimulatorScreenshotsZip: () => void | Promise<void>;
     handleReorderAppScreenshot: (fromIndex: number, toIndex: number) => void;
     handleDeleteAppScreenshot: (shot: AppScreenshot) => void;
     handleScreenshotDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -33,6 +34,7 @@ export const AppSimulatorSection = ({
     selectedAppScreenshots,
     appScreenshotUrls,
     runnerImportWarnings,
+    onDownloadSimulatorScreenshotsZip,
     handleReorderAppScreenshot,
     handleDeleteAppScreenshot,
     handleScreenshotDragOver,
@@ -53,6 +55,7 @@ export const AppSimulatorSection = ({
     }, [selectedAppScreenshots]);
 
     const orderedIds = React.useMemo(() => selectedAppScreenshots.map((shot) => shot.id), [selectedAppScreenshots]);
+    const canDownloadSimulatorScreenshots = Boolean(selectedApp) && selectedAppScreenshots.length > 0;
 
     return (
         <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4">
@@ -61,7 +64,21 @@ export const AppSimulatorSection = ({
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
                     <p className="text-xs text-indigo-200/60">{text('simulator_screenshots_subtitle')}</p>
                 </div>
-                <span className="text-[11px] text-indigo-200/60">{text('drag_to_reorder')}</span>
+                <button
+                    type="button"
+                    data-testid="step8-download-simulator-zip"
+                    disabled={!canDownloadSimulatorScreenshots}
+                    onClick={() => {
+                        void onDownloadSimulatorScreenshotsZip();
+                    }}
+                    className={`ui-btn-fit ui-btn-fit-ellipsis rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                        canDownloadSimulatorScreenshots
+                            ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
+                            : 'border-white/10 text-indigo-200/40'
+                    }`}
+                >
+                    {text('download_simulator_screenshots_zip')}
+                </button>
             </div>
 
             {runnerImportWarnings.length ? (

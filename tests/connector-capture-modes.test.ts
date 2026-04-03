@@ -54,6 +54,22 @@ test('visual_qa input builder always submits renders', () => {
         {
             source_job_id: 'integration-1',
             source_ref: 'ABC123',
+            source_kind: 'job',
+            capture_mode: 'renders',
+        }
+    );
+});
+
+test('visual_qa input builder accepts synced GitHub main without a source job id', () => {
+    assert.deepEqual(
+        buildVisualQaConnectorJobInput({
+            sourceRef: 'DEF456',
+            sourceKind: 'github_main_sync',
+        }),
+        {
+            source_job_id: null,
+            source_ref: 'DEF456',
+            source_kind: 'github_main_sync',
             capture_mode: 'renders',
         }
     );
