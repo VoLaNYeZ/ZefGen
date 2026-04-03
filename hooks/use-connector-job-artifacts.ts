@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import type { ConnectorExecutionPanelSnapshot } from '../types/connector-execution-snapshot';
 import {
     fetchConnectorJobArtifactsByJob,
+    fetchConnectorArtifactSignedUrl,
     type ConnectorJobArtifact,
 } from '../data/connector-job-artifacts';
 import { useSignedUrlCache } from './use-signed-url-cache';
@@ -30,6 +31,7 @@ export const useConnectorJobArtifacts = (payload: {
     const pollMs = Math.max(1500, Math.floor(payload.pollMs ?? 5000));
     const live = payload.live ?? true;
     const sessionUserId = String(session?.user?.id || '').trim();
+    const sessionAccessToken = String(session?.access_token || '').trim();
     const normalizedJobId = String(jobId || '').trim() || null;
     const scopeKey = sessionUserId && normalizedJobId ? `${sessionUserId}:${normalizedJobId}` : '';
     const matchingHydrationSnapshot =
@@ -52,7 +54,8 @@ export const useConnectorJobArtifacts = (payload: {
     const [artifactUrlsById, setArtifactUrlsById] = useState<Record<string, string>>({});
     const [artifactJsonById, setArtifactJsonById] = useState<Record<string, any>>({});
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [urlError, setUrlError] = useState<string | null>(null);
     const artifactsSignatureRef = useRef('');
     const artifactUrlSignatureRef = useRef('');
     const artifactJsonSignatureRef = useRef('');
@@ -72,7 +75,8 @@ export const useConnectorJobArtifacts = (payload: {
                 setArtifactJsonById((current) => (Object.keys(current).length === 0 ? current : EMPTY_JSON_RECORD));
             }
             setLoading((current) => (current ? false : current));
-            setError((current) => (current === null ? current : null));
+            setFetchError((current) => (current === null ? current : null));
+            setUrlError((current) => (current === null ? current : null));
             artifactsSignatureRef.current = '';
             artifactUrlSignatureRef.current = '';
             artifactJsonSignatureRef.current = '';
@@ -88,7 +92,8 @@ export const useConnectorJobArtifacts = (payload: {
 
         scopeKeyRef.current = scopeKey;
         hydrationStateRef.current = nextHydrationState;
-        setError((current) => (current === null ? current : null));
+        setFetchError((current) => (current === null ? current : null));
+        setUrlError((current) => (current === null ? current : null));
         if (hasMatchingHydrationSnapshot) {
             artifactsSignatureRef.current = hydrationArtifactsSignature;
             artifactUrlSignatureRef.current = hydrationArtifactUrlsSignature;
@@ -127,7 +132,8 @@ export const useConnectorJobArtifacts = (payload: {
             setArtifactUrlsById({});
             setArtifactJsonById({});
             setLoading(false);
-            setError(null);
+            setFetchError(null);
+            setUrlError(null);
             artifactsSignatureRef.current = '';
             artifactUrlSignatureRef.current = '';
             artifactJsonSignatureRef.current = '';
@@ -136,7 +142,7 @@ export const useConnectorJobArtifacts = (payload: {
         const requestScopeKey = requestScopeKeyRef.current;
         if (!background) {
             setLoading(true);
-            setError(null);
+            setFetchError(null);
         }
         try {
             let fetchPromise = inFlightArtifactFetches.get(scopeKey);
@@ -158,10 +164,10 @@ export const useConnectorJobArtifacts = (payload: {
                 artifactsSignatureRef.current = nextSignature;
                 setArtifacts(nextArtifacts);
             }
-            if (background) setError(null);
+            if (background) setFetchError(null);
         } catch (e: any) {
             if (requestScopeKeyRef.current !== requestScopeKey) return;
-            setError(String(e?.message || e));
+            setFetchError(String(e?.message || e));
         } finally {
             if (inFlightArtifactFetches.get(scopeKey)) {
                 inFlightArtifactFetches.delete(scopeKey);
@@ -192,6 +198,7 @@ export const useConnectorJobArtifacts = (payload: {
         let canceled = false;
         const loadUrls = async () => {
             const nextUrls: Record<string, string> = {};
+            let nextUrlError: string | null = null;
             for (const artifact of artifacts) {
                 const id = String(artifact?.id || '').trim();
                 const bucket = String(artifact?.bucket || '').trim();
@@ -199,11 +206,28 @@ export const useConnectorJobArtifacts = (payload: {
                 if (!id || !bucket || !objectPath) continue;
                 try {
                     nextUrls[id] = await getSignedUrl(bucket, objectPath);
-                } catch {
-                    // Ignore missing artifact URLs in the UI.
+                } catch (signedUrlError: any) {
+                    try {
+                        if (!sessionAccessToken) throw signedUrlError;
+                        nextUrls[id] = await fetchConnectorArtifactSignedUrl({
+                            token: sessionAccessToken,
+                            artifactId: id,
+                        });
+                    } catch (fallbackError: any) {
+                        if (!nextUrlError) {
+                            nextUrlError = String(
+                                fallbackError?.message ||
+                                    signedUrlError?.message ||
+                                    fallbackError ||
+                                    signedUrlError ||
+                                    'Failed to load artifact URL.'
+                            );
+                        }
+                    }
                 }
             }
             if (canceled) return;
+            setUrlError(nextUrlError);
             const nextSignature = getRecordSignature(nextUrls);
             if (artifactUrlSignatureRef.current === nextSignature) return;
             artifactUrlSignatureRef.current = nextSignature;
@@ -213,7 +237,7 @@ export const useConnectorJobArtifacts = (payload: {
         return () => {
             canceled = true;
         };
-    }, [artifacts, getSignedUrl]);
+    }, [artifacts, getSignedUrl, sessionAccessToken]);
 
     useEffect(() => {
         let canceled = false;
@@ -253,7 +277,7 @@ export const useConnectorJobArtifacts = (payload: {
         artifactJsonById,
         artifactUrlCount,
         loading,
-        error,
+        error: fetchError || urlError,
         refresh,
     };
 };

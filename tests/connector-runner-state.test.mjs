@@ -173,3 +173,26 @@ test('groupConnectorArtifacts groups evidence and screenshots by variant, theme,
         ['home', 'settings']
     );
 });
+
+test('groupConnectorArtifacts accepts screenshot render variants from capture_mode metadata', () => {
+    const grouped = groupConnectorArtifacts([
+        {
+            id: 'render-shot',
+            kind: 'screenshot_image',
+            object_path: 'apps/app/screenshots/job/home.png',
+            metadata: {
+                capture_mode: 'renders',
+                theme: 'dark',
+                viewport: 'iphone_17_pro_max',
+                target_id: 'home',
+            },
+        },
+    ]);
+
+    assert.equal(grouped.screenshotGroups.length, 1);
+    assert.equal(grouped.screenshotGroups[0].variant, 'render');
+    assert.deepEqual(
+        grouped.screenshotGroups[0].items.map((item) => item.targetId),
+        ['home']
+    );
+});

@@ -110,11 +110,20 @@ export const findLatestSuccessfulIntegrationForBranch = (jobs, baseBranch) => {
 
 const compareText = (left, right) => String(left || '').localeCompare(String(right || ''));
 
+const normalizeArtifactVariant = (value) => {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (raw === 'render' || raw === 'renders') return 'render';
+    if (raw === 'simulator') return 'simulator';
+    return '';
+};
+
 export const getArtifactVariant = (artifact) => {
-    const fromMetadata = String(artifact?.metadata?.capture_variant ?? artifact?.metadata?.variant ?? '').trim().toLowerCase();
-    if (fromMetadata === 'render' || fromMetadata === 'simulator') return fromMetadata;
-    const match = String(artifact?.object_path ?? '').match(/\/(render|simulator)\//i);
-    return match ? String(match[1]).toLowerCase() : '';
+    const fromMetadata = normalizeArtifactVariant(
+        artifact?.metadata?.capture_variant ?? artifact?.metadata?.variant ?? artifact?.metadata?.capture_mode
+    );
+    if (fromMetadata) return fromMetadata;
+    const match = String(artifact?.object_path ?? '').match(/\/(render|renders|simulator)\//i);
+    return match ? normalizeArtifactVariant(match[1]) : '';
 };
 
 export const groupConnectorArtifacts = (artifacts) => {

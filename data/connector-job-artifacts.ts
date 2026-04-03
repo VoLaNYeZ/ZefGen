@@ -38,3 +38,39 @@ export const fetchConnectorJobArtifactsByApp = async (payload: {
         .eq('app_id', payload.appId)
         .order('created_at', { ascending: false })
         .limit(payload.limit ?? 200);
+
+export const fetchConnectorArtifactSignedUrl = async (payload: {
+    token: string;
+    artifactId: string;
+    expiresIn?: number;
+}) => {
+    const response = await fetch('/api/connector-artifact-url', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${payload.token}`,
+        },
+        body: JSON.stringify({
+            artifactId: payload.artifactId,
+            expiresIn: payload.expiresIn,
+        }),
+    });
+
+    let parsed: any = null;
+    try {
+        parsed = await response.json();
+    } catch {
+        parsed = null;
+    }
+
+    if (!response.ok) {
+        throw new Error(String(parsed?.message || 'Failed to create artifact signed URL.'));
+    }
+
+    const signedUrl = String(parsed?.signedUrl || '').trim();
+    if (!signedUrl) {
+        throw new Error('Artifact signed URL missing in response.');
+    }
+
+    return signedUrl;
+};
