@@ -18,6 +18,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     addLayer: GenerationModuleProps['addLayer'];
     appScreenshotUrls: SimulatorProps['appScreenshotUrls'];
     appScreenshotsUploading: SimulatorProps['appScreenshotsUploading'];
+    appScreenshotsDeletingAll: SimulatorProps['appScreenshotsDeletingAll'];
     assetExportStatus: GenerationModuleProps['assetExportStatus'];
     beginEditAsset: GenerationModuleProps['beginEditAsset'];
     beginSlotHeadlineDrag: GenerationModuleProps['beginSlotHeadlineDrag'];
@@ -51,6 +52,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     handleBrandPromptChange: GenerationModuleProps['handleBrandPromptChange'];
     handleBrandPromptSave: GenerationModuleProps['handleBrandPromptSave'];
     handleDeleteAppScreenshot: SimulatorProps['handleDeleteAppScreenshot'];
+    handleDeleteAllAppScreenshots: SimulatorProps['handleDeleteAllAppScreenshots'];
     handleDownloadSimulatorScreenshotsZip: SimulatorProps['onDownloadSimulatorScreenshotsZip'];
     handleDeleteGeneratedAsset: GenerationModuleProps['handleDeleteGeneratedAsset'];
     handleDeleteScreenshotSet: GenerationModuleProps['handleDeleteScreenshotSet'];
@@ -146,6 +148,7 @@ export function useWorkspaceGenerationViewModel({
     addLayer,
     appScreenshotUrls,
     appScreenshotsUploading,
+    appScreenshotsDeletingAll,
     assetExportStatus,
     beginEditAsset,
     beginSlotHeadlineDrag,
@@ -179,6 +182,7 @@ export function useWorkspaceGenerationViewModel({
     handleBrandPromptChange,
     handleBrandPromptSave,
     handleDeleteAppScreenshot,
+    handleDeleteAllAppScreenshots,
     handleDownloadSimulatorScreenshotsZip,
     handleDeleteGeneratedAsset,
     handleDeleteScreenshotSet,
@@ -396,6 +400,9 @@ export function useWorkspaceGenerationViewModel({
                                   appScreenshotUrls={appScreenshotUrls}
                                   runnerImportWarnings={runnerImportWarnings}
                                   onDownloadSimulatorScreenshotsZip={handleDownloadSimulatorScreenshotsZip}
+                                  handleDeleteAllAppScreenshots={() => {
+                                      void runWriteAction(() => handleDeleteAllAppScreenshots());
+                                  }}
                                   handleReorderAppScreenshot={(fromIndex, toIndex) => {
                                       void runWriteAction(() => handleReorderAppScreenshot(fromIndex, toIndex));
                                   }}
@@ -412,6 +419,7 @@ export function useWorkspaceGenerationViewModel({
                                   }}
                                   isScreenshotDropActive={isScreenshotDropActive}
                                   appScreenshotsUploading={appScreenshotsUploading}
+                                  appScreenshotsDeletingAll={appScreenshotsDeletingAll}
                                   canUploadAppScreenshots={canUploadAppScreenshots}
                                   openLightbox={openLightbox}
                                   text={text}

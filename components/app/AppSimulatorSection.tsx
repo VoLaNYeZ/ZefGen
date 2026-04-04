@@ -11,6 +11,7 @@ type AppSimulatorSectionProps = {
     appScreenshotUrls: Record<string, string>;
     runnerImportWarnings: AppScreenshotImportWarning[];
     onDownloadSimulatorScreenshotsZip: () => void | Promise<void>;
+    handleDeleteAllAppScreenshots: () => void | Promise<void>;
     handleReorderAppScreenshot: (fromIndex: number, toIndex: number) => void;
     handleDeleteAppScreenshot: (shot: AppScreenshot) => void;
     handleScreenshotDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -19,6 +20,7 @@ type AppSimulatorSectionProps = {
     handleAppScreenshotsUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
     isScreenshotDropActive: boolean;
     appScreenshotsUploading: boolean;
+    appScreenshotsDeletingAll: boolean;
     canUploadAppScreenshots: boolean;
     openLightbox: (
         src: string,
@@ -35,6 +37,7 @@ export const AppSimulatorSection = ({
     appScreenshotUrls,
     runnerImportWarnings,
     onDownloadSimulatorScreenshotsZip,
+    handleDeleteAllAppScreenshots,
     handleReorderAppScreenshot,
     handleDeleteAppScreenshot,
     handleScreenshotDragOver,
@@ -43,6 +46,7 @@ export const AppSimulatorSection = ({
     handleAppScreenshotsUpload,
     isScreenshotDropActive,
     appScreenshotsUploading,
+    appScreenshotsDeletingAll,
     canUploadAppScreenshots,
     openLightbox,
     text,
@@ -56,6 +60,11 @@ export const AppSimulatorSection = ({
 
     const orderedIds = React.useMemo(() => selectedAppScreenshots.map((shot) => shot.id), [selectedAppScreenshots]);
     const canDownloadSimulatorScreenshots = Boolean(selectedApp) && selectedAppScreenshots.length > 0;
+    const canDeleteAllSimulatorScreenshots =
+        Boolean(selectedApp) &&
+        selectedAppScreenshots.length > 0 &&
+        !isReadOnly &&
+        !appScreenshotsDeletingAll;
 
     return (
         <div className="rounded-2xl bg-slate-900 ring-1 ring-white/5 p-4">
@@ -64,21 +73,45 @@ export const AppSimulatorSection = ({
                     <p className="text-[11px] font-semibold tracking-[0.12em] text-indigo-200/70">{text('simulator_screenshots')}</p>
                     <p className="text-xs text-indigo-200/60">{text('simulator_screenshots_subtitle')}</p>
                 </div>
-                <button
-                    type="button"
-                    data-testid="step8-download-simulator-zip"
-                    disabled={!canDownloadSimulatorScreenshots}
-                    onClick={() => {
-                        void onDownloadSimulatorScreenshotsZip();
-                    }}
-                    className={`ui-btn-fit ui-btn-fit-ellipsis rounded-full border px-3 py-2 text-[11px] font-semibold ${
-                        canDownloadSimulatorScreenshots
-                            ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
-                            : 'border-white/10 text-indigo-200/40'
-                    }`}
-                >
-                    {text('download_simulator_screenshots_zip')}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        data-testid="step8-download-simulator-zip"
+                        disabled={!canDownloadSimulatorScreenshots}
+                        onClick={() => {
+                            void onDownloadSimulatorScreenshotsZip();
+                        }}
+                        className={`ui-btn-fit ui-btn-fit-ellipsis rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                            canDownloadSimulatorScreenshots
+                                ? 'border-indigo-400/40 text-indigo-100 hover:bg-indigo-500/20'
+                                : 'border-white/10 text-indigo-200/40'
+                        }`}
+                    >
+                        {text('download_simulator_screenshots_zip')}
+                    </button>
+                    {!isReadOnly ? (
+                        <ConfirmIconButton
+                            label={text('delete_all_simulator_screenshots')}
+                            question={text('confirm_delete_all_simulator_screenshots')}
+                            confirmLabel={text('delete')}
+                            cancelLabel={text('cancel')}
+                            disabled={!canDeleteAllSimulatorScreenshots}
+                            onConfirm={() => handleDeleteAllAppScreenshots()}
+                            triggerTestId="step8-delete-all-simulator-screenshots"
+                        >
+                            <span
+                                className={`ui-btn-fit ui-btn-fit-ellipsis inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold ${
+                                    canDeleteAllSimulatorScreenshots
+                                        ? 'border-rose-400/35 text-rose-100 hover:bg-rose-500/15'
+                                        : 'border-white/10 text-indigo-200/40'
+                                }`}
+                            >
+                                <Trash2 size={12} />
+                                {appScreenshotsDeletingAll ? text('deleting') : text('delete_all_simulator_screenshots')}
+                            </span>
+                        </ConfirmIconButton>
+                    ) : null}
+                </div>
             </div>
 
             {runnerImportWarnings.length ? (

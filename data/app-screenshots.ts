@@ -94,6 +94,13 @@ export const deleteAppScreenshot = async (payload: { id: string; userId: string 
         .eq('id', payload.id)
         .eq('user_id', payload.userId);
 
+export const deleteAppScreenshotsByIds = async (payload: { ids: string[]; userId: string }) =>
+    supabase
+        .from('app_screenshots')
+        .delete()
+        .eq('user_id', payload.userId)
+        .in('id', payload.ids);
+
 export const updateAppScreenshotOrder = async (payload: { id: string; userId: string; orderIndex: number }) =>
     supabase
         .from('app_screenshots')

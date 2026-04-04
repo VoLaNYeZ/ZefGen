@@ -490,9 +490,11 @@ export function AppShell({ session }: AppShellProps) {
         appScreenshotUrls,
         runnerImportWarnings,
         appScreenshotsUploading,
+        appScreenshotsDeletingAll,
         isScreenshotDropActive,
         handleReorderAppScreenshot,
         handleDeleteAppScreenshot,
+        handleDeleteAllAppScreenshots,
         handleScreenshotDragOver,
         handleScreenshotDragLeave,
         handleScreenshotDrop,
@@ -1350,6 +1352,7 @@ export function AppShell({ session }: AppShellProps) {
             addLayer,
             appScreenshotUrls,
             appScreenshotsUploading,
+            appScreenshotsDeletingAll,
             assetExportStatus: exportStatus,
             beginEditAsset,
             beginSlotHeadlineDrag,
@@ -1383,6 +1386,7 @@ export function AppShell({ session }: AppShellProps) {
             handleBrandPromptChange,
             handleBrandPromptSave,
             handleDeleteAppScreenshot,
+            handleDeleteAllAppScreenshots,
             handleDownloadSimulatorScreenshotsZip: () => {
                 void handleDownloadSimulatorScreenshotsZip();
             },

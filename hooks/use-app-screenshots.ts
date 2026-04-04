@@ -8,6 +8,7 @@ import {
     createAppScreenshotArtifactIgnore,
     createAppScreenshot,
     createAppScreenshotsBatch,
+    deleteAppScreenshotsByIds,
     deleteAppScreenshot,
     fetchAppScreenshots,
     fetchAppScreenshotArtifactIgnores,
@@ -104,6 +105,7 @@ export const useAppScreenshots = ({
     const lastUserIdRef = useRef<string | null>(null);
     const [appScreenshotUrls, setAppScreenshotUrls] = useState<Record<string, string>>({});
     const [appScreenshotsUploading, setAppScreenshotsUploading] = useState(false);
+    const [appScreenshotsDeletingAll, setAppScreenshotsDeletingAll] = useState(false);
     const [isScreenshotDropActive, setIsScreenshotDropActive] = useState(false);
     const [runnerImportWarnings, setRunnerImportWarnings] = useState<AppScreenshotImportWarning[]>([]);
     const [runnerIntegrityWarnings, setRunnerIntegrityWarnings] = useState<AppScreenshotImportWarning[]>([]);
@@ -677,6 +679,55 @@ export const useAppScreenshots = ({
         });
     };
 
+    const handleDeleteAllAppScreenshots = async () => {
+        if (!session || !selectedAppId) return;
+
+        setAppScreenshotsDeletingAll(true);
+        try {
+            await enqueueAppScreenshotMutation(async () => {
+                const shotsForApp = getSelectedScreenshotsForApp(appScreenshotsRef.current, selectedAppId);
+                if (!shotsForApp.length) return;
+
+                for (const shot of shotsForApp) {
+                    if (getAppScreenshotSourceKind(shot) !== 'runner' || !shot.artifact_id) continue;
+                    const { error: ignoreError } = await createAppScreenshotArtifactIgnore({
+                        userId: session.user.id,
+                        appId: shot.app_id,
+                        artifactId: shot.artifact_id,
+                    });
+                    if (ignoreError && !isUniqueConstraintError(ignoreError)) {
+                        throw ignoreError;
+                    }
+                }
+
+                const screenshotIds = shotsForApp.map((shot) => shot.id);
+                const { error: deleteError } = await deleteAppScreenshotsByIds({
+                    ids: screenshotIds,
+                    userId: session.user.id,
+                });
+                if (deleteError) throw deleteError;
+
+                const manualShots = shotsForApp.filter(
+                    (shot) => getAppScreenshotSourceKind(shot) !== 'runner' && Boolean(shot.image_path)
+                );
+                await Promise.all(
+                    manualShots.map(async (shot) => {
+                        if (!shot.image_path) return;
+                        await removeAppScreenshotImage(shot.image_path);
+                    })
+                );
+
+                const screenshotIdSet = new Set(screenshotIds);
+                updateAppScreenshotsState((current) => current.filter((shot) => !screenshotIdSet.has(shot.id)));
+            });
+        } catch (deleteError: any) {
+            reportError(deleteError?.message || text('delete_all_simulator_screenshots_failed'));
+            await refresh();
+        } finally {
+            setAppScreenshotsDeletingAll(false);
+        }
+    };
+
     const handleReorderAppScreenshot = async (fromIndex: number, toIndex: number) => {
         if (!session || !selectedAppId) return;
         if (toIndex < 0 || toIndex >= selectedAppScreenshots.length) return;
@@ -740,9 +791,11 @@ export const useAppScreenshots = ({
         appScreenshotUrls,
         runnerImportWarnings: combinedRunnerWarnings,
         appScreenshotsUploading,
+        appScreenshotsDeletingAll,
         isScreenshotDropActive,
         handleReorderAppScreenshot,
         handleDeleteAppScreenshot,
+        handleDeleteAllAppScreenshots,
         handleScreenshotDragOver,
         handleScreenshotDragLeave,
         handleScreenshotDrop,

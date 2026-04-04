@@ -259,6 +259,7 @@ export const translations = {
         invalid_file_type: 'Only PNG or JPG images are allowed.',
         file_too_large: 'Each image must be 10 MB or less.',
         upload_failed: 'Upload failed. Please try again.',
+        deleting: 'Removing...',
         simulator_screenshots: 'Simulator screenshots',
         simulator_screenshots_subtitle: 'Upload in order and rearrange as needed.',
         simulator_screenshot_source_manual: 'Manual',
@@ -275,6 +276,11 @@ export const translations = {
             'Failed to sync runner screenshots into Step 08. Retry the job or refresh the workspace.',
         simulator_screenshots_validation_failed:
             'Unable to verify imported runner screenshots right now. Keeping the last known Step 08 results.',
+        delete_all_simulator_screenshots: 'Delete all screenshots',
+        confirm_delete_all_simulator_screenshots:
+            'Delete all simulator screenshots from Step 08? This removes them from the workspace only. Runner job artifacts stay in history.',
+        delete_all_simulator_screenshots_failed:
+            'Failed to delete all simulator screenshots. Refresh and try again.',
         connector_artifacts_app_mismatch: 'Some runner artifacts were ignored because they belong to a different app than the selected job.',
         drag_to_reorder: 'Drag to reorder.',
         drag: 'Drag',
@@ -1037,6 +1043,7 @@ export const translations = {
         invalid_file_type: 'Разрешены только изображения PNG или JPG.',
         file_too_large: 'Каждое изображение должно быть не более 10 МБ.',
         upload_failed: 'Не удалось загрузить. Попробуйте снова.',
+        deleting: 'Удаляем...',
         simulator_screenshots: 'Скриншоты симулятора',
         simulator_screenshots_subtitle: 'Загрузите по порядку и при необходимости переставьте.',
         simulator_screenshot_source_manual: 'Manual',
@@ -1053,6 +1060,11 @@ export const translations = {
             'Не удалось синхронизировать runner-скриншоты в Шаг 08. Повторите job или обновите workspace.',
         simulator_screenshots_validation_failed:
             'Сейчас не удалось проверить импортированные runner-скриншоты. Оставляем последние подтверждённые результаты Шага 08.',
+        delete_all_simulator_screenshots: 'Удалить все скриншоты',
+        confirm_delete_all_simulator_screenshots:
+            'Удалить все скриншоты симулятора из Шага 08? Они исчезнут только из workspace. Артефакты runner job останутся в истории.',
+        delete_all_simulator_screenshots_failed:
+            'Не удалось удалить все скриншоты симулятора. Обновите workspace и попробуйте снова.',
         connector_artifacts_app_mismatch:
             'Часть runner-артефактов скрыта, потому что они относятся к другому приложению, а не к выбранной job.',
         drag_to_reorder: 'Перетаскивайте для изменения порядка.',
