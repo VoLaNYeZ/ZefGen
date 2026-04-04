@@ -58,6 +58,7 @@ import {
     composeScreenshotGenerationUserPrompt,
     getScreenshotSlotGenerationState,
 } from '../utils/screenshot-prompt-workflow';
+import { getCanonicalOriginalScreenshotSet } from '../utils/screenshot-sets.js';
 
 type SlotMapping = {
     brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
@@ -227,6 +228,7 @@ export const useGeneratedAssets = ({
     const setsLoadedForAppRef = useRef<string | null>(null);
     const backfillDoneForAppRef = useRef<Record<string, boolean>>({});
     const primedSnapshotAppIdRef = useRef<string | null>(null);
+    const originalScreenshotSetPromiseByAppRef = useRef<Record<string, Promise<AppScreenshotSet | null> | undefined>>({});
     const metadataSnapshotRef = useRef<GeneratedAssetsAppSnapshot | null>(metadataSnapshot ?? null);
     const metadataRequestContextRef = useRef<{
         userId: string;
@@ -265,6 +267,11 @@ export const useGeneratedAssets = ({
             );
         },
         []
+    );
+
+    const getCanonicalOriginalSet = useCallback(
+        (sets: AppScreenshotSet[]) => getCanonicalOriginalScreenshotSet(sets, text('set_original')),
+        [text]
     );
 
     const setExportCompleted = useCallback(
@@ -360,26 +367,56 @@ export const useGeneratedAssets = ({
             if (!session || !selectedBrand || !selectedApp) return { sets, original: null as AppScreenshotSet | null };
 
             const wanted = text('set_original');
-            const existing =
-                sets.find((s) => s.name === wanted) ??
-                sets.find((s) => s.name.toLowerCase() === 'original') ??
-                null;
+            const existing = getCanonicalOriginalSet(sets);
             if (existing) return { sets, original: existing };
 
-            const { data, error } = await createScreenshotSet({
-                user_id: session.user.id,
-                brand_id: selectedBrand.id,
-                app_id: selectedApp.id,
-                name: wanted,
-                size_label: '6.5',
-                slot_count: 3,
-                order_index: 0,
-            });
-            if (error) throw error;
-            const next = data ? ([data as any, ...sets] as AppScreenshotSet[]) : sets;
-            return { sets: next, original: (data as any) ?? null };
+            const appId = String(selectedApp.id);
+            let createPromise = originalScreenshotSetPromiseByAppRef.current[appId];
+            if (!createPromise) {
+                createPromise = (async () => {
+                    const { data, error } = await createScreenshotSet({
+                        user_id: session.user.id,
+                        brand_id: selectedBrand.id,
+                        app_id: selectedApp.id,
+                        name: wanted,
+                        size_label: '6.5',
+                        slot_count: 3,
+                        order_index: 0,
+                    });
+                    if (error) {
+                        if (String((error as any)?.code || '') === '23505') {
+                            return null;
+                        }
+                        throw error;
+                    }
+                    return (data as any) ?? null;
+                })();
+                originalScreenshotSetPromiseByAppRef.current[appId] = createPromise;
+            }
+
+            try {
+                const created = await createPromise;
+                if (!created) {
+                    const { data: refetchedSets, error: refetchError } = await fetchScreenshotSets({
+                        userId: session.user.id,
+                        appId: selectedApp.id,
+                    });
+                    if (refetchError) throw refetchError;
+                    const nextSets = (refetchedSets as any as AppScreenshotSet[]) || sets;
+                    return { sets: nextSets, original: getCanonicalOriginalSet(nextSets) };
+                }
+
+                const next = sets.some((set) => String(set.id) === String(created.id))
+                    ? sets
+                    : ([created, ...sets] as AppScreenshotSet[]);
+                return { sets: next, original: created };
+            } finally {
+                if (originalScreenshotSetPromiseByAppRef.current[appId] === createPromise) {
+                    delete originalScreenshotSetPromiseByAppRef.current[appId];
+                }
+            }
         },
-        [session, selectedBrand, selectedApp, text]
+        [session, selectedBrand, selectedApp, text, getCanonicalOriginalSet]
     );
 
     const loadSetsPicksStatus = useCallback(async () => {
@@ -652,11 +689,7 @@ export const useGeneratedAssets = ({
         if (!screenshotSets.length) return;
         if (backfillDoneForAppRef.current[selectedApp.id]) return;
 
-        const originalName = text('set_original');
-        const original =
-            screenshotSets.find((s) => s.name === originalName) ??
-            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
-            null;
+        const original = getCanonicalOriginalSet(screenshotSets);
         if (!original) return;
 
         const needsBackfill = selectedGeneratedAssets.some(
@@ -683,7 +716,7 @@ export const useGeneratedAssets = ({
                 reportError(error?.message || 'Failed to backfill screenshot sets.');
             }
         })();
-    }, [session, selectedApp?.id, screenshotSets, selectedGeneratedAssets, bulkAssignScreenshotSetId, refresh, reportError, text]);
+    }, [session, selectedApp?.id, screenshotSets, selectedGeneratedAssets, bulkAssignScreenshotSetId, refresh, reportError, getCanonicalOriginalSet]);
 
     const generatedIconSlots = useMemo(() => {
         const slotMap = new Map<number, GeneratedAsset[]>();
@@ -825,11 +858,7 @@ export const useGeneratedAssets = ({
             if (!session || !selectedBrand || !selectedApp) return;
             if (!setId) return;
 
-            const original =
-                screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
-                screenshotSets.find((s) => s.name === text('set_original')) ??
-                screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
-                null;
+            const original = getCanonicalOriginalSet(screenshotSets);
 
             if (original?.id && String(original.id) === String(setId)) {
                 reportError(text('cannot_delete_original_set'));
@@ -931,10 +960,7 @@ export const useGeneratedAssets = ({
 
     const generatedScreenshotSlots = useMemo(() => {
         const original =
-            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
-            screenshotSets.find((s) => s.name === text('set_original')) ??
-            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
-            null;
+            getCanonicalOriginalSet(screenshotSets);
         const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
 
         const slotMap = new Map<number, GeneratedAsset[]>();
@@ -960,14 +986,11 @@ export const useGeneratedAssets = ({
                 versions: versions.sort(compareAssetsByVersion),
             }))
             .sort((a, b) => a.slotIndex - b.slotIndex);
-    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, getCanonicalOriginalSet]);
 
     const enhancedScreenshotSlots = useMemo(() => {
         const original =
-            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
-            screenshotSets.find((s) => s.name === text('set_original')) ??
-            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
-            null;
+            getCanonicalOriginalSet(screenshotSets);
         const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
 
         const slotMap = new Map<number, GeneratedAsset[]>();
@@ -993,7 +1016,7 @@ export const useGeneratedAssets = ({
                 versions: versions.sort(compareAssetsByVersion),
             }))
             .sort((a, b) => a.slotIndex - b.slotIndex);
-    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, getCanonicalOriginalSet]);
 
     const getScreenshotSlotKey = useCallback(
         (slotIndex: number, screenshotSetId?: string | null) =>
@@ -1561,10 +1584,7 @@ export const useGeneratedAssets = ({
 
     const deriveSlotHeadlineBySlotKey = useMemo(() => {
         const original =
-            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
-            screenshotSets.find((s) => s.name === text('set_original')) ??
-            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
-            null;
+            getCanonicalOriginalSet(screenshotSets);
         const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
 
         const candidates = selectedGeneratedAssets.filter((asset) => {
@@ -1606,14 +1626,11 @@ export const useGeneratedAssets = ({
             result[getScreenshotSlotKey(Number(slotIndex), activeScreenshotSetId)] = payload.text;
         }
         return result;
-    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text, getScreenshotSlotKey]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, getCanonicalOriginalSet, getScreenshotSlotKey]);
 
     const deriveSlotHeadlinePosBySlotKey = useMemo(() => {
         const original =
-            screenshotSets.find((s) => Number((s as any).order_index) === 0) ??
-            screenshotSets.find((s) => s.name === text('set_original')) ??
-            screenshotSets.find((s) => s.name.toLowerCase() === 'original') ??
-            null;
+            getCanonicalOriginalSet(screenshotSets);
         const isOriginalActive = Boolean(activeScreenshotSetId && original?.id && activeScreenshotSetId === original.id);
 
         const candidates = selectedGeneratedAssets.filter((asset) => {
@@ -1657,7 +1674,7 @@ export const useGeneratedAssets = ({
             result[getScreenshotSlotKey(Number(slotIndex), activeScreenshotSetId)] = { x: payload.x, y: payload.y };
         }
         return result;
-    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, text, getScreenshotSlotKey]);
+    }, [selectedGeneratedAssets, activeScreenshotSetId, screenshotSets, getCanonicalOriginalSet, getScreenshotSlotKey]);
 
     useEffect(() => {
         if (!selectedApp?.id) return;

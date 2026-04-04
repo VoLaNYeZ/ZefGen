@@ -16,6 +16,7 @@ import { TranslationKey } from '../../i18n';
 import { EditPanel } from './EditPanel';
 import { TextLayersCanvasOverlay } from './TextLayersCanvasOverlay';
 import { ConfirmIconButton } from './ConfirmIconButton';
+import { getCanonicalOriginalScreenshotSet } from '../../utils/screenshot-sets.js';
 
 type GeneratedSlot = {
     slotIndex: number;
@@ -928,11 +929,16 @@ export const AppGenerationSection = ({
 
                                 {(() => {
                                     const activeSet = (screenshotSets || []).find((s) => s.id === activeScreenshotSetId) ?? null;
-                                    const isOriginal =
-                                        !activeSet
-                                            ? true
-                                            : Number((activeSet as any).order_index) === 0 ||
-                                              String(activeSet.name || '').toLowerCase() === 'original';
+                                    const canonicalOriginalSet = getCanonicalOriginalScreenshotSet(
+                                        screenshotSets,
+                                        text('set_original')
+                                    );
+                                    const isOriginal = !activeSet
+                                        ? true
+                                        : Boolean(
+                                              canonicalOriginalSet &&
+                                                  String(canonicalOriginalSet.id) === String(activeSet.id)
+                                          );
                                     const canDelete = Boolean(selectedApp && activeSet && !isOriginal);
                                     const canDeleteWithMode = canDelete && !isReadOnly;
                                     if (!activeSet || isOriginal) return null;
