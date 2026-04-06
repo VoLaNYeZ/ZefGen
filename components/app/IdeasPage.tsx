@@ -50,6 +50,7 @@ const CREATIVITY_TIER_ORDER: IdeaCreativityTier[] = ['safe', 'balanced', 'wild']
 const IDEA_EXAMPLE_ROOT = 'Ideas_example';
 const TABLE_SCOPE_ALL = '__all__';
 const DEFAULT_SUGGESTED_CATEGORY_SLUGS = ['lifestyle', 'productivity', 'utilities'] as const;
+const IDEAS_AUTO_REFRESH_MS = 3000;
 
 const normalizeInline = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const normalizeBlock = (value: unknown) => String(value ?? '').replace(/\r\n/g, '\n').trim();
@@ -134,6 +135,16 @@ const buildIdeaGenerationConfirmationAnswer = (payload: {
     }
 
     return JSON.stringify(answer, null, 2);
+};
+
+const isIdeaGenerationJobActive = (status: unknown) => {
+    const normalizedStatus = normalizeInline(status);
+    return normalizedStatus === 'queued' || normalizedStatus === 'running' || normalizedStatus === 'waiting_for_user';
+};
+
+const isIdeaGenerationJobTerminal = (status: unknown) => {
+    const normalizedStatus = normalizeInline(status);
+    return normalizedStatus === 'succeeded' || normalizedStatus === 'failed' || normalizedStatus === 'canceled';
 };
 
 const getIdeaGeneratorPrefsStorageKey = (userId: string | null | undefined) => {
@@ -282,7 +293,7 @@ export function IdeasPage(props: {
     selectedBrand: Brand | null;
     loading: boolean;
     error: string | null;
-    refresh: () => void;
+    refresh: (options?: { background?: boolean }) => void | Promise<void>;
     createIdea: (args: {
         row: Partial<Omit<AppIdea, 'id' | 'user_id' | 'updated_at' | 'created_at'>>;
     }) => Promise<AppIdea | null | undefined>;
@@ -346,6 +357,10 @@ export function IdeasPage(props: {
     const persistedTableScopeBrandIdRef = React.useRef<string>(TABLE_SCOPE_ALL);
     const persistedGeneratorBrandAppliedRef = React.useRef(false);
     const persistedTableScopeAppliedRef = React.useRef(false);
+    const ideasAutoRefreshTimerRef = React.useRef<number | null>(null);
+    const ideasAutoRefreshScopeKeyRef = React.useRef('');
+    const ideasAutoRefreshActiveJobIdRef = React.useRef<string | null>(null);
+    const ideasAutoRefreshFinalKeyRef = React.useRef('');
     const ideaGeneratorPrefsStorageKey = React.useMemo(
         () => getIdeaGeneratorPrefsStorageKey(session?.user?.id || null),
         [session?.user?.id]
@@ -355,6 +370,9 @@ export function IdeasPage(props: {
         return () => {
             for (const timer of Object.values(saveTimersRef.current) as number[]) {
                 window.clearTimeout(timer);
+            }
+            if (ideasAutoRefreshTimerRef.current) {
+                window.clearInterval(ideasAutoRefreshTimerRef.current);
             }
         };
     }, []);
@@ -662,6 +680,16 @@ export function IdeasPage(props: {
         idlePollMs: 15_000,
         onDataError: reportError,
     });
+    const latestIdeaGenerationJobId = normalizeInline(latestJob?.id || '') || null;
+    const latestIdeaGenerationJobStatus = normalizeInline(latestJob?.status || '') || null;
+    const latestIdeaGenerationJobIsActive = isIdeaGenerationJobActive(latestIdeaGenerationJobStatus);
+    const latestIdeaGenerationJobIsTerminal = isIdeaGenerationJobTerminal(latestIdeaGenerationJobStatus);
+    const ideasAutoRefreshScopeKey = React.useMemo(() => {
+        const sessionUserId = normalizeInline(session?.user?.id || '');
+        const brandId = normalizeInline(generatorBrandId);
+        if (!sessionUserId || !brandId) return '';
+        return `${sessionUserId}:${brandId}`;
+    }, [generatorBrandId, session?.user?.id]);
 
     const { unansweredQuestions, answerQuestion } = useConnectorJobMessages({
         session,
@@ -727,6 +755,69 @@ export function IdeasPage(props: {
             setSelectedCategoryIds(nextSelected);
         }
     }, [latestQuestion?.id, questionOptions]);
+
+    React.useEffect(() => {
+        if (ideasAutoRefreshScopeKeyRef.current === ideasAutoRefreshScopeKey) return;
+        ideasAutoRefreshScopeKeyRef.current = ideasAutoRefreshScopeKey;
+        ideasAutoRefreshActiveJobIdRef.current = null;
+        ideasAutoRefreshFinalKeyRef.current = '';
+        if (ideasAutoRefreshTimerRef.current) {
+            window.clearInterval(ideasAutoRefreshTimerRef.current);
+            ideasAutoRefreshTimerRef.current = null;
+        }
+    }, [ideasAutoRefreshScopeKey]);
+
+    React.useEffect(() => {
+        if (ideasAutoRefreshTimerRef.current) {
+            window.clearInterval(ideasAutoRefreshTimerRef.current);
+            ideasAutoRefreshTimerRef.current = null;
+        }
+
+        if (!ideasAutoRefreshScopeKey || !latestIdeaGenerationJobId || !latestIdeaGenerationJobIsActive) {
+            return;
+        }
+
+        if (ideasAutoRefreshActiveJobIdRef.current !== latestIdeaGenerationJobId) {
+            ideasAutoRefreshActiveJobIdRef.current = latestIdeaGenerationJobId;
+            ideasAutoRefreshFinalKeyRef.current = '';
+            void refresh({ background: true });
+        }
+
+        ideasAutoRefreshTimerRef.current = window.setInterval(() => {
+            void refresh({ background: true });
+        }, IDEAS_AUTO_REFRESH_MS);
+
+        return () => {
+            if (ideasAutoRefreshTimerRef.current) {
+                window.clearInterval(ideasAutoRefreshTimerRef.current);
+                ideasAutoRefreshTimerRef.current = null;
+            }
+        };
+    }, [ideasAutoRefreshScopeKey, latestIdeaGenerationJobId, latestIdeaGenerationJobIsActive, refresh]);
+
+    React.useEffect(() => {
+        if (!ideasAutoRefreshScopeKey || !latestIdeaGenerationJobId || !latestIdeaGenerationJobIsTerminal) {
+            return;
+        }
+        if (ideasAutoRefreshActiveJobIdRef.current !== latestIdeaGenerationJobId) {
+            return;
+        }
+
+        const finalRefreshKey = `${ideasAutoRefreshScopeKey}:${latestIdeaGenerationJobId}:${latestIdeaGenerationJobStatus}`;
+        if (ideasAutoRefreshFinalKeyRef.current === finalRefreshKey) {
+            return;
+        }
+
+        ideasAutoRefreshFinalKeyRef.current = finalRefreshKey;
+        ideasAutoRefreshActiveJobIdRef.current = null;
+        void refresh({ background: true });
+    }, [
+        ideasAutoRefreshScopeKey,
+        latestIdeaGenerationJobId,
+        latestIdeaGenerationJobIsTerminal,
+        latestIdeaGenerationJobStatus,
+        refresh,
+    ]);
 
     const visibleIdeas = React.useMemo(() => {
         const query = normalizeInline(deferredSearch).toLowerCase();

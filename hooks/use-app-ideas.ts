@@ -10,6 +10,28 @@ import {
     updateAppIdea,
 } from '../data/app-ideas';
 
+type AppIdeasRefreshOptions = {
+    background?: boolean;
+};
+
+const normalizeRefreshOptions = (options?: AppIdeasRefreshOptions) => ({
+    background: options?.background === true,
+});
+
+const mergeRefreshOptions = (
+    current: ReturnType<typeof normalizeRefreshOptions> | null,
+    next?: AppIdeasRefreshOptions | ReturnType<typeof normalizeRefreshOptions> | null
+) => {
+    const normalizedNext = normalizeRefreshOptions(next ?? undefined);
+    if (!current) {
+        return normalizedNext;
+    }
+    return {
+        // Foreground refreshes win over background refreshes.
+        background: current.background && normalizedNext.background,
+    };
+};
+
 export const useAppIdeas = (payload: {
     session: Session | null;
     onDataError?: (message: string) => void;
@@ -21,10 +43,20 @@ export const useAppIdeas = (payload: {
     const [ideaAssignments, setIdeaAssignments] = useState<IdeaAppAssignment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const sessionRef = useRef<Session | null>(session);
+    const onDataErrorRef = useRef<typeof onDataError>(onDataError);
     const lastUserIdRef = useRef<string | null>(null);
+    const refreshInFlightRef = useRef<Promise<void> | null>(null);
+    const refreshPendingOptionsRef = useRef<ReturnType<typeof normalizeRefreshOptions> | null>(null);
+    const ideaMutationVersionRef = useRef(0);
 
-    const refresh = useCallback(async () => {
-        if (!session) {
+    sessionRef.current = session;
+    onDataErrorRef.current = onDataError;
+
+    const runRefresh = useCallback(async (options?: AppIdeasRefreshOptions) => {
+        const normalizedOptions = normalizeRefreshOptions(options);
+        const currentSession = sessionRef.current;
+        if (!currentSession) {
             setIdeas([]);
             setCategories([]);
             setIdeaAssignments([]);
@@ -34,42 +66,85 @@ export const useAppIdeas = (payload: {
             return;
         }
 
-        setLoading(true);
-        setError(null);
+        const userId = currentSession.user.id;
+        const mutationVersionAtStart = ideaMutationVersionRef.current;
 
-        const [categoriesResp, ideasResp, assignmentsResp] = await Promise.all([
-            fetchIdeaCategories(),
-            fetchAppIdeas(session.user.id),
-            fetchIdeaAssignments(session.user.id),
-        ]);
-
-        if (categoriesResp.error) {
-            setError(categoriesResp.error.message);
-            onDataError?.(categoriesResp.error.message);
-            setLoading(false);
-            return;
+        if (!normalizedOptions.background) {
+            setLoading(true);
+            setError(null);
         }
 
-        if (ideasResp.error) {
-            setError(ideasResp.error.message);
-            onDataError?.(ideasResp.error.message);
-            setLoading(false);
-            return;
+        try {
+            const [categoriesResp, ideasResp, assignmentsResp] = await Promise.all([
+                fetchIdeaCategories(),
+                fetchAppIdeas(userId),
+                fetchIdeaAssignments(userId),
+            ]);
+
+            if (sessionRef.current?.user.id !== userId) {
+                return;
+            }
+
+            if (categoriesResp.error) {
+                throw categoriesResp.error;
+            }
+
+            if (ideasResp.error) {
+                throw ideasResp.error;
+            }
+
+            if (assignmentsResp.error) {
+                throw assignmentsResp.error;
+            }
+
+            if (ideaMutationVersionRef.current !== mutationVersionAtStart) {
+                refreshPendingOptionsRef.current = mergeRefreshOptions(refreshPendingOptionsRef.current, normalizedOptions);
+                return;
+            }
+
+            setCategories(categoriesResp.data || []);
+            setIdeas(ideasResp.data || []);
+            setIdeaAssignments(assignmentsResp.data || []);
+            lastUserIdRef.current = userId;
+            setError(null);
+        } catch (refreshError: any) {
+            if (sessionRef.current?.user.id !== userId) {
+                return;
+            }
+            const message = String(refreshError?.message || refreshError);
+            setError(message);
+            onDataErrorRef.current?.(message);
+        } finally {
+            if (!normalizedOptions.background && sessionRef.current?.user.id === userId) {
+                setLoading(false);
+            }
+        }
+    }, []);
+
+    const refresh = useCallback((options?: AppIdeasRefreshOptions) => {
+        const normalizedOptions = normalizeRefreshOptions(options);
+        if (refreshInFlightRef.current) {
+            refreshPendingOptionsRef.current = mergeRefreshOptions(refreshPendingOptionsRef.current, normalizedOptions);
+            return refreshInFlightRef.current;
         }
 
-        if (assignmentsResp.error) {
-            setError(assignmentsResp.error.message);
-            onDataError?.(assignmentsResp.error.message);
-            setLoading(false);
-            return;
-        }
+        let request: Promise<void>;
+        request = (async () => {
+            let nextOptions: ReturnType<typeof normalizeRefreshOptions> | null = normalizedOptions;
+            while (nextOptions) {
+                await runRefresh(nextOptions);
+                nextOptions = refreshPendingOptionsRef.current;
+                refreshPendingOptionsRef.current = null;
+            }
+        })().finally(() => {
+            if (refreshInFlightRef.current === request) {
+                refreshInFlightRef.current = null;
+            }
+        });
 
-        setCategories(categoriesResp.data || []);
-        setIdeas(ideasResp.data || []);
-        setIdeaAssignments(assignmentsResp.data || []);
-        lastUserIdRef.current = session.user.id;
-        setLoading(false);
-    }, [session, onDataError]);
+        refreshInFlightRef.current = request;
+        return request;
+    }, [runRefresh]);
 
     useEffect(() => {
         if (!session) {
@@ -89,14 +164,16 @@ export const useAppIdeas = (payload: {
         async (args: {
             row: Partial<Omit<AppIdea, 'id' | 'user_id' | 'updated_at' | 'created_at'>>;
         }) => {
-            if (!session) throw new Error('Not authenticated.');
+            const currentSession = sessionRef.current;
+            if (!currentSession) throw new Error('Not authenticated.');
             const { data, error } = await createAppIdea({
-                userId: session.user.id,
+                userId: currentSession.user.id,
                 row: args.row,
             });
             if (error) throw error;
             const nextIdea = ((data as unknown) || null) as AppIdea | null;
             if (nextIdea) {
+                ideaMutationVersionRef.current += 1;
                 setIdeas((prev) => {
                     const exists = prev.some((idea) => idea.id === nextIdea.id);
                     if (exists) return prev.map((idea) => (idea.id === nextIdea.id ? nextIdea : idea));
@@ -105,7 +182,7 @@ export const useAppIdeas = (payload: {
             }
             return nextIdea;
         },
-        [session]
+        []
     );
 
     const updateIdea = useCallback(
@@ -113,29 +190,35 @@ export const useAppIdeas = (payload: {
             id: string;
             patch: Partial<Omit<AppIdea, 'id' | 'user_id' | 'created_at'>>;
         }) => {
-            if (!session) throw new Error('Not authenticated.');
+            const currentSession = sessionRef.current;
+            if (!currentSession) throw new Error('Not authenticated.');
             const { data, error } = await updateAppIdea({
-                userId: session.user.id,
+                userId: currentSession.user.id,
                 id: args.id,
                 patch: args.patch,
             });
             if (error) throw error;
             const nextIdea = ((data as unknown) || null) as AppIdea | null;
-            if (nextIdea) setIdeas((prev) => prev.map((idea) => (idea.id === nextIdea.id ? nextIdea : idea)));
+            if (nextIdea) {
+                ideaMutationVersionRef.current += 1;
+                setIdeas((prev) => prev.map((idea) => (idea.id === nextIdea.id ? nextIdea : idea)));
+            }
             return nextIdea;
         },
-        [session]
+        []
     );
 
     const deleteIdea = useCallback(
         async (args: { id: string }) => {
-            if (!session) throw new Error('Not authenticated.');
-            const { error } = await deleteAppIdea({ userId: session.user.id, id: args.id });
+            const currentSession = sessionRef.current;
+            if (!currentSession) throw new Error('Not authenticated.');
+            const { error } = await deleteAppIdea({ userId: currentSession.user.id, id: args.id });
             if (error) throw error;
+            ideaMutationVersionRef.current += 1;
             setIdeas((prev) => prev.filter((idea) => idea.id !== args.id));
             setIdeaAssignments((prev) => prev.filter((row) => row.idea_id !== args.id));
         },
-        [session]
+        []
     );
 
     return {

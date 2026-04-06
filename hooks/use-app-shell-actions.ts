@@ -13,7 +13,7 @@ type UseAppShellActionsParams = {
     appstoreAccounts: AppstoreAccount[];
     appstoreAccountsLoading: boolean;
     isCurrentBrandReadOnly: boolean;
-    refreshAppIdeas: () => void | Promise<void>;
+    refreshAppIdeas: (options?: { background?: boolean }) => void | Promise<void>;
     refreshApps: () => void | Promise<void>;
     refreshAppScreenshots: () => void | Promise<void>;
     refreshAppstoreAccounts: () => void | Promise<void>;
