@@ -21,6 +21,7 @@ export function useAppShellUiState() {
     });
     const [accountsFocusAppId, setAccountsFocusAppId] = useState<string | null>(null);
     const [accountsHasUnsavedChanges, setAccountsHasUnsavedChanges] = useState(false);
+    const [ideasHasUnsavedChanges, setIdeasHasUnsavedChanges] = useState(false);
     const [logoVariantIndex, setLogoVariantIndex] = useState(4);
     const logoWord = 'ZEFGEN';
     const logoContainerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,7 @@ export function useAppShellUiState() {
         draggingAppId,
         dragOverAppId,
         gooeyDebug,
+        ideasHasUnsavedChanges,
         isSidebarOpen,
         lang,
         logoContainerRef,
@@ -73,6 +75,7 @@ export function useAppShellUiState() {
         setActivePage,
         setDraggingAppId,
         setDragOverAppId,
+        setIdeasHasUnsavedChanges,
         setIsSidebarOpen,
         setLang,
         setLogoVariantIndex,

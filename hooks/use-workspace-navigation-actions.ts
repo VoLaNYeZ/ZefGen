@@ -26,6 +26,7 @@ type Params = {
     accountsHasUnsavedChanges: boolean;
     apps: AppItem[];
     brands: Brand[];
+    ideasHasUnsavedChanges: boolean;
     reportActionError: (message: string) => void;
     requestPageNavigation: RequestPageNavigation;
     requestWorkspaceSelection: RequestWorkspaceSelection;
@@ -37,6 +38,7 @@ export function useWorkspaceNavigationActions({
     accountsHasUnsavedChanges,
     apps,
     brands,
+    ideasHasUnsavedChanges,
     reportActionError,
     requestPageNavigation,
     requestWorkspaceSelection,
@@ -74,6 +76,10 @@ export function useWorkspaceNavigationActions({
                     reportActionError(text('accounts_unsaved_block'));
                     return;
                 }
+                if (activePage === 'ideas' && ideasHasUnsavedChanges) {
+                    reportActionError(text('ideas_unsaved_block'));
+                    return;
+                }
                 const app = apps.find((candidate) => candidate.id === appId) || null;
                 if (!app) return;
                 const brand = brands.find((candidate) => candidate.id === app.brand_id) || null;
@@ -92,6 +98,7 @@ export function useWorkspaceNavigationActions({
             accountsHasUnsavedChanges,
             apps,
             brands,
+            ideasHasUnsavedChanges,
             reportActionError,
             requestWorkspaceSelection,
             text,
@@ -103,6 +110,10 @@ export function useWorkspaceNavigationActions({
             void (async () => {
                 if (activePage === 'accounts' && accountsHasUnsavedChanges) {
                     reportActionError(text('accounts_unsaved_block'));
+                    return;
+                }
+                if (activePage === 'ideas' && ideasHasUnsavedChanges) {
+                    reportActionError(text('ideas_unsaved_block'));
                     return;
                 }
 
@@ -117,6 +128,7 @@ export function useWorkspaceNavigationActions({
         [
             activePage,
             accountsHasUnsavedChanges,
+            ideasHasUnsavedChanges,
             reportActionError,
             requestWorkspaceSelection,
             text,

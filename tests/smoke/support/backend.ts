@@ -177,6 +177,47 @@ export const clearAppStoreAccountsForApp = async (appId: string) => {
     assertSmokeNoError(error, `Could not clear smoke appstore accounts for app ${appId}`);
 };
 
+export const clearSmokeIdeasByTitles = async (titles: string[]) => {
+    const smokeUserId = await loadSmokeUserId();
+    const normalizedTitles = Array.from(new Set(titles.map((title) => String(title || '').trim()).filter(Boolean)));
+    if (!normalizedTitles.length) return;
+    const { error } = await smokeAdmin.from('app_ideas').delete().eq('user_id', smokeUserId).in('title', normalizedTitles);
+    assertSmokeNoError(error, `Could not clear smoke ideas for titles: ${normalizedTitles.join(', ')}`);
+};
+
+export const fetchSmokeIdeaByTitle = async (title: string) => {
+    const smokeUserId = await loadSmokeUserId();
+    const { data, error } = await smokeAdmin
+        .from('app_ideas')
+        .select('id, user_id, title, description, client_spec_current, spec_revision_index, updated_at')
+        .eq('user_id', smokeUserId)
+        .eq('title', String(title || '').trim())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    assertSmokeNoError(error, `Could not fetch smoke idea "${title}"`);
+    return data || null;
+};
+
+export const updateSmokeIdea = async (
+    ideaId: string,
+    patch: Partial<{
+        title: string;
+        description: string;
+        client_spec_current: string;
+        spec_revision_index: number;
+    }>
+) => {
+    const { error } = await smokeAdmin
+        .from('app_ideas')
+        .update({
+            ...patch,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', ideaId);
+    assertSmokeNoError(error, `Could not update smoke idea ${ideaId}`);
+};
+
 export const listSmokeAppstoreAccounts = async () => {
     const smokeUserId = await loadSmokeUserId();
     const { data, error } = await smokeAdmin

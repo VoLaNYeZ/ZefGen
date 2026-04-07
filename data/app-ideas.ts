@@ -63,19 +63,75 @@ export const createAppIdea = async (payload: {
         .single();
 };
 
+export type UpdateAppIdeaStatus = 'saved' | 'conflict';
+
+export type UpdateAppIdeaResponse = {
+    status: UpdateAppIdeaStatus;
+    row: AppIdea | null;
+};
+
 export const updateAppIdea = async (payload: {
     userId: string;
     id: string;
     patch: Partial<Omit<AppIdea, 'id' | 'user_id' | 'created_at'>>;
+    expectedUpdatedAt?: string | null;
 }) => {
     const nowIso = new Date().toISOString();
-    return supabase
+    let query = supabase
         .from('app_ideas')
         .update({ ...payload.patch, updated_at: nowIso })
         .eq('user_id', payload.userId)
-        .eq('id', payload.id)
-        .select(IDEA_SELECT)
-        .single();
+        .eq('id', payload.id);
+
+    if (payload.expectedUpdatedAt) {
+        query = query.eq('updated_at', payload.expectedUpdatedAt);
+    }
+
+    const { data, error } = await query.select(IDEA_SELECT);
+    if (error) {
+        return {
+            data: null as UpdateAppIdeaResponse | null,
+            error,
+        };
+    }
+
+    const savedRow = Array.isArray(data) ? (((data[0] as unknown as AppIdea | undefined) || null)) : null;
+    if (savedRow) {
+        return {
+            data: {
+                status: 'saved',
+                row: savedRow,
+            } satisfies UpdateAppIdeaResponse,
+            error: null,
+        };
+    }
+
+    if (payload.expectedUpdatedAt) {
+        const { data: latestRow, error: latestError } = await supabase
+            .from('app_ideas')
+            .select(IDEA_SELECT)
+            .eq('user_id', payload.userId)
+            .eq('id', payload.id)
+            .limit(1);
+
+        const currentRow = Array.isArray(latestRow) ? (((latestRow[0] as unknown as AppIdea | undefined) || null)) : null;
+
+        return {
+            data: {
+                status: 'conflict',
+                row: currentRow,
+            } satisfies UpdateAppIdeaResponse,
+            error: latestError,
+        };
+    }
+
+    return {
+        data: {
+            status: 'saved',
+            row: null,
+        } satisfies UpdateAppIdeaResponse,
+        error: null,
+    };
 };
 
 export const deleteAppIdea = async (payload: { userId: string; id: string }) =>

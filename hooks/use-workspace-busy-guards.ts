@@ -17,6 +17,7 @@ type Params = {
     iconGenerating: boolean;
     iconSlotGenerating: number | null;
     iconUploading: boolean;
+    ideasHasUnsavedChanges: boolean;
     isCurrentBrandReadOnly: boolean;
     reportReadOnlyBlocked: () => void;
     screenshotsGenerating: boolean;
@@ -39,6 +40,7 @@ export function useWorkspaceBusyGuards({
     iconGenerating,
     iconSlotGenerating,
     iconUploading,
+    ideasHasUnsavedChanges,
     isCurrentBrandReadOnly,
     reportReadOnlyBlocked,
     screenshotsGenerating,
@@ -53,7 +55,8 @@ export function useWorkspaceBusyGuards({
         enhanceSlotGenerating !== null ||
         iconSlotGenerating !== null ||
         enhanceIconSlotGenerating !== null ||
-        accountsHasUnsavedChanges;
+        accountsHasUnsavedChanges ||
+        ideasHasUnsavedChanges;
 
     useEffect(() => {
         if (!isBusyForUnload) return;

@@ -79,6 +79,7 @@ export function AppShell({ session }: AppShellProps) {
         draggingAppId,
         dragOverAppId,
         gooeyDebug,
+        ideasHasUnsavedChanges,
         isSidebarOpen,
         lang,
         logoContainerRef,
@@ -91,6 +92,7 @@ export function AppShell({ session }: AppShellProps) {
         setActivePage,
         setDraggingAppId,
         setDragOverAppId,
+        setIdeasHasUnsavedChanges,
         setIsSidebarOpen,
         setLang,
         setLogoVariantIndex,
@@ -839,6 +841,7 @@ export function AppShell({ session }: AppShellProps) {
         selectedAppId,
         selectedBrand,
         selectedBrandId,
+        ideasHasUnsavedChanges,
         setAccountsFocusAppId,
         setActivePage,
         setIsSidebarOpen,
@@ -885,6 +888,7 @@ export function AppShell({ session }: AppShellProps) {
         accountsHasUnsavedChanges,
         apps,
         brands,
+        ideasHasUnsavedChanges,
         reportActionError,
         requestPageNavigation,
         requestWorkspaceSelection,
@@ -1069,6 +1073,10 @@ export function AppShell({ session }: AppShellProps) {
                 reportActionError(text('accounts_unsaved_block'));
                 return false;
             }
+            if (activePage === 'ideas' && ideasHasUnsavedChanges && next.page !== 'ideas') {
+                reportActionError(text('ideas_unsaved_block'));
+                return false;
+            }
             return true;
         },
     });
@@ -1188,6 +1196,7 @@ export function AppShell({ session }: AppShellProps) {
         iconGenerating,
         iconSlotGenerating,
         iconUploading,
+        ideasHasUnsavedChanges,
         isCurrentBrandReadOnly,
         reportReadOnlyBlocked,
         screenshotsGenerating,
@@ -1663,6 +1672,7 @@ export function AppShell({ session }: AppShellProps) {
         updateIdea: updateAppIdea,
         deleteIdea: deleteAppIdea,
         onOpenApp: openWorkspaceForApp,
+        onUnsavedChangesChange: setIdeasHasUnsavedChanges,
         reportError: reportActionError,
         text,
     };

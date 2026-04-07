@@ -4,6 +4,7 @@ import { Check, Loader2, Plus, Save, Search, Sparkles, Trash2 } from 'lucide-rea
 import type { TranslationKey } from '../../i18n';
 import { useConnectorJobMessages } from '../../hooks/use-connector-messages';
 import { useIdeaGenerationJobs } from '../../hooks/use-idea-generation-jobs';
+import type { UpdateAppIdeaResponse } from '../../data/app-ideas';
 import type {
     AppIdea,
     AppIdeaCategory,
@@ -54,6 +55,8 @@ const IDEAS_AUTO_REFRESH_MS = 3000;
 
 const normalizeInline = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const normalizeBlock = (value: unknown) => String(value ?? '').replace(/\r\n/g, '\n').trim();
+const isNewDraftDirty = (draft: NewDraft | null | undefined) =>
+    Boolean(draft && (normalizeInline(draft.title) || normalizeBlock(draft.description)));
 
 const normalizeNames = (value: unknown) => {
     if (!Array.isArray(value)) return [] as string[];
@@ -300,9 +303,11 @@ export function IdeasPage(props: {
     updateIdea: (args: {
         id: string;
         patch: Partial<Omit<AppIdea, 'id' | 'user_id' | 'created_at'>>;
-    }) => Promise<AppIdea | null | undefined>;
+        expectedUpdatedAt?: string | null;
+    }) => Promise<UpdateAppIdeaResponse>;
     deleteIdea: (args: { id: string }) => Promise<void>;
     onOpenApp?: (appId: string) => void;
+    onUnsavedChangesChange?: (hasChanges: boolean) => void;
     reportError?: (message: string) => void;
     text: (key: TranslationKey) => string;
 }) {
@@ -321,6 +326,7 @@ export function IdeasPage(props: {
         updateIdea,
         deleteIdea,
         onOpenApp,
+        onUnsavedChangesChange,
         reportError,
         text,
     } = props;
@@ -339,6 +345,7 @@ export function IdeasPage(props: {
     const [newDraft, setNewDraft] = React.useState<NewDraft | null>(null);
     const [newBusy, setNewBusy] = React.useState(false);
     const [newError, setNewError] = React.useState<string | null>(null);
+    const [saveAllBusy, setSaveAllBusy] = React.useState(false);
     const [newRowScrollNonce, setNewRowScrollNonce] = React.useState(0);
     const [generatorBrandId, setGeneratorBrandId] = React.useState('');
     const [requestedCount, setRequestedCount] = React.useState(String(DEFAULT_REQUESTED_COUNT));
@@ -463,6 +470,7 @@ export function IdeasPage(props: {
     const categoryById = React.useMemo(() => new Map(categoryList.map((category) => [category.id, category])), [categoryList]);
     const validCategoryIds = React.useMemo(() => new Set(categoryList.map((category) => category.id)), [categoryList]);
     const appById = React.useMemo(() => new Map(appList.map((app) => [app.id, app])), [appList]);
+    const ideaById = React.useMemo(() => new Map(ideaList.map((idea) => [idea.id, idea])), [ideaList]);
     const currentGeneratorBrand = React.useMemo(
         () => visibleScopeBrands.find((brand) => brand.id === generatorBrandId) || null,
         [generatorBrandId, visibleScopeBrands]
@@ -664,6 +672,15 @@ export function IdeasPage(props: {
 
         return false;
     }, []);
+
+    const dirtyIdeaIds = React.useMemo(
+        () => ideaList.filter((idea) => isDirty(idea, draftById[idea.id] || {})).map((idea) => idea.id),
+        [draftById, ideaList, isDirty]
+    );
+    const dirtyCount = React.useMemo(
+        () => dirtyIdeaIds.length + (isNewDraftDirty(newDraft) ? 1 : 0),
+        [dirtyIdeaIds.length, newDraft]
+    );
 
     const {
         latestJob,
@@ -897,7 +914,15 @@ export function IdeasPage(props: {
         [generatorBrandId, newDraft?.brand_id, orderedBrands, tableScopeBrandId, visibleIdeasByBrandId]
     );
 
-    const anyBusy = loading || newBusy || createGenerationBusy || Object.values(rowBusyById).some(Boolean);
+    const anyBusy = loading || newBusy || saveAllBusy || createGenerationBusy || Object.values(rowBusyById).some(Boolean);
+    React.useEffect(() => {
+        onUnsavedChangesChange?.(dirtyCount > 0);
+    }, [dirtyCount, onUnsavedChangesChange]);
+
+    React.useEffect(() => {
+        return () => onUnsavedChangesChange?.(false);
+    }, [onUnsavedChangesChange]);
+
     const gridStyle = React.useMemo<React.CSSProperties>(
         () => ({
             gridTemplateColumns: '48px 170px 240px 240px minmax(300px,1fr) 120px 210px 104px',
@@ -936,16 +961,16 @@ export function IdeasPage(props: {
     );
 
     const onSaveNew = React.useCallback(async () => {
-        if (!newDraft) return;
+        if (!newDraft || !isNewDraftDirty(newDraft)) return true;
         const categoryId = normalizeInline(newDraft.category_id);
         const brandId = normalizeInline(newDraft.brand_id);
         if (!brandId) {
             setNewError(text('ideas_generator_pick_scope_first'));
-            return;
+            return false;
         }
         if (!categoryId) {
             setNewError(text('idea_picker_select_category'));
-            return;
+            return false;
         }
         setNewBusy(true);
         setNewError(null);
@@ -966,10 +991,12 @@ export function IdeasPage(props: {
             if (created?.id) {
                 markSaved(created.id);
             }
+            return true;
         } catch (saveError: any) {
             const message = String(saveError?.message || saveError);
             setNewError(message);
             reportError?.(message);
+            return false;
         } finally {
             setNewBusy(false);
         }
@@ -979,7 +1006,7 @@ export function IdeasPage(props: {
         async (idea: AppIdea) => {
             const draft = draftById[idea.id] || {};
             const appliedApps = appliedAppsByIdeaId.get(idea.id) || [];
-            if (!isDirty(idea, draft)) return;
+            if (!isDirty(idea, draft)) return true;
 
             const categoryId = normalizeInline(draft.category_id ?? idea.category_id);
             if (!categoryId) {
@@ -987,7 +1014,7 @@ export function IdeasPage(props: {
                     ...prev,
                     [idea.id]: text('idea_picker_select_category'),
                 }));
-                return;
+                return false;
             }
 
             const currentSpec = normalizeBlock(draft.client_spec_current ?? idea.client_spec_current ?? idea.description);
@@ -1006,10 +1033,10 @@ export function IdeasPage(props: {
                 client_spec_current: currentSpec,
                 status: nextStatus,
                 alternate_names: alternateNames,
+                spec_revision_index: Math.max(1, Number(idea.spec_revision_index || 1)) + 1,
             };
 
             if (normalizeBlock(idea.client_spec_current || idea.description) !== currentSpec) {
-                patch.spec_revision_index = Math.max(1, Number(idea.spec_revision_index || 1)) + 1;
                 patch.edited_after_generation = true;
             }
 
@@ -1017,19 +1044,55 @@ export function IdeasPage(props: {
             setRowErrorById((prev) => ({ ...prev, [idea.id]: null }));
 
             try {
-                await updateIdea({ id: idea.id, patch });
+                const result = await updateIdea({
+                    id: idea.id,
+                    patch,
+                    expectedUpdatedAt: idea.updated_at || null,
+                });
+                if (result.status === 'conflict') {
+                    const message = text('ideas_save_conflict');
+                    setRowErrorById((prev) => ({ ...prev, [idea.id]: message }));
+                    reportError?.(message);
+                    return false;
+                }
                 clearDraft(idea.id);
                 markSaved(idea.id);
+                return true;
             } catch (saveError: any) {
                 const message = String(saveError?.message || saveError);
                 setRowErrorById((prev) => ({ ...prev, [idea.id]: message }));
                 reportError?.(message);
+                return false;
             } finally {
                 setRowBusyById((prev) => ({ ...prev, [idea.id]: false }));
             }
         },
         [appliedAppsByIdeaId, clearDraft, draftById, isDirty, markSaved, reportError, text, updateIdea]
     );
+
+    const discardAllChanges = React.useCallback(() => {
+        setDraftById({});
+        setRowErrorById({});
+        setRowSavedById({});
+        setNewDraft(null);
+        setNewError(null);
+    }, []);
+
+    const onSaveAll = React.useCallback(async () => {
+        if (saveAllBusy || dirtyCount === 0) return;
+        setSaveAllBusy(true);
+        try {
+            const pendingRows = dirtyIdeaIds.map((ideaId) => ideaById.get(ideaId)).filter((idea): idea is AppIdea => Boolean(idea));
+            const newRowSaved = await onSaveNew();
+            if (!newRowSaved && isNewDraftDirty(newDraft)) return;
+            for (const idea of pendingRows) {
+                const rowSaved = await onSaveRow(idea);
+                if (!rowSaved) return;
+            }
+        } finally {
+            setSaveAllBusy(false);
+        }
+    }, [dirtyCount, dirtyIdeaIds, ideaById, newDraft, onSaveNew, onSaveRow, saveAllBusy]);
 
     const onRemoveRow = React.useCallback(
         async (ideaId: string) => {
@@ -1811,6 +1874,38 @@ export function IdeasPage(props: {
                     </section>
                 );
             })}
+
+            {dirtyCount > 0 ? (
+                <div
+                    data-testid="ideas-unsaved-banner"
+                    className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-slate-950/65 px-4 py-3 backdrop-blur"
+                >
+                    <div className="text-[11px] font-medium text-indigo-200/70">
+                        {String(text('ideas_unsaved_rows') || '').replace('{count}', String(dirtyCount))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => void onSaveAll()}
+                            disabled={anyBusy}
+                            className="inline-flex h-9 items-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-50/95 hover:border-emerald-300/40 hover:bg-emerald-500/15 disabled:opacity-60"
+                            title={text('ideas_save_all')}
+                        >
+                            {saveAllBusy ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                            {text('ideas_save_all')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={discardAllChanges}
+                            disabled={anyBusy}
+                            className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-slate-950/20 px-3 text-xs font-semibold text-indigo-100/80 hover:border-indigo-400/35 hover:text-white disabled:opacity-60"
+                            title={text('cancel')}
+                        >
+                            {text('cancel')}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -47,6 +47,7 @@ type UseWorkspaceNavigationControllerParams = {
     selectedAppId: string | null;
     selectedBrand: Brand | null;
     selectedBrandId: string | null;
+    ideasHasUnsavedChanges: boolean;
     setAccountsFocusAppId: Dispatch<SetStateAction<string | null>>;
     setActivePage: Dispatch<SetStateAction<AppPage>>;
     setIsSidebarOpen: Dispatch<SetStateAction<boolean>>;
@@ -82,6 +83,7 @@ export function useWorkspaceNavigationController({
     selectedAppId,
     selectedBrand,
     selectedBrandId,
+    ideasHasUnsavedChanges,
     setAccountsFocusAppId,
     setActivePage,
     setIsSidebarOpen,
@@ -189,6 +191,15 @@ export function useWorkspaceNavigationController({
             const resolved = resolveWorkspaceSelection(payload);
             const sameDisplayed = resolved.brandId === selectedBrandId && resolved.appId === selectedAppId;
             const sameRequested = resolved.brandId === routeBrandId && resolved.appId === routeAppId;
+
+            if (activePage === 'accounts' && accountsHasUnsavedChanges) {
+                reportActionError(text('accounts_unsaved_block'));
+                return false;
+            }
+            if (activePage === 'ideas' && ideasHasUnsavedChanges) {
+                reportActionError(text('ideas_unsaved_block'));
+                return false;
+            }
 
             setRequestedBrandId(resolved.brandId);
             setRequestedAppId(resolved.appId);
@@ -331,8 +342,10 @@ export function useWorkspaceNavigationController({
         [
             activePage,
             accountsFocusAppId,
+            accountsHasUnsavedChanges,
             connectorHasStaleConflict,
             hydrateWorkspaceSnapshot,
+            ideasHasUnsavedChanges,
             prepareWorkspaceLockForSelection,
             prepareWorkspaceForSwitch,
             reportActionError,
@@ -392,6 +405,13 @@ export function useWorkspaceNavigationController({
                 reportActionError(text('accounts_unsaved_block'));
                 return false;
             }
+            if (activePage === 'ideas' && ideasHasUnsavedChanges && page !== 'ideas') {
+                if (options?.fromPopState && window.location.pathname !== previousRoute) {
+                    window.history.replaceState({}, '', previousRoute);
+                }
+                reportActionError(text('ideas_unsaved_block'));
+                return false;
+            }
 
             if (activePage === 'workspace') {
                 const token = workspaceSwitchSeqRef.current + 1;
@@ -446,6 +466,7 @@ export function useWorkspaceNavigationController({
             accountsHasUnsavedChanges,
             activePage,
             buildPageRoute,
+            ideasHasUnsavedChanges,
             prepareWorkspaceForSwitch,
             reportActionError,
             selectedApp,

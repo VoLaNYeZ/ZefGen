@@ -7,6 +7,7 @@ import {
     fetchAppIdeas,
     fetchIdeaAssignments,
     fetchIdeaCategories,
+    type UpdateAppIdeaResponse,
     updateAppIdea,
 } from '../data/app-ideas';
 
@@ -189,6 +190,7 @@ export const useAppIdeas = (payload: {
         async (args: {
             id: string;
             patch: Partial<Omit<AppIdea, 'id' | 'user_id' | 'created_at'>>;
+            expectedUpdatedAt?: string | null;
         }) => {
             const currentSession = sessionRef.current;
             if (!currentSession) throw new Error('Not authenticated.');
@@ -196,14 +198,20 @@ export const useAppIdeas = (payload: {
                 userId: currentSession.user.id,
                 id: args.id,
                 patch: args.patch,
+                expectedUpdatedAt: args.expectedUpdatedAt || null,
             });
             if (error) throw error;
-            const nextIdea = ((data as unknown) || null) as AppIdea | null;
-            if (nextIdea) {
-                ideaMutationVersionRef.current += 1;
-                setIdeas((prev) => prev.map((idea) => (idea.id === nextIdea.id ? nextIdea : idea)));
+
+            const result = ((data as unknown) || null) as UpdateAppIdeaResponse | null;
+            if (!result) {
+                throw new Error('Missing response from updateAppIdea.');
             }
-            return nextIdea;
+
+            if (result.status === 'saved' && result.row) {
+                ideaMutationVersionRef.current += 1;
+                setIdeas((prev) => prev.map((idea) => (idea.id === result.row!.id ? result.row! : idea)));
+            }
+            return result;
         },
         []
     );
