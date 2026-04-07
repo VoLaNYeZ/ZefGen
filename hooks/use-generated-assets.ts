@@ -1241,10 +1241,11 @@ export const useGeneratedAssets = ({
 
     const buildRefLikeGenerateSystemPrompt = useCallback(() => {
         return [
-            `Image 1 is size anchor only (ratio lock).`,
-            `Image 2 is style/composition reference.`,
-            `Image 3 is app UI source of truth.`,
+            `Ignore any neutral size-anchor image; it exists only to lock output ratio.`,
+            `Image 2 is the only style/composition reference.`,
+            `Image 3 is the only app UI source of truth.`,
             `Keep style/layout feeling from image 2, but replace app UI with image 3 UI.`,
+            `Do not borrow layout, UI, colors, or visual cues from the neutral anchor image.`,
             `Keep image 3 UI accurate and readable.`,
             `Output full-bleed at requested size/aspect ratio.`,
         ].join(' ');
@@ -1264,10 +1265,11 @@ export const useGeneratedAssets = ({
 
     const buildSameStyleGenerateSystemPrompt = useCallback(() => {
         return [
-            `Image 1 is size anchor only (ratio lock).`,
-            `Image 2 is style/composition source.`,
-            `Image 3 is app UI source of truth.`,
+            `Ignore any neutral size-anchor image; it exists only to lock output ratio.`,
+            `Image 2 is the only style/composition source.`,
+            `Image 3 is the only app UI source of truth.`,
             `Replace app UI from image 2 with image 3 UI while keeping image 2 style/layout.`,
+            `Do not borrow layout, UI, colors, or visual cues from the neutral anchor image.`,
             `Keep text style/structure from image 2 unless user prompt asks to change text.`,
             `Keep image 3 UI details accurate and readable.`,
             `Output full-bleed at requested aspect ratio and size.`,
