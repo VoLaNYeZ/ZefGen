@@ -654,6 +654,12 @@ export const translations = {
         connector_generate_webpage: 'Generate webpage',
         connector_generate_webpage_hint:
             'Publish the live appshelp.cc page for this app once description and legal links are ready.',
+        connector_regenerate_webpage: 'Regenerate webpage',
+        connector_regenerate_webpage_hint:
+            'Republish the live appshelp.cc page with the latest app description, icon, and legal links.',
+        connector_generate_webpage_confirm_regenerate:
+            'A webpage has already been published for this app. Regenerate it anyway?',
+        connector_generate_webpage_confirm_regenerate_confirm: 'Regenerate webpage',
         connector_webpage_publishing_busy: 'Publishing webpage...',
         connector_webpage_publish_failed: 'Webpage publish failed.',
         connector_webpage_published: 'Webpage published on appshelp.cc.',
@@ -1444,6 +1450,12 @@ export const translations = {
         connector_generate_webpage: 'Generate webpage',
         connector_generate_webpage_hint:
             'Опубликовать live appshelp.cc страницу для этого app, когда описание и legal links уже готовы.',
+        connector_regenerate_webpage: 'Regenerate webpage',
+        connector_regenerate_webpage_hint:
+            'Переопубликовать live appshelp.cc страницу с актуальными описанием app, иконкой и legal links.',
+        connector_generate_webpage_confirm_regenerate:
+            'Для этого app уже опубликована веб-страница. Всё равно переопубликовать её?',
+        connector_generate_webpage_confirm_regenerate_confirm: 'Переопубликовать',
         connector_webpage_publishing_busy: 'Публикуем веб-страницу...',
         connector_webpage_publish_failed: 'Не удалось опубликовать веб-страницу.',
         connector_webpage_published: 'Webpage опубликована на appshelp.cc.',

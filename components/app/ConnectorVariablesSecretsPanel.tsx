@@ -6,6 +6,7 @@ import type { AppItem, AppstoreAccount } from '../../types/zefgen';
 import { isAvailableAppstoreAccount } from '../../utils/appstore-account-selection';
 import { ConnectorAutosaveStatus } from './ConnectorAutosaveStatus';
 import { ConnectorSaveConflictBanner } from './ConnectorSaveConflictBanner';
+import { ConfirmIconButton } from './ConfirmIconButton';
 
 const DEFAULT_VARIABLES: Array<{ key: string; label: TranslationKey; placeholder?: string }> = [
     { key: 'appstore_name', label: 'connector_appstore_name' },
@@ -53,6 +54,7 @@ export function ConnectorVariablesSecretsPanel(props: {
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     isEnabled: boolean;
     isReadOnly?: boolean;
+    pickedIcon: boolean;
     selectedApp: AppItem | null;
     account: AppstoreAccount | null;
     allAccounts: AppstoreAccount[];
@@ -64,6 +66,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         connectorForm,
         isEnabled,
         isReadOnly = false,
+        pickedIcon,
         selectedApp,
         account,
         allAccounts,
@@ -280,6 +283,7 @@ export function ConnectorVariablesSecretsPanel(props: {
         const missing: string[] = [];
         if (!resolvedAppStoreName) missing.push(text('connector_appstore_name'));
         if (!resolvedAppStoreDescription) missing.push(text('connector_appstore_description'));
+        if (!pickedIcon) missing.push(text('connector_missing_icon'));
         if (!hasCompleteLegalLinks) {
             legalLinks.forEach((link) => {
                 const rawUrl = String((connectorForm.legalLinks as any)?.[link.key] ?? '').trim();
@@ -293,19 +297,28 @@ export function ConnectorVariablesSecretsPanel(props: {
         legalLinks,
         resolvedAppStoreDescription,
         resolvedAppStoreName,
+        pickedIcon,
         text,
     ]);
     const webpagePublished = Boolean(connectorForm.publicPagePublishedAt && connectorForm.publicWebpageUrl);
     const webpageGenerateBlocked = webpageMissingInputs.length > 0;
     const webpageButtonLabelKey: TranslationKey = webpagePublished
-        ? 'connector_open_webpage'
+        ? 'connector_regenerate_webpage'
         : 'connector_generate_webpage';
-    const webpageButtonTitle = webpagePublished
-        ? text('connector_open_webpage_hint')
-        : webpageGenerateBlocked
-          ? String(text('connector_generate_blocked_missing') || '').replace('{items}', webpageMissingInputs.join(', '))
+    const webpageButtonTitle = webpageGenerateBlocked
+        ? String(text('connector_generate_blocked_missing') || '').replace('{items}', webpageMissingInputs.join(', '))
+        : webpagePublished
+          ? text('connector_regenerate_webpage_hint')
           : text('connector_generate_webpage_hint');
-    const webpageButtonInlineReason = !webpagePublished && webpageGenerateBlocked ? webpageButtonTitle : '';
+    const webpageButtonInlineReason = webpageGenerateBlocked ? webpageButtonTitle : '';
+    const webpageButtonClassName =
+        'ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60';
+    const webpageConfirmTriggerClassName = [
+        webpageButtonClassName.replace(' disabled:opacity-60', ''),
+        connectorForm.publishWebpageBusy ? 'cursor-not-allowed opacity-60' : '',
+    ]
+        .filter(Boolean)
+        .join(' ');
 
     const compactVariables = React.useMemo(
         () => DEFAULT_VARIABLES.filter((f) => !WIDE_VARIABLE_KEYS.has(f.key)),
@@ -464,10 +477,6 @@ export function ConnectorVariablesSecretsPanel(props: {
     const handleGenerateWebpage = React.useCallback(async () => {
         if (!canEdit) return;
         if (connectorForm.publishWebpageBusy) return;
-        if (webpagePublished && connectorForm.publicWebpageUrl) {
-            window.open(connectorForm.publicWebpageUrl, '_blank', 'noopener,noreferrer');
-            return;
-        }
         if (connectorForm.staleConflict) {
             showActionHint('webpage', text('connector_action_blocked_conflict'));
             return;
@@ -478,7 +487,9 @@ export function ConnectorVariablesSecretsPanel(props: {
         }
         setActionHint(null);
         setGenerateNotice(text('connector_webpage_publishing_busy'));
-        const result = await connectorForm.publishAppstoreReviewPublicPage();
+        const result = await connectorForm.publishAppstoreReviewPublicPage({
+            hasPickedIcon: pickedIcon,
+        });
         if (result?.error) {
             setGenerateNotice(result.error);
             return;
@@ -491,11 +502,11 @@ export function ConnectorVariablesSecretsPanel(props: {
     }, [
         connectorForm,
         canEdit,
+        pickedIcon,
         showActionHint,
         text,
         webpageButtonTitle,
         webpageGenerateBlocked,
-        webpagePublished,
     ]);
 
     if (!isEnabled) {
@@ -547,17 +558,39 @@ export function ConnectorVariablesSecretsPanel(props: {
                     </div>
                     <div className="flex flex-col items-end gap-1">
                         <span title={webpageButtonTitle} className="inline-flex">
-                            <button
-                                type="button"
-                                onClick={() => void handleGenerateWebpage()}
-                                disabled={!webpagePublished && connectorForm.publishWebpageBusy}
-                                title={webpageButtonTitle}
-                                className="ui-btn-fit ui-btn-fit-dense inline-flex items-center gap-2 rounded-full border border-emerald-400/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
-                            >
-                                {connectorForm.publishWebpageBusy
-                                    ? text('loading')
-                                    : text(webpageButtonLabelKey)}
-                            </button>
+                            {webpagePublished && !webpageGenerateBlocked ? (
+                                <ConfirmIconButton
+                                    label={text(webpageButtonLabelKey)}
+                                    question={text('connector_generate_webpage_confirm_regenerate')}
+                                    confirmLabel={text('connector_generate_webpage_confirm_regenerate_confirm')}
+                                    cancelLabel={text('cancel')}
+                                    disabled={connectorForm.publishWebpageBusy}
+                                    onConfirm={handleGenerateWebpage}
+                                    triggerTestId="connector-generate-webpage-button"
+                                    popoverTestId="connector-generate-webpage-button-popover"
+                                    confirmTestId="connector-generate-webpage-button-confirm"
+                                    cancelTestId="connector-generate-webpage-button-cancel"
+                                >
+                                    <span className={webpageConfirmTriggerClassName}>
+                                        {connectorForm.publishWebpageBusy
+                                            ? text('loading')
+                                            : text(webpageButtonLabelKey)}
+                                    </span>
+                                </ConfirmIconButton>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleGenerateWebpage()}
+                                    disabled={connectorForm.publishWebpageBusy}
+                                    title={webpageButtonTitle}
+                                    data-testid="connector-generate-webpage-button"
+                                    className={webpageButtonClassName}
+                                >
+                                    {connectorForm.publishWebpageBusy
+                                        ? text('loading')
+                                        : text(webpageButtonLabelKey)}
+                                </button>
+                            )}
                         </span>
                         {webpageButtonInlineReason || actionHint?.target === 'webpage' ? (
                             <div aria-live="polite" className="max-w-[220px] text-right text-[10px] leading-4 text-amber-100/85">

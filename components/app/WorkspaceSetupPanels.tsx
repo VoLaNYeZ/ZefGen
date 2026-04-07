@@ -210,6 +210,7 @@ export function WorkspaceSetupPanels({
                         connectorForm={connectorForm}
                         isEnabled={connectorEnabled}
                         isReadOnly={isCurrentBrandReadOnly}
+                        pickedIcon={pickedIcon}
                         selectedApp={selectedApp}
                         account={selectedAppstoreAccount}
                         allAccounts={allAccounts}

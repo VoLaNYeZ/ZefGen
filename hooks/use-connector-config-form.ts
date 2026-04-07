@@ -1266,7 +1266,7 @@ export const useConnectorConfigForm = (payload: {
         []
     );
 
-    const publishAppstoreReviewPublicPage = React.useCallback(async () => {
+    const publishAppstoreReviewPublicPage = React.useCallback(async (options?: { hasPickedIcon?: boolean }) => {
         if (!session || !selectedApp) return null;
         const requestContext = getRequestContext();
         if (!isCurrentRequestContext(requestContext)) return null;
@@ -1287,6 +1287,9 @@ export const useConnectorConfigForm = (payload: {
             }
             if (!description) {
                 throw new Error('Generate or enter the App Store description first.');
+            }
+            if (!options?.hasPickedIcon) {
+                throw new Error('Pick an icon first.');
             }
             if (!isUsableLegalUrl(privacyPolicyUrl)) {
                 throw new Error('Generate or enter the Privacy Policy link first.');
