@@ -29,9 +29,12 @@ export const downloadBlob = (blob: Blob, filename: string) => {
     const objectUrl = URL.createObjectURL(blob);
 
     // Safari/WebKit can ignore synthetic async blob downloads for ZIP files.
-    // Navigating the current tab to the blob URL is more reliable there.
+    // Prefer a separate tab so the workspace app is not replaced by the blob document.
     if (shouldUseBlobNavigationFallback(filename, objectUrl)) {
-        window.location.assign(objectUrl);
+        const opened = window.open(objectUrl, '_blank', 'noopener');
+        if (!opened) {
+            window.location.assign(objectUrl);
+        }
     } else {
         triggerDownload(objectUrl, filename);
     }
