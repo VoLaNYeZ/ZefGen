@@ -534,8 +534,8 @@ test('step 5 blocks QA on stale main until Sync Main adopts the live SHA', async
     });
 });
 
-test('step 5 keeps screenshots blocked until QA passed on the live main SHA', async ({ page }) => {
-    await installPrimaryWorkspaceRunnerMocks(page, [
+test('step 5 keeps screenshots enabled and shows QA as advisory for the live main SHA', async ({ page }) => {
+    const runnerMock = await installPrimaryWorkspaceRunnerMocks(page, [
         buildConnectorJobRow({
             id: smokeJobId(51),
             kind: 'visual_qa',
@@ -578,10 +578,21 @@ test('step 5 keeps screenshots blocked until QA passed on the live main SHA', as
     const runnerPanel = page.getByTestId('workspace-panel-runner');
     const screenshotsButton = runnerPanel.getByRole('button', { name: /^Screenshots$/i });
 
-    await expect(screenshotsButton).toBeDisabled();
+    await expect(screenshotsButton).toBeEnabled();
     await expect(
-        runnerPanel.getByText(/QA must pass on the current main SHA before screenshots are enabled\./i)
+        runnerPanel.getByText(/QA did not pass on the current main SHA\. Screenshots can still run, but QA is advisory only\./i)
     ).toBeVisible();
+
+    await screenshotsButton.click();
+    await expect.poll(() => runnerMock.getCreateCallCount()).toBe(1);
+    await expect(runnerMock.getCreatedPayloads()[0]).toMatchObject({
+        kind: 'screenshots',
+        input: {
+            source_job_id: smokeJobId(51),
+            source_ref: 'def456',
+            capture_mode: 'renders',
+        },
+    });
 });
 
 test('step 5 cancel shows cancel requested and then terminal canceled after refresh', async ({ page }) => {

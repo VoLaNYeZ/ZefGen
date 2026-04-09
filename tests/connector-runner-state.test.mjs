@@ -57,7 +57,7 @@ test('step 5 completion only counts successful generate jobs', () => {
     assert.equal(nonGenerateState.latestSuccessfulGenerateJob, null);
 });
 
-test('deriveConnectorJobState blocks screenshots when the latest QA SHA is stale', () => {
+test('deriveConnectorJobState keeps screenshots enabled when QA is stale for the latest SHA', () => {
     const state = deriveConnectorJobState(
         [
             {
@@ -78,9 +78,10 @@ test('deriveConnectorJobState blocks screenshots when the latest QA SHA is stale
     );
 
     assert.equal(state.canRunQa, true);
-    assert.equal(state.canRunScreenshots, false);
-    assert.equal(state.screenshotsDisabledReason, 'stale_qa');
-    assert.equal(state.screenshotsSourceJob, null);
+    assert.equal(state.canRunScreenshots, true);
+    assert.equal(state.screenshotsDisabledReason, '');
+    assert.equal(state.screenshotsAdvisoryReason, 'stale_qa');
+    assert.equal(state.screenshotsSourceJob?.id, 'integration-2');
 });
 
 test('deriveConnectorJobState exposes cancel-requested active jobs', () => {
@@ -143,7 +144,45 @@ test('deriveConnectorJobState enables QA from a trusted synced main SHA', () => 
     assert.equal(state.effectiveCurrentSourceSha, 'def456');
 });
 
-test('deriveConnectorJobState blocks screenshots when the latest QA for the current SHA did not pass', () => {
+test('deriveConnectorJobState reuses the latest code-producing job that matches the current SHA even if newer jobs target another SHA', () => {
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'fix-newer',
+                kind: 'fix',
+                status: 'succeeded',
+                result_commit_sha: '999aaa',
+            },
+            {
+                id: 'integration-current',
+                kind: 'integration',
+                status: 'succeeded',
+                result_commit_sha: 'def456',
+            },
+            {
+                id: 'generate-older',
+                kind: 'generate',
+                status: 'succeeded',
+                result_commit_sha: 'abc123',
+            },
+        ],
+        {
+            liveMainSha: 'def456',
+            trustedMainSourceSha: 'def456',
+        }
+    );
+
+    assert.equal(state.canRunQa, true);
+    assert.equal(state.qaDisabledReason, '');
+    assert.equal(state.qaSourceKind, 'job');
+    assert.equal(state.qaSourceJob?.id, 'integration-current');
+    assert.equal(state.canRunScreenshots, true);
+    assert.equal(state.screenshotsDisabledReason, '');
+    assert.equal(state.screenshotsAdvisoryReason, 'missing_qa_job');
+    assert.equal(state.screenshotsSourceJob?.id, 'integration-current');
+});
+
+test('deriveConnectorJobState keeps screenshots enabled when QA for the current SHA did not pass', () => {
     const state = deriveConnectorJobState(
         [
             {
@@ -163,9 +202,10 @@ test('deriveConnectorJobState blocks screenshots when the latest QA for the curr
         { liveMainSha: 'def456' }
     );
 
-    assert.equal(state.canRunScreenshots, false);
-    assert.equal(state.screenshotsDisabledReason, 'qa_not_passed');
-    assert.equal(state.screenshotsSourceJob, null);
+    assert.equal(state.canRunScreenshots, true);
+    assert.equal(state.screenshotsDisabledReason, '');
+    assert.equal(state.screenshotsAdvisoryReason, 'qa_not_passed');
+    assert.equal(state.screenshotsSourceJob?.id, 'qa-2');
 });
 
 test('deriveConnectorJobState enables screenshots only when QA passed on the live current SHA', () => {
@@ -190,7 +230,27 @@ test('deriveConnectorJobState enables screenshots only when QA passed on the liv
 
     assert.equal(state.canRunScreenshots, true);
     assert.equal(state.screenshotsDisabledReason, '');
+    assert.equal(state.screenshotsAdvisoryReason, '');
     assert.equal(state.screenshotsSourceJob?.id, 'qa-3');
+});
+
+test('deriveConnectorJobState keeps screenshots enabled without QA when the current SHA has a code-producing source job', () => {
+    const state = deriveConnectorJobState(
+        [
+            {
+                id: 'fix-1',
+                kind: 'fix',
+                status: 'succeeded',
+                result_commit_sha: '123abc',
+            },
+        ],
+        { liveMainSha: '123abc' }
+    );
+
+    assert.equal(state.canRunScreenshots, true);
+    assert.equal(state.screenshotsDisabledReason, '');
+    assert.equal(state.screenshotsAdvisoryReason, 'missing_qa_job');
+    assert.equal(state.screenshotsSourceJob?.id, 'fix-1');
 });
 
 test('integration readiness uses CRM variables including Apphud and Firebase fields', () => {

@@ -51,7 +51,7 @@ This document focuses on maintained source directories and the product flows the
 - `playwright.config.ts` - smoke-test harness config.
 - `vercel.json` - Vercel routing/deployment config.
 - `components.json` - local shadcn-style component config.
-- `.env.example` - local env template.
+- `.env.example` - local app/Vercel env template; does not configure the separate cloud runner process.
 - `PLANS.md` - ongoing implementation notes.
 
 ## Top-Level Directories
@@ -271,7 +271,8 @@ The authenticated shell is composed through:
 - `data/connector-legal-links.ts` - legal-links generation trigger/history.
 - `data/connector-jobs.ts` - runner jobs CRUD and polling helpers.
 - `data/connector-messages.ts` - runner message log and Q/A helpers.
-- `data/connector-job-artifacts.ts` - runner artifact reads.
+- `data/connector-job-artifacts.ts` - runner artifact reads plus signed-URL lookup for protected outputs.
+- `data/github-main-head.ts` - browser client for resolving the live GitHub `main` SHA for an app repo.
 
 ### Server-backed generation and webhook clients
 
@@ -285,6 +286,8 @@ The authenticated shell is composed through:
 ### Types
 
 - `types/zefgen.ts` - main domain types for brands, apps, assets, jobs, ideas, accounts, webhooks, and provider IDs.
+- `types/appstore-review-panel-snapshot.ts` - cached App Store review panel UI snapshot payload.
+- `types/connector-execution-snapshot.ts` - cached runner panel snapshot and hydration helpers.
 - `types/workspace-snapshot.ts` - cached per-app workspace snapshot shape.
 - `types/workspace-switch.ts` - guarded workspace-switch contracts.
 
@@ -323,10 +326,14 @@ The authenticated shell is composed through:
 
 ### Vercel `/api` functions
 
+These endpoints use the Vercel deployment environment. In particular, the GitHub helpers here read Vercel `GITHUB_TOKEN`. That is separate from the code-producing cloud runner, which has its own env/secrets and must be updated/restarted independently when runner GitHub auth changes.
+
+- `api/connector-artifact-url.ts` - authenticated signed-URL minting for stored runner artifacts.
 - `api/generate-screenshot.ts` - server-side image generation proxy.
 - `api/generate-icon-prompt.ts` - no-brand icon prompt autogen.
 - `api/generate-screenshot-prompts.ts` - app-theme and screenshot-title autogen for no-brand flows.
 - `api/generate-appstore-description.ts` - App Store description generation.
+- `api/github-main-head.ts` - resolves the current GitHub `main` HEAD SHA for an owned app repo.
 - `api/provider-status.ts` - local env/provider diagnostics.
 - `api/create-github-repo.ts` - GitHub repo creation and seeding.
 - `api/delete-github-repo.ts` - GitHub repo deletion.

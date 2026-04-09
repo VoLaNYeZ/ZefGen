@@ -115,11 +115,16 @@ const getQaDisabledMessage = (reason: string, text: (key: TranslationKey) => str
 
 const getScreenshotsDisabledMessage = (reason: string, text: (key: TranslationKey) => string) => {
     if (reason === 'main_lookup_failed') return text('connector_live_main_lookup_failed');
-    if (reason === 'missing_qa_job') return text('connector_screenshots_missing_qa');
-    if (reason === 'missing_qa_sha') return text('connector_screenshots_missing_qa_sha');
     if (reason === 'missing_code_job') return text('connector_screenshots_missing_code');
     if (reason === 'missing_code_sha') return text('connector_screenshots_missing_code_sha');
     if (reason === 'stale_main') return text('connector_main_sync_required');
+    if (reason === 'missing_screenshots_source_job') return text('connector_screenshots_missing_source_job');
+    return '';
+};
+
+const getScreenshotsAdvisoryMessage = (reason: string, text: (key: TranslationKey) => string) => {
+    if (reason === 'missing_qa_job') return text('connector_screenshots_missing_qa');
+    if (reason === 'missing_qa_sha') return text('connector_screenshots_missing_qa_sha');
     if (reason === 'stale_qa') return text('connector_screenshots_stale_qa');
     if (reason === 'qa_not_passed') return text('connector_screenshots_qa_not_passed');
     return '';
@@ -577,6 +582,10 @@ export function ConnectorRunnerPanel(props: {
         ((liveMainLoading || awaitingLiveMain) && !liveMainSha)
             ? ''
             : getScreenshotsDisabledMessage(connectorJobState.screenshotsDisabledReason, text);
+    const screenshotsAdvisoryMessage =
+        ((liveMainLoading || awaitingLiveMain) && !liveMainSha)
+            ? ''
+            : getScreenshotsAdvisoryMessage(connectorJobState.screenshotsAdvisoryReason, text);
     const screenshotsModeHint = text('connector_screenshots_ready_hint');
     const refreshing = loading || liveMainLoading;
     const generateButtonDisabled = loading || isReadOnly || generateBlocked || busy || !session || !selectedApp;
@@ -765,13 +774,13 @@ export function ConnectorRunnerPanel(props: {
             if (!mainHead?.sha || !refreshedState.screenshotsSourceJob || !refreshedState.canRunScreenshots) {
                 setLocalError(
                     getScreenshotsDisabledMessage(refreshedState.screenshotsDisabledReason, text) ||
-                        text('connector_screenshots_missing_qa')
+                        text('connector_screenshots_missing_source_job')
                 );
                 return;
             }
             const created = await createScreenshotsJob({
                 sourceJobId: String(refreshedState.screenshotsSourceJob.id),
-                sourceRef: String(refreshedState.screenshotsSourceJob.result_commit_sha || ''),
+                sourceRef: String(refreshedState.effectiveCurrentSourceSha || refreshedState.screenshotsSourceJob.result_commit_sha || ''),
                 captureMode,
             });
             if (created?.id) setSelectedJobId(String(created.id));
@@ -1204,13 +1213,16 @@ export function ConnectorRunnerPanel(props: {
                                     ) : null}
                                     {!connectorJobState.canRunScreenshots ? (
                                         <div className="font-semibold text-amber-100/90">{screenshotsDisabledMessage}</div>
-                                    ) : connectorJobState.screenshotsSourceJob?.result_commit_sha ? (
+                                    ) : connectorJobState.effectiveCurrentSourceSha ? (
                                         <div>
                                             {text('connector_screenshots_targets_sha')}{' '}
                                             <span className="font-semibold text-indigo-100">
-                                                {connectorJobState.screenshotsSourceJob.result_commit_sha}
+                                                {connectorJobState.effectiveCurrentSourceSha}
                                             </span>
                                         </div>
+                                    ) : null}
+                                    {connectorJobState.canRunScreenshots && screenshotsAdvisoryMessage ? (
+                                        <div className="font-semibold text-amber-100/90">{screenshotsAdvisoryMessage}</div>
                                     ) : null}
                                     <div className="text-indigo-200/45">{screenshotsModeHint}</div>
                                 </div>

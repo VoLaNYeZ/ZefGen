@@ -77,6 +77,14 @@ export const deriveConnectorJobState = (jobs, options = {}) => {
               ? latestCodeSha
               : ''
         : '';
+    const latestSuccessfulCodeJobForCurrentSource = effectiveCurrentSourceSha
+        ? findLatestSuccessfulJob(
+              list,
+              (job) =>
+                  CODE_PRODUCING_JOB_KINDS.has(String(job?.kind ?? '')) &&
+                  normalizeCommitSha(job?.result_commit_sha) === effectiveCurrentSourceSha
+          )
+        : null;
     const latestSuccessfulQaJobForCurrentSource = effectiveCurrentSourceSha
         ? findLatestSuccessfulJob(
               list,
@@ -111,16 +119,29 @@ export const deriveConnectorJobState = (jobs, options = {}) => {
         else if (latestSuccessfulCodeJob && latestCodeSha && latestCodeSha !== liveMainSha) screenshotsDisabledReason = 'stale_main';
         else if (latestSuccessfulCodeJob && !latestCodeSha) screenshotsDisabledReason = 'missing_code_sha';
         else screenshotsDisabledReason = 'missing_code_job';
-    } else if (!latestSuccessfulQaJob) screenshotsDisabledReason = 'missing_qa_job';
-    else if (!latestQaSha) screenshotsDisabledReason = 'missing_qa_sha';
-    else if (!latestSuccessfulQaJobForCurrentSource) screenshotsDisabledReason = 'stale_qa';
-    else if (String(latestSuccessfulQaJobForCurrentSource?.verify_status ?? '') !== 'pass') screenshotsDisabledReason = 'qa_not_passed';
+    }
+
+    const screenshotsSourceJob =
+        latestSuccessfulQaJobForCurrentSource ||
+        (effectiveCurrentSourceSha && latestSuccessfulCodeJobForCurrentSource ? latestSuccessfulCodeJobForCurrentSource : null);
+
+    if (!screenshotsDisabledReason && !screenshotsSourceJob) screenshotsDisabledReason = 'missing_screenshots_source_job';
+
+    let screenshotsAdvisoryReason = '';
+    if (!screenshotsDisabledReason) {
+        if (!latestSuccessfulQaJob) screenshotsAdvisoryReason = 'missing_qa_job';
+        else if (!latestQaSha) screenshotsAdvisoryReason = 'missing_qa_sha';
+        else if (!latestSuccessfulQaJobForCurrentSource) screenshotsAdvisoryReason = 'stale_qa';
+        else if (String(latestSuccessfulQaJobForCurrentSource?.verify_status ?? '') !== 'pass')
+            screenshotsAdvisoryReason = 'qa_not_passed';
+    }
 
     return {
         latestJob,
         latestSuccessfulGenerateJob,
         hasSuccessfulGenerateJob: Boolean(latestSuccessfulGenerateJob),
         latestSuccessfulCodeJob,
+        latestSuccessfulCodeJobForCurrentSource,
         latestSuccessfulQaJob,
         latestSuccessfulQaJobForCurrentSource,
         latestPassedQaJobForCurrentSource,
@@ -132,15 +153,13 @@ export const deriveConnectorJobState = (jobs, options = {}) => {
         latestSuccessfulCodeSha: latestCodeSha || null,
         latestSuccessfulQaSha: latestQaSha || null,
         effectiveCurrentSourceSha: effectiveCurrentSourceSha || null,
-        qaSourceKind: qaDisabledReason ? null : latestSuccessfulCodeJob && latestCodeSha === effectiveCurrentSourceSha ? 'job' : 'github_main_sync',
-        qaSourceJob:
-            qaDisabledReason || !latestSuccessfulCodeJob || latestCodeSha !== effectiveCurrentSourceSha
-                ? null
-                : latestSuccessfulCodeJob,
+        qaSourceKind: qaDisabledReason ? null : latestSuccessfulCodeJobForCurrentSource ? 'job' : 'github_main_sync',
+        qaSourceJob: qaDisabledReason ? null : latestSuccessfulCodeJobForCurrentSource,
         qaDisabledReason,
         canRunQa: !qaDisabledReason,
-        screenshotsSourceJob: screenshotsDisabledReason ? null : latestPassedQaJobForCurrentSource,
+        screenshotsSourceJob: screenshotsDisabledReason ? null : screenshotsSourceJob,
         screenshotsDisabledReason,
+        screenshotsAdvisoryReason,
         canRunScreenshots: !screenshotsDisabledReason,
     };
 };
