@@ -50,6 +50,7 @@ import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts'
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
 import { createConnectorJob } from '../../data/connector-jobs';
+import { updateScreenshotSet } from '../../data/screenshot-sets';
 import { AppShellLayout } from './AppShellLayout';
 import { AppShellOverlays } from './AppShellOverlays';
 import { AppShellPageContent } from './AppShellPageContent';
@@ -58,7 +59,7 @@ import { Sidebar } from './Sidebar';
 import type { AppStoreReviewPanelSnapshot } from '../../types/appstore-review-panel-snapshot';
 import type { ConnectorExecutionPanelSnapshot } from '../../types/connector-execution-snapshot';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
-import type { AppItem, AppstoreAccount } from '../../types/zefgen';
+import type { AppItem, AppScreenshotSet, AppstoreAccount } from '../../types/zefgen';
 import {
     EMAPPSTORE777_OWNER,
     toEmappstore777RepoFullNameFromSource,
@@ -296,6 +297,27 @@ export function AppShell({ session }: AppShellProps) {
         selectedAppId,
         workspaceSnapshotsRef,
     });
+    const screenshotSetsHydrationAppIdRef = useRef('');
+    const screenshotSetsRef = useRef<AppScreenshotSet[]>(
+        selectedAppSnapshot?.generatedAssets?.screenshotSets ?? []
+    );
+    const activeScreenshotSetIdRef = useRef<string | null>(
+        selectedAppSnapshot?.generatedAssets?.activeScreenshotSetId ?? null
+    );
+    const legacySlotMappingFallbackSetIdRef = useRef<string | null>(
+        selectedAppSnapshot?.generatedAssets?.activeScreenshotSetId ?? null
+    );
+    const screenshotSetSlotMappingsSupportAppIdRef = useRef('');
+    const screenshotSetSlotMappingsSupportedRef = useRef(false);
+    if (screenshotSetsHydrationAppIdRef.current !== String(selectedApp?.id || '').trim()) {
+        screenshotSetsHydrationAppIdRef.current = String(selectedApp?.id || '').trim();
+        screenshotSetsRef.current = selectedAppSnapshot?.generatedAssets?.screenshotSets ?? [];
+        activeScreenshotSetIdRef.current = selectedAppSnapshot?.generatedAssets?.activeScreenshotSetId ?? null;
+        legacySlotMappingFallbackSetIdRef.current =
+            selectedAppSnapshot?.generatedAssets?.activeScreenshotSetId ?? null;
+        screenshotSetSlotMappingsSupportAppIdRef.current = '';
+        screenshotSetSlotMappingsSupportedRef.current = false;
+    }
     const connectorExecutionHydrationSnapshotAppIdRef = useRef('');
     const connectorExecutionHydrationSnapshotRef = useRef<ConnectorExecutionPanelSnapshot | null>(null);
     const clientRepoRefreshJobKeyRef = useRef('');
@@ -550,94 +572,140 @@ export function AppShell({ session }: AppShellProps) {
         reportError: reportActionError,
     });
 
-    const { slotMappings, setSlotMappings } = useSlotMappings(selectedAppId);
+    const { slotMappingsBySetId, setSlotMappingsBySetId, legacySlotMappings } = useSlotMappings(selectedAppId);
 
-    const getSlotMapping = (slotIndex: number) => {
-        const stored = (
-            slotMappings as Record<
+    const readSlotMappingsFromSet = useCallback((set: AppScreenshotSet | null | undefined) => {
+        const out: Record<
+            number,
+            Partial<{
+                slotMode: 'simulator' | 'brand';
+                brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
+                brandRefId: string | null;
+                simShotId: string | null;
+                styleRefAssetId: string | null;
+            }>
+        > = {};
+        const raw = set?.slot_mappings;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+        for (const [key, value] of Object.entries(raw)) {
+            const slotIndex = Number(key);
+            if (!Number.isInteger(slotIndex) || slotIndex < 1 || !value || typeof value !== 'object' || Array.isArray(value)) {
+                continue;
+            }
+            out[slotIndex] = { ...(value as Record<string, unknown>) } as typeof out[number];
+        }
+        return out;
+    }, []);
+
+    const serializeSlotMappingsForSet = useCallback(
+        (
+            mappings: Record<
                 number,
                 Partial<{
+                    slotMode: 'simulator' | 'brand';
                     brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
                     brandRefId: string | null;
                     simShotId: string | null;
                     styleRefAssetId: string | null;
                 }>
             >
-        )[slotIndex] || {};
-        const hasBrandRefSource = Object.prototype.hasOwnProperty.call(stored, 'brandRefSource');
-        const hasBrandRefId = Object.prototype.hasOwnProperty.call(stored, 'brandRefId');
-        const hasSimShotId = Object.prototype.hasOwnProperty.call(stored, 'simShotId');
-        const hasStyleRefAssetId = Object.prototype.hasOwnProperty.call(stored, 'styleRefAssetId');
-        const defaultBrandRefId = brandScreenshotReferences[slotIndex - 1]?.id ?? null;
-        const resolvedBrandRefSource = isNoBrandMode
-            ? null
-            : hasBrandRefSource
-                ? (stored.brandRefSource ?? null)
-                : hasBrandRefId
-                    ? 'screenshot_ref'
-                    : hasStyleRefAssetId && Boolean(stored.styleRefAssetId)
-                        ? null
-                    : defaultBrandRefId
+        ) => {
+            const out: Record<string, Record<string, unknown>> = {};
+            for (const [slotIndex, value] of Object.entries(mappings)) {
+                const normalizedIndex = Number(slotIndex);
+                if (!Number.isInteger(normalizedIndex) || normalizedIndex < 1 || !value || typeof value !== 'object') {
+                    continue;
+                }
+                const entry = { ...value };
+                if (!Object.keys(entry).length) continue;
+                out[String(normalizedIndex)] = entry;
+            }
+            return out;
+        },
+        []
+    );
+
+    const getStoredSlotMappingsForSet = useCallback(
+        (screenshotSetId?: string | null) => {
+            const targetSetId = String(screenshotSetId ?? activeScreenshotSetIdRef.current ?? '').trim();
+            const persistedSet =
+                screenshotSetsRef.current.find((set) => String(set.id) === targetSetId) ?? null;
+            const persistedMappings = readSlotMappingsFromSet(persistedSet);
+            const localMappings = targetSetId ? slotMappingsBySetId[targetSetId] ?? {} : {};
+            const merged = { ...persistedMappings, ...localMappings };
+
+            if (targetSetId && targetSetId === String(legacySlotMappingFallbackSetIdRef.current || '').trim()) {
+                for (const [slotIndex, value] of Object.entries(legacySlotMappings)) {
+                    const normalizedIndex = Number(slotIndex);
+                    if (!Number.isInteger(normalizedIndex) || normalizedIndex < 1) continue;
+                    if (!Object.prototype.hasOwnProperty.call(merged, normalizedIndex)) {
+                        merged[normalizedIndex] = value;
+                    }
+                }
+            }
+
+            return merged;
+        },
+        [legacySlotMappings, readSlotMappingsFromSet, slotMappingsBySetId]
+    );
+
+    const getStoredSlotMappingForSet = useCallback(
+        (slotIndex: number, screenshotSetId?: string | null) => getStoredSlotMappingsForSet(screenshotSetId)[slotIndex] || {},
+        [getStoredSlotMappingsForSet]
+    );
+
+    const getSlotMappingForSet = useCallback(
+        (slotIndex: number, screenshotSetId?: string | null) => {
+            const stored = getStoredSlotMappingForSet(slotIndex, screenshotSetId);
+            const hasSlotMode = Object.prototype.hasOwnProperty.call(stored, 'slotMode');
+            const hasBrandRefSource = Object.prototype.hasOwnProperty.call(stored, 'brandRefSource');
+            const hasBrandRefId = Object.prototype.hasOwnProperty.call(stored, 'brandRefId');
+            const hasSimShotId = Object.prototype.hasOwnProperty.call(stored, 'simShotId');
+            const hasStyleRefAssetId = Object.prototype.hasOwnProperty.call(stored, 'styleRefAssetId');
+            const slotMode = isNoBrandMode ? 'simulator' : hasSlotMode ? (stored.slotMode ?? 'simulator') : 'simulator';
+            const defaultBrandRefId = brandScreenshotReferences[slotIndex - 1]?.id ?? null;
+            const resolvedBrandRefSource = isNoBrandMode
+                ? null
+                : hasBrandRefSource
+                    ? (stored.brandRefSource ?? null)
+                    : hasBrandRefId
                         ? 'screenshot_ref'
-                        : null;
-        const resolvedBrandRefId =
-            resolvedBrandRefSource === 'screenshot_ref'
-                ? (hasBrandRefId ? (stored.brandRefId ?? null) : defaultBrandRefId)
-                : null;
-        return {
-            // Important: allow explicit null (stored value) to persist. Only fallback when the key is missing.
-            brandRefSource: resolvedBrandRefSource,
-            brandRefId: isNoBrandMode ? null : resolvedBrandRefId,
-            simShotId: hasSimShotId ? (stored.simShotId ?? null) : selectedAppScreenshots[slotIndex - 1]?.id ?? null,
-            styleRefAssetId: hasStyleRefAssetId ? (stored.styleRefAssetId ?? null) : null,
-        };
-    };
-    const updateSlotMapping = (
-        slotIndex: number,
-        patch: {
-            brandRefSource?: 'screenshot_ref' | 'picked_export_icon' | null;
-            brandRefId?: string | null;
-            simShotId?: string | null;
-            styleRefAssetId?: string | null;
-        }
-    ) => {
-        const normalizedPatch = isNoBrandMode
-            ? { ...patch, brandRefSource: null, brandRefId: null }
-            : patch;
-        setSlotMappings((prev) => ({
-            ...prev,
-            [slotIndex]: (() => {
-                const current = prev[slotIndex] ?? {};
-                const next = { ...current, ...normalizedPatch };
+                        : hasStyleRefAssetId && Boolean(stored.styleRefAssetId)
+                            ? null
+                        : defaultBrandRefId
+                            ? 'screenshot_ref'
+                            : null;
+            const resolvedBrandRefId =
+                resolvedBrandRefSource === 'screenshot_ref'
+                    ? (hasBrandRefId ? (stored.brandRefId ?? null) : defaultBrandRefId)
+                    : null;
 
-                if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'brandRefSource') ||
-                    Object.prototype.hasOwnProperty.call(normalizedPatch, 'brandRefId')) {
-                    if (next.brandRefSource === 'screenshot_ref' && !next.brandRefId) {
-                        next.brandRefSource = null;
-                    }
-                    if (next.brandRefSource) {
-                        next.styleRefAssetId = null;
-                    } else {
-                        next.brandRefId = null;
-                    }
-                }
+            return {
+                slotMode,
+                brandRefSource: resolvedBrandRefSource,
+                brandRefId: isNoBrandMode ? null : resolvedBrandRefId,
+                simShotId:
+                    slotMode === 'brand'
+                        ? null
+                        : hasSimShotId
+                            ? (stored.simShotId ?? null)
+                            : selectedAppScreenshots[slotIndex - 1]?.id ?? null,
+                styleRefAssetId: hasStyleRefAssetId ? (stored.styleRefAssetId ?? null) : null,
+            };
+        },
+        [brandScreenshotReferences, getStoredSlotMappingForSet, isNoBrandMode, selectedAppScreenshots]
+    );
 
-                if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'styleRefAssetId')) {
-                    if (next.styleRefAssetId) {
-                        next.brandRefSource = null;
-                        next.brandRefId = null;
-                    }
-                }
-
-                return next;
-            })(),
-        }));
-    };
+    const getSlotMapping = useCallback(
+        (slotIndex: number) => getSlotMappingForSet(slotIndex, activeScreenshotSetIdRef.current),
+        [getSlotMappingForSet]
+    );
 
     const {
         screenshotSets,
         activeScreenshotSetId,
         setActiveScreenshotSetId,
+        patchScreenshotSet,
         buildMetadataSnapshot,
         handleAddScreenshotSet,
         handleDeleteScreenshotSet,
@@ -743,17 +811,172 @@ export function AppShell({ session }: AppShellProps) {
         brandIconReference,
         brandScreenshotReferences,
         brandRefUrls,
-        getSlotMapping,
+        getSlotMapping: getSlotMappingForSet,
         promptsByRefId,
         text,
         reportError: reportActionError,
         onDataError: setDataError,
     });
+    screenshotSetsRef.current = screenshotSets;
+    activeScreenshotSetIdRef.current = activeScreenshotSetId;
+    useEffect(() => {
+        if (legacySlotMappingFallbackSetIdRef.current) return;
+        if (!activeScreenshotSetId) return;
+        if (!Object.keys(legacySlotMappings).length) return;
+        legacySlotMappingFallbackSetIdRef.current = activeScreenshotSetId;
+    }, [activeScreenshotSetId, legacySlotMappings]);
+    useEffect(() => {
+        const appId = String(selectedApp?.id || '').trim();
+        if (!appId || !screenshotSets.length) return;
+        if (screenshotSetSlotMappingsSupportAppIdRef.current === appId) return;
+        screenshotSetSlotMappingsSupportAppIdRef.current = appId;
+        screenshotSetSlotMappingsSupportedRef.current = screenshotSets.some((set) =>
+            Object.prototype.hasOwnProperty.call(set, 'slot_mappings')
+        );
+    }, [screenshotSets, selectedApp?.id]);
+
+    const updateSlotMapping = useCallback(
+        (
+            slotIndex: number,
+            patch: {
+                slotMode?: 'simulator' | 'brand';
+                brandRefSource?: 'screenshot_ref' | 'picked_export_icon' | null;
+                brandRefId?: string | null;
+                simShotId?: string | null;
+                styleRefAssetId?: string | null;
+            }
+        ) => {
+            const targetSetId = String(activeScreenshotSetIdRef.current || '').trim();
+            if (!targetSetId) return;
+
+            const normalizedPatch = isNoBrandMode
+                ? { ...patch, slotMode: 'simulator' as const, brandRefSource: null, brandRefId: null }
+                : patch;
+            const currentSetMappings = getStoredSlotMappingsForSet(targetSetId);
+            const current = currentSetMappings[slotIndex] ?? {};
+            const next = { ...current, ...normalizedPatch };
+
+            if (next.slotMode === 'brand') {
+                next.simShotId = null;
+            }
+
+            if (
+                Object.prototype.hasOwnProperty.call(normalizedPatch, 'brandRefSource') ||
+                Object.prototype.hasOwnProperty.call(normalizedPatch, 'brandRefId')
+            ) {
+                if (next.brandRefSource === 'screenshot_ref' && !next.brandRefId) {
+                    next.brandRefSource = null;
+                }
+                if (next.brandRefSource) {
+                    next.styleRefAssetId = null;
+                } else {
+                    next.brandRefId = null;
+                }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'styleRefAssetId') && next.styleRefAssetId) {
+                next.brandRefSource = null;
+                next.brandRefId = null;
+            }
+
+            if (Object.prototype.hasOwnProperty.call(normalizedPatch, 'slotMode') && next.slotMode !== 'brand') {
+                next.slotMode = 'simulator';
+            }
+
+            const nextSetMappings = {
+                ...currentSetMappings,
+                [slotIndex]: next,
+            };
+            const serializedMappings = serializeSlotMappingsForSet(nextSetMappings);
+
+            setSlotMappingsBySetId((prev) => ({
+                ...prev,
+                [targetSetId]: nextSetMappings,
+            }));
+            patchScreenshotSet(targetSetId, {
+                slot_mappings: serializedMappings as AppScreenshotSet['slot_mappings'],
+            });
+
+            if (!session?.user.id) return;
+            if (!screenshotSetSlotMappingsSupportedRef.current) return;
+            void updateScreenshotSet({
+                id: targetSetId,
+                userId: session.user.id,
+                patch: {
+                    slot_mappings: serializedMappings as AppScreenshotSet['slot_mappings'],
+                },
+            }).then(({ error, data }) => {
+                if (error) {
+                    const message = String((error as any)?.message || error);
+                    if (message.toLowerCase().includes('slot_mappings')) {
+                        return;
+                    }
+                    reportActionError(message);
+                    return;
+                }
+                if (data) {
+                    patchScreenshotSet(targetSetId, data as Partial<AppScreenshotSet>);
+                }
+            });
+        },
+        [
+            getStoredSlotMappingsForSet,
+            isNoBrandMode,
+            patchScreenshotSet,
+            reportActionError,
+            serializeSlotMappingsForSet,
+            session?.user.id,
+            setSlotMappingsBySetId,
+        ]
+    );
 
     const clientGithubRepoUrl = useMemo(
         () => String((selectedApp as any)?.client_github_repo_url || '').trim() || null,
         [selectedApp]
     );
+
+    const handleAddBrandSlot = useCallback(async () => {
+        if (isNoBrandMode || !selectedApp || !activeScreenshotSetId || targetSlotCount >= 6) return;
+
+        const nextSlotIndex = targetSlotCount + 1;
+        const appName = String(selectedApp.name || '').trim() || String(selectedApp.alias || '').trim() || 'this app';
+        const seededPrompt =
+            `Create a premium App Store brand slide for ${appName}. ` +
+            `Use the picked export icon palette and brand atmosphere. ` +
+            `Do not render a phone mockup or fake in-app UI. ` +
+            `Keep the composition clean, bold, and spacious, with room for an overlay headline.`;
+
+        await setGenerationCount(nextSlotIndex);
+        updateSlotMapping(nextSlotIndex, {
+            slotMode: 'brand',
+            brandRefSource: pickedIconAssetId ? 'picked_export_icon' : null,
+            brandRefId: null,
+            simShotId: null,
+            styleRefAssetId: null,
+        });
+
+        if (!String(slotPromptBySlotIndex[nextSlotIndex] || '').trim()) {
+            setSlotPrompt(nextSlotIndex, seededPrompt);
+        }
+    }, [
+        isNoBrandMode,
+        selectedApp,
+        activeScreenshotSetId,
+        targetSlotCount,
+        setGenerationCount,
+        updateSlotMapping,
+        pickedIconAssetId,
+        slotPromptBySlotIndex,
+        setSlotPrompt,
+    ]);
+
+    const simulatorRequiredSlotCount = useMemo(() => {
+        let count = 0;
+        for (let slotIndex = 1; slotIndex <= targetSlotCount; slotIndex += 1) {
+            if (getSlotMapping(slotIndex).slotMode !== 'brand') count += 1;
+        }
+        return count;
+    }, [getSlotMapping, targetSlotCount]);
 
     const isPublishingClientGithubRepo = useMemo(
         () =>
@@ -1281,6 +1504,7 @@ export function AppShell({ session }: AppShellProps) {
         selectedApp,
         selectedAppScreenshots,
         selectedAppstoreAccount,
+        simulatorRequiredSlotCount,
         slotPromptBySlotIndex,
         targetSlotCount,
         variables: connectorForm.variables,
@@ -1503,6 +1727,7 @@ export function AppShell({ session }: AppShellProps) {
             getSystemPromptForSlot,
             getSystemPromptTemplateForSlot,
             handleAddScreenshotSet,
+            handleAddBrandSlot,
             handleAppScreenshotsUpload,
             handleAutoGrowInput,
             handleBrandPromptChange,

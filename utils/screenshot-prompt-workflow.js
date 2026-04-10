@@ -47,6 +47,7 @@ export const composeScreenshotGenerationUserPrompt = ({ brandPrompt, slotPrompt 
 
 export const getScreenshotSlotGenerationState = ({
     slotIndex,
+    slotMode = 'simulator',
     isNoBrandMode,
     simShotId,
     brandRefId,
@@ -58,13 +59,15 @@ export const getScreenshotSlotGenerationState = ({
     usesBrandIconColorReference = false,
 }) => {
     const normalizedSlotIndex = Number(slotIndex || 0);
-    const hasSimulatorShot = typeof simShotId === 'string' && simShotId.trim().length > 0;
+    const requiresSimulatorShot = slotMode !== 'brand';
+    const hasSimulatorShot = !requiresSimulatorShot || (typeof simShotId === 'string' && simShotId.trim().length > 0);
     const hasExplicitBrandReference =
         !Boolean(isNoBrandMode) && typeof brandRefId === 'string' && brandRefId.trim().length > 0;
     const hasExplicitStyleReference =
         typeof styleRefAssetId === 'string' && styleRefAssetId.trim().length > 0;
     const hasPrompt =
         String(slotPrompt || '').trim().length > 0 || String(brandPrompt || '').trim().length > 0;
+    const hasSlotPrompt = String(slotPrompt || '').trim().length > 0;
     const hasIconColorGuidance = !Boolean(isNoBrandMode) && Boolean(usesBrandIconColorReference);
 
     const canImplicitlyUseSlot1Style =
@@ -97,6 +100,8 @@ export const getScreenshotSlotGenerationState = ({
     let reason = null;
     if (!hasSimulatorShot) {
         reason = 'missing_simulator';
+    } else if (slotMode === 'brand' && !hasSlotPrompt) {
+        reason = 'missing_brand_prompt';
     } else if (requiresSlot1Pick) {
         reason = 'pick_slot_1_first';
     } else if (!hasGuidance) {
@@ -107,6 +112,7 @@ export const getScreenshotSlotGenerationState = ({
         ready: reason === null,
         reason,
         hasSimulatorShot,
+        requiresSimulatorShot,
         hasPrompt,
         hasGuidance,
         hasExplicitBrandReference,

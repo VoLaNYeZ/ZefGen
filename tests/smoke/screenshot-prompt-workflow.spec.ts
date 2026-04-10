@@ -17,6 +17,19 @@ const LONG_CLIENT_SPEC =
 const admin = createClient(smokeEnv.supabase.url, smokeEnv.supabase.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
 });
+let screenshotSetSlotMappingsSupportPromise: Promise<boolean> | null = null;
+
+const supportsScreenshotSetSlotMappings = async () => {
+    if (!screenshotSetSlotMappingsSupportPromise) {
+        screenshotSetSlotMappingsSupportPromise = admin
+            .from('app_screenshot_sets')
+            .select('slot_mappings')
+            .limit(1)
+            .then(({ error }) => !error);
+    }
+    return screenshotSetSlotMappingsSupportPromise;
+};
+
 const DEFAULT_AUTOGEN_TITLES = [
     'Track every expense clearly',
     'Stay on top of budgets',
@@ -40,6 +53,7 @@ type ScreenshotWorkflowStateSnapshot = {
     appId: string;
     brandId: string;
     projectBrief: string;
+    screenshotSets: any[];
     iconPicks: any[];
     iconAssets: any[];
     screenshotPicks: any[];
@@ -61,6 +75,7 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
     const brandId = requireData('screenshot workflow brand id', appRow?.brand_id);
 
     const [
+        screenshotSetsResult,
         screenshotPicksResult,
         iconPicksResult,
         generatedAssetsResult,
@@ -71,6 +86,7 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
         connectorConfigResult,
         exportStatusResult,
     ] = await Promise.all([
+        admin.from('app_screenshot_sets').select('*').eq('app_id', appId).order('order_index', { ascending: true }),
         admin.from('app_asset_picks').select('*').eq('app_id', appId).eq('kind', 'screenshot'),
         admin.from('app_asset_picks').select('*').eq('app_id', appId).eq('kind', 'icon'),
         admin
@@ -90,6 +106,7 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
         admin.from('app_export_status').select('*').eq('app_id', appId).maybeSingle(),
     ]);
 
+    assertNoError(screenshotSetsResult.error, 'Could not snapshot screenshot sets');
     assertNoError(screenshotPicksResult.error, 'Could not snapshot screenshot picks');
     assertNoError(iconPicksResult.error, 'Could not snapshot icon picks');
     assertNoError(generatedAssetsResult.error, 'Could not snapshot generated screenshot assets');
@@ -104,6 +121,7 @@ const captureScreenshotWorkflowState = async (appId: string): Promise<Screenshot
         appId,
         brandId,
         projectBrief: String(connectorConfigResult.data?.project_brief || ''),
+        screenshotSets: screenshotSetsResult.data || [],
         iconPicks: iconPicksResult.data || [],
         iconAssets: iconAssetsResult.data || [],
         screenshotPicks: screenshotPicksResult.data || [],
@@ -149,6 +167,9 @@ const restoreScreenshotWorkflowState = async (snapshot: ScreenshotWorkflowStateS
     const { error: deleteScreenshotsError } = await admin.from('app_screenshots').delete().eq('app_id', appId);
     assertNoError(deleteScreenshotsError, 'Could not clear app screenshots before restore');
 
+    const { error: deleteScreenshotSetsError } = await admin.from('app_screenshot_sets').delete().eq('app_id', appId);
+    assertNoError(deleteScreenshotSetsError, 'Could not clear screenshot sets before restore');
+
     const { error: deletePromptsError } = await admin.from('app_screenshot_prompts').delete().eq('app_id', appId);
     assertNoError(deletePromptsError, 'Could not clear screenshot prompts before restore');
 
@@ -176,6 +197,11 @@ const restoreScreenshotWorkflowState = async (snapshot: ScreenshotWorkflowStateS
     if (snapshot.appScreenshots.length) {
         const { error } = await admin.from('app_screenshots').insert(snapshot.appScreenshots);
         assertNoError(error, 'Could not restore app screenshots');
+    }
+
+    if (snapshot.screenshotSets.length) {
+        const { error } = await admin.from('app_screenshot_sets').insert(snapshot.screenshotSets);
+        assertNoError(error, 'Could not restore screenshot sets');
     }
 
     if (snapshot.generatedAssets.length) {
@@ -272,6 +298,15 @@ const resetScreenshotWorkflowState = async ({
         .update({ project_brief: projectBrief })
         .eq('app_id', appId);
     assertNoError(configError, 'Could not update connector project brief');
+
+    const resetScreenshotSetPatch = (await supportsScreenshotSetSlotMappings())
+        ? { slot_count: 3, size_label: '6.5', slot_mappings: {} }
+        : { slot_count: 3, size_label: '6.5' };
+    const { error: resetScreenshotSetsError } = await admin
+        .from('app_screenshot_sets')
+        .update(resetScreenshotSetPatch)
+        .eq('app_id', appId);
+    assertNoError(resetScreenshotSetsError, 'Could not reset screenshot sets');
 
     if (typeof screenshotReferencePrompt !== 'undefined') {
         const { error: deleteRefsError } = await admin
@@ -659,6 +694,116 @@ test('brand reference can switch between screenshot refs, picked export icon, an
                 message: 'Expected later-slot generation to include anchor + picked export icon + simulator image inputs.',
             })
             .toBe(3);
+    } finally {
+        await restoreScreenshotWorkflowState(snapshot);
+    }
+});
+
+test('add brand slot creates a brand-only slot that can generate from the picked icon without a simulator shot', async ({
+    page,
+}) => {
+    const appId = smokeEnv.seed.primaryApp.id;
+    const requestBodies: any[] = [];
+    const snapshot = await captureScreenshotWorkflowState(appId);
+
+    try {
+        await resetScreenshotWorkflowState({
+            appId,
+            projectBrief: LONG_CLIENT_SPEC,
+            ensurePickedExportIcon: true,
+        });
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
+
+        await stubStorageApi(page);
+        await stubGenerateScreenshotApi(page, (body) => {
+            requestBodies.push(body);
+        });
+        await uploadThreeSimulatorShots(page);
+
+        await page.getByTestId('screenshot-add-brand-slot-button').click();
+        const activeSetId = await page.getByTestId('screenshot-set-select').inputValue();
+
+        await expect(page.getByTestId('screenshot-slot-prompt-4')).toBeVisible();
+        await expect(page.getByTestId('screenshot-slot-brand-4')).toHaveValue('picked_export_icon');
+        await expect(page.getByTestId('screenshot-slot-sim-4')).toHaveCount(0);
+
+        await page.getByTestId('screenshot-slot-prompt-4').fill('Create a bold productivity brand slide with a clean headline zone.');
+        await page.getByTestId('screenshot-slot-generate-4').click();
+        await expect(page.getByTestId('screenshot-pick-4')).toBeEnabled({ timeout: 20_000 });
+
+        await expect
+            .poll(() => String(requestBodies.at(-1)?.prompt || ''), {
+                message: 'Expected brand-only slot generation to use the icon palette prompt.',
+            })
+            .toContain('brand icon palette/style reference');
+
+        await expect
+            .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
+                message: 'Expected brand-only slot generation to include only anchor + picked export icon.',
+            })
+            .toBe(2);
+
+        if (await supportsScreenshotSetSlotMappings()) {
+            const { data: screenshotSetRow, error: screenshotSetError } = await admin
+                .from('app_screenshot_sets')
+                .select('slot_count, slot_mappings')
+                .eq('id', activeSetId)
+                .single();
+            assertNoError(screenshotSetError, 'Could not load persisted screenshot set');
+            expect(screenshotSetRow?.slot_count).toBe(4);
+            expect((screenshotSetRow as any)?.slot_mappings?.['4']?.slotMode).toBe('brand');
+            expect((screenshotSetRow as any)?.slot_mappings?.['4']?.brandRefSource).toBe('picked_export_icon');
+        }
+    } finally {
+        await restoreScreenshotWorkflowState(snapshot);
+    }
+});
+
+test('brand slot mapping stays isolated to the active screenshot set', async ({ page }) => {
+    const appId = smokeEnv.seed.primaryApp.id;
+    const snapshot = await captureScreenshotWorkflowState(appId);
+
+    try {
+        await resetScreenshotWorkflowState({
+            appId,
+            projectBrief: LONG_CLIENT_SPEC,
+            ensurePickedExportIcon: true,
+        });
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
+
+        await stubStorageApi(page);
+        await uploadThreeSimulatorShots(page);
+
+        await page.getByTestId('screenshot-add-brand-slot-button').click();
+        const originalSetId = await page.getByTestId('screenshot-set-select').inputValue();
+
+        await page.getByTestId('screenshot-add-set-button').click();
+
+        await expect
+            .poll(() => page.getByTestId('screenshot-set-select').inputValue(), {
+                message: 'Expected Add set to switch to the newly created screenshot set.',
+            })
+            .not.toBe(originalSetId);
+
+        const newSetId = await page.getByTestId('screenshot-set-select').inputValue();
+        expect(newSetId).not.toBe(originalSetId);
+        await expect(page.getByTestId('screenshot-slot-sim-4')).toHaveCount(1);
+        await expect(page.getByTestId('screenshot-slot-brand-4')).toHaveValue('');
+
+        if (await supportsScreenshotSetSlotMappings()) {
+            const { data: newSetRow, error: newSetError } = await admin
+                .from('app_screenshot_sets')
+                .select('slot_count, slot_mappings')
+                .eq('id', newSetId)
+                .single();
+            assertNoError(newSetError, 'Could not load the new screenshot set');
+            expect(newSetRow?.slot_count).toBe(4);
+            expect(Object.prototype.hasOwnProperty.call((newSetRow as any)?.slot_mappings || {}, '4')).toBe(false);
+        }
     } finally {
         await restoreScreenshotWorkflowState(snapshot);
     }

@@ -270,6 +270,8 @@ create table if not exists public.app_screenshot_sets (
     name text not null,
     size_label text not null check (size_label in ('6.5', '6.9')),
     slot_count integer not null check (slot_count between 3 and 6),
+    slot_mappings jsonb not null default '{}'::jsonb
+        check (jsonb_typeof(slot_mappings) = 'object'),
     order_index integer not null default 0,
     created_at timestamptz not null default now()
 );

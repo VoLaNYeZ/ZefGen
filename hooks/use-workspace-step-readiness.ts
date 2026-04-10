@@ -26,6 +26,7 @@ type Params = {
     selectedApp: AppItem | null;
     selectedAppScreenshots: AppScreenshot[];
     selectedAppstoreAccount: AppstoreAccount | null;
+    simulatorRequiredSlotCount: number;
     slotPromptBySlotIndex: Record<number, string>;
     targetSlotCount: number;
     legalLinks: ConnectorLegalLinksState;
@@ -57,6 +58,7 @@ export function useWorkspaceStepReadiness({
     selectedApp,
     selectedAppScreenshots,
     selectedAppstoreAccount,
+    simulatorRequiredSlotCount,
     slotPromptBySlotIndex,
     targetSlotCount,
     legalLinks,
@@ -108,14 +110,18 @@ export function useWorkspaceStepReadiness({
 
     const step6Done = connectorEnabled && Boolean(latestSuccessfulIntegrationForBranch);
     const step7Done = step6Done;
-    const step8Done = connectorEnabled && targetSlotCount > 0 && selectedAppScreenshots.length >= targetSlotCount;
+    const step8Done =
+        connectorEnabled && targetSlotCount > 0 && selectedAppScreenshots.length >= simulatorRequiredSlotCount;
 
     const step9HasPrompt = useMemo(() => {
         if (!connectorEnabled) return false;
+        const hasSlotPrompt = Object.values(slotPromptBySlotIndex || {}).some(
+            (value) => String(value || '').trim().length > 0
+        );
         if (isNoBrandMode) {
-            return Object.values(slotPromptBySlotIndex || {}).some((value) => String(value || '').trim().length > 0);
+            return hasSlotPrompt;
         }
-        return brandScreenshotReferences.some((ref) => String(promptsByRefId?.[ref.id] || '').trim().length > 0);
+        return hasSlotPrompt || brandScreenshotReferences.some((ref) => String(promptsByRefId?.[ref.id] || '').trim().length > 0);
     }, [brandScreenshotReferences, connectorEnabled, isNoBrandMode, promptsByRefId, slotPromptBySlotIndex]);
 
     const step9HasAnyGenerated =

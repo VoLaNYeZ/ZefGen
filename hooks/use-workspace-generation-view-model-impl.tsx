@@ -47,6 +47,7 @@ export type UseWorkspaceGenerationViewModelParams = {
     getSystemPromptForSlot: GenerationModuleProps['getSystemPromptForSlot'];
     getSystemPromptTemplateForSlot: GenerationModuleProps['getSystemPromptTemplateForSlot'];
     handleAddScreenshotSet: GenerationModuleProps['handleAddScreenshotSet'];
+    handleAddBrandSlot: GenerationModuleProps['handleAddBrandSlot'];
     handleAppScreenshotsUpload: SimulatorProps['handleAppScreenshotsUpload'];
     handleAutoGrowInput: GenerationModuleProps['handleAutoGrowInput'];
     handleBrandPromptChange: GenerationModuleProps['handleBrandPromptChange'];
@@ -177,6 +178,7 @@ export function useWorkspaceGenerationViewModel({
     getSystemPromptForSlot,
     getSystemPromptTemplateForSlot,
     handleAddScreenshotSet,
+    handleAddBrandSlot,
     handleAppScreenshotsUpload,
     handleAutoGrowInput,
     handleBrandPromptChange,
@@ -281,6 +283,7 @@ export function useWorkspaceGenerationViewModel({
         activeScreenshotSetId,
         setActiveScreenshotSetId,
         handleAddScreenshotSet: () => runWriteAction(handleAddScreenshotSet),
+        handleAddBrandSlot: handleAddBrandSlot ? () => runWriteAction(() => handleAddBrandSlot()) : undefined,
         handleDeleteScreenshotSet: (setId) => runWriteAction(() => handleDeleteScreenshotSet(setId)),
         assetExportStatus,
         generatedIconSlots,
@@ -303,6 +306,7 @@ export function useWorkspaceGenerationViewModel({
         enhanceSlotGenerating,
         canGenerateIcon,
         canGenerateScreenshots,
+        canAddBrandSlot: !isNoBrandMode && Boolean(activeScreenshotSetId) && Boolean(pickedIconAssetId) && targetSlotCount < 6,
         targetSlotCount,
         noBrandStyleReferenceOptions,
         getSlotMapping,

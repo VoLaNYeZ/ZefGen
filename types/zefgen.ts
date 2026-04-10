@@ -140,6 +140,16 @@ export type AppScreenshotSet = {
     name: string;
     size_label: '6.5' | '6.9';
     slot_count: number;
+    slot_mappings?: Record<
+        string,
+        {
+            slotMode?: 'simulator' | 'brand' | null;
+            brandRefSource?: 'screenshot_ref' | 'picked_export_icon' | null;
+            brandRefId?: string | null;
+            simShotId?: string | null;
+            styleRefAssetId?: string | null;
+        }
+    > | null;
     order_index: number;
     created_at?: string;
 };

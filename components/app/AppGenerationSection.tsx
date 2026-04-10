@@ -71,9 +71,11 @@ type AppGenerationSectionProps = {
     enhanceSlotGenerating: number | null;
     canGenerateIcon: boolean;
     canGenerateScreenshots: boolean;
+    canAddBrandSlot?: boolean;
     targetSlotCount: number;
     noBrandStyleReferenceOptions: NoBrandStyleReferenceOption[];
     getSlotMapping: (slotIndex: number) => {
+        slotMode: 'simulator' | 'brand';
         brandRefSource: 'screenshot_ref' | 'picked_export_icon' | null;
         brandRefId: string | null;
         simShotId: string | null;
@@ -82,6 +84,7 @@ type AppGenerationSectionProps = {
     updateSlotMapping: (
         slotIndex: number,
         patch: {
+            slotMode?: 'simulator' | 'brand';
             brandRefSource?: 'screenshot_ref' | 'picked_export_icon' | null;
             brandRefId?: string | null;
             simShotId?: string | null;
@@ -118,6 +121,7 @@ type AppGenerationSectionProps = {
     handleUploadCustomIconFiles: (files: File[]) => Promise<void>;
     handleGenerateIcon: () => void;
     handleEnhanceIconSlot: (payload: { slotIndex: number; base: { kind: 'icon' | 'icon_enhanced'; assetId: string }; enhancePrompt: string }) => void;
+    handleAddBrandSlot?: () => void;
     handleGenerateAllScreenshots: () => void;
     handleGenerateSlot: (slotIndex: number) => void;
     handleEnhanceSlot: (payload: { slotIndex: number; base: { kind: 'screenshot' | 'screenshot_enhanced'; assetId: string }; enhancePrompt: string }) => void;
@@ -200,6 +204,7 @@ export const AppGenerationSection = ({
     enhanceSlotGenerating,
     canGenerateIcon,
     canGenerateScreenshots,
+    canAddBrandSlot = false,
     targetSlotCount,
     noBrandStyleReferenceOptions,
     getSlotMapping,
@@ -234,6 +239,7 @@ export const AppGenerationSection = ({
     handleUploadCustomIconFiles,
     handleGenerateIcon,
     handleEnhanceIconSlot,
+    handleAddBrandSlot,
     handleGenerateAllScreenshots,
     handleGenerateSlot,
     handleEnhanceSlot,
@@ -903,6 +909,7 @@ export const AppGenerationSection = ({
                                     {text('screenshot_set')}
                                 </span>
                                 <select
+                                    data-testid="screenshot-set-select"
                                     value={activeScreenshotSetId ?? ''}
                                     onChange={(event) => setActiveScreenshotSetId(event.target.value || null)}
                                     className="min-w-[240px] rounded-xl border border-indigo-500/20 bg-slate-950/60 px-4 py-2 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
@@ -916,6 +923,7 @@ export const AppGenerationSection = ({
                                 </select>
                                 <button
                                     type="button"
+                                    data-testid="screenshot-add-set-button"
                                     onClick={handleAddScreenshotSet}
                                     disabled={isReadOnly || !selectedApp}
                                     className={`ui-btn-fit rounded-xl border px-3 py-2 text-xs font-semibold ${
@@ -1064,7 +1072,20 @@ export const AppGenerationSection = ({
                             </button>
                         </div>
                     ) : (
-                        <div className="flex justify-end">
+                        <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                data-testid="screenshot-add-brand-slot-button"
+                                onClick={() => handleAddBrandSlot?.()}
+                                disabled={isReadOnly || !handleAddBrandSlot || !canAddBrandSlot}
+                                className={`ui-btn-fit inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold border ${
+                                    !isReadOnly && handleAddBrandSlot && canAddBrandSlot
+                                        ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20'
+                                        : 'border-white/10 text-indigo-200/40'
+                                }`}
+                            >
+                                {text('add_brand_slot')}
+                            </button>
                             <button
                                 type="button"
                                 data-testid="screenshot-prompt-autogen-button"
@@ -1091,6 +1112,7 @@ export const AppGenerationSection = ({
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {Array.from({ length: targetSlotCount }, (_, idx) => idx + 1).map((slotIndex) => {
                             const mapping = getSlotMapping(slotIndex);
+                            const isBrandSlot = !isNoBrandMode && mapping.slotMode === 'brand';
                             const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
                             const atLimit = versions.length >= MAX_SCREENSHOT_VERSIONS;
                             const hasStyleReference = Boolean(mapping.styleRefAssetId);
@@ -1125,7 +1147,14 @@ export const AppGenerationSection = ({
                             return (
                                 <div key={slotIndex} className="rounded-xl border border-indigo-500/20 bg-slate-950/40 p-2.5 space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <p className="text-[11px] font-semibold text-white">{text('slot')} {slotIndex}</p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-[11px] font-semibold text-white">{text('slot')} {slotIndex}</p>
+                                            {isBrandSlot ? (
+                                                <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-100/80">
+                                                    {text('brand_slot_badge')}
+                                                </span>
+                                            ) : null}
+                                        </div>
                                         <span className="text-[10px] text-indigo-200/50">
                                             {versions.length}/{MAX_SCREENSHOT_VERSIONS}
                                         </span>
@@ -1178,27 +1207,34 @@ export const AppGenerationSection = ({
                                                 </select>
                                             </div>
                                         )}
-                                        <div className="min-w-0">
-                                            <label className="text-[9px] leading-none text-indigo-200/50">
-                                                {isNoBrandMode ? text('no_brand_reference_free_label') : text('simulator_shot_label')}
-                                            </label>
-                                            <select
-                                                data-testid={`screenshot-slot-sim-${slotIndex}`}
-                                                value={mapping.simShotId ?? ''}
-                                                onChange={(event) => updateSlotMapping(slotIndex, { simShotId: event.target.value || null })}
-                                                className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                                            >
-                                                <option value="">{text('no_screenshots_yet')}</option>
-                                                {selectedAppScreenshots.map((shot, shotIndex) => (
-                                                    <option key={shot.id} value={shot.id}>
-                                                        {text('simulator_short')} {shotIndex + 1} ·{' '}
-                                                        {shot.source_kind === 'runner' || shot.artifact_id
-                                                            ? text('simulator_screenshot_source_runner')
-                                                            : text('simulator_screenshot_source_manual')}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
+                                        {isBrandSlot ? (
+                                            <div className="min-w-0 rounded-lg border border-emerald-400/15 bg-emerald-500/5 px-2 py-1.5">
+                                                <p className="text-[9px] leading-none text-emerald-200/60">{text('brand_slot_source_label')}</p>
+                                                <p className="mt-1 text-[10px] text-emerald-100/80">{text('brand_slot_no_sim_required')}</p>
+                                            </div>
+                                        ) : (
+                                            <div className="min-w-0">
+                                                <label className="text-[9px] leading-none text-indigo-200/50">
+                                                    {isNoBrandMode ? text('no_brand_reference_free_label') : text('simulator_shot_label')}
+                                                </label>
+                                                <select
+                                                    data-testid={`screenshot-slot-sim-${slotIndex}`}
+                                                    value={mapping.simShotId ?? ''}
+                                                    onChange={(event) => updateSlotMapping(slotIndex, { simShotId: event.target.value || null })}
+                                                    className="mt-0.5 w-full rounded-lg border border-indigo-500/20 bg-slate-950/60 px-2 py-0.5 text-[11px] text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                                                >
+                                                    <option value="">{text('no_screenshots_yet')}</option>
+                                                    {selectedAppScreenshots.map((shot, shotIndex) => (
+                                                        <option key={shot.id} value={shot.id}>
+                                                            {text('simulator_short')} {shotIndex + 1} ·{' '}
+                                                            {shot.source_kind === 'runner' || shot.artifact_id
+                                                                ? text('simulator_screenshot_source_runner')
+                                                                : text('simulator_screenshot_source_manual')}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                         <div className="min-w-0">
                                             <label className="text-[9px] leading-none text-indigo-200/50">
                                                 {text('no_brand_style_reference_label')}
@@ -1226,7 +1262,7 @@ export const AppGenerationSection = ({
 
                                     {!isNoBrandMode && canUsePickedExportIcon ? (
                                         <p className="rounded-lg border border-emerald-400/15 bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-100/80">
-                                            {text('screenshot_slot_1_icon_hint')}
+                                            {isBrandSlot ? text('brand_slot_icon_hint') : text('screenshot_slot_1_icon_hint')}
                                         </p>
                                     ) : null}
 
