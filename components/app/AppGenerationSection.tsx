@@ -279,7 +279,7 @@ export const AppGenerationSection = ({
     isReadOnly = false,
 }: AppGenerationSectionProps) => {
     const formatSlotIndex = (value: number) => String(value).padStart(2, '0');
-    const [slotPrimaryTabByIndex, setSlotPrimaryTabByIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
+    const [slotPrimaryTabByIndex, setSlotPrimaryTabByIndex] = React.useState<Record<string, 'generated' | 'enhanced'>>({});
     const [slotSelectedAssetIdByKey, setSlotSelectedAssetIdByKey] = React.useState<Record<string, string>>({});
     const [enhancePromptBySlotIndex, setEnhancePromptBySlotIndex] = React.useState<Record<number, string>>({});
     const [iconPrimaryTabBySlotIndex, setIconPrimaryTabBySlotIndex] = React.useState<Record<number, 'generated' | 'enhanced'>>({});
@@ -1480,10 +1480,26 @@ export const AppGenerationSection = ({
                                 generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
                             const enhVersions =
                                 enhancedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
+                            const viewerScopeKey = `${activeScreenshotSetId ?? 'none'}:${slotIndex}`;
+                            const pickedAssetId = pickedScreenshotAssetIdBySlotIndex[slotIndex];
+                            const pickedGenerated = pickedAssetId
+                                ? genVersions.find((asset) => asset.id === pickedAssetId) ?? null
+                                : null;
+                            const pickedEnhanced = pickedAssetId
+                                ? enhVersions.find((asset) => asset.id === pickedAssetId) ?? null
+                                : null;
 
                             const defaultTab: 'generated' | 'enhanced' =
-                                genVersions.length ? 'generated' : enhVersions.length ? 'enhanced' : 'generated';
-                            const primaryTab = slotPrimaryTabByIndex[slotIndex] ?? defaultTab;
+                                pickedEnhanced
+                                    ? 'enhanced'
+                                    : pickedGenerated
+                                        ? 'generated'
+                                        : genVersions.length
+                                            ? 'generated'
+                                            : enhVersions.length
+                                                ? 'enhanced'
+                                                : 'generated';
+                            const primaryTab = slotPrimaryTabByIndex[viewerScopeKey] ?? defaultTab;
 
                             const pickLatest = (versions: GeneratedAsset[]) => {
                                 if (!versions.length) return null;
@@ -1501,10 +1517,11 @@ export const AppGenerationSection = ({
                             const selectForTab = (tab: 'generated' | 'enhanced') => {
                                 const versions = tab === 'generated' ? genVersions : enhVersions;
                                 if (!versions.length) return null;
-                                const key = `${slotIndex}:${tab}`;
+                                const key = `${viewerScopeKey}:${tab}`;
                                 const wantedId = slotSelectedAssetIdByKey[key];
                                 const found = wantedId ? versions.find((a) => a.id === wantedId) ?? null : null;
-                                return found ?? pickLatest(versions);
+                                const picked = pickedAssetId ? versions.find((asset) => asset.id === pickedAssetId) ?? null : null;
+                                return found ?? picked ?? pickLatest(versions);
                             };
 
                             const selectedGenerated = selectForTab('generated');
@@ -1575,7 +1592,7 @@ export const AppGenerationSection = ({
                                         <div className="flex items-center gap-1 shrink-0">
                                             <button
                                                 type="button"
-                                                onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [slotIndex]: 'generated' }))}
+                                                onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [viewerScopeKey]: 'generated' }))}
                                                 className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                     primaryTab === 'generated'
                                                         ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
@@ -1586,7 +1603,7 @@ export const AppGenerationSection = ({
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [slotIndex]: 'enhanced' }))}
+                                                onClick={() => setSlotPrimaryTabByIndex((prev) => ({ ...prev, [viewerScopeKey]: 'enhanced' }))}
                                                 className={`ui-btn-fit ui-btn-fit-dense rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                                                     primaryTab === 'enhanced'
                                                         ? 'bg-indigo-500/20 border-indigo-400/40 text-indigo-100'
@@ -1601,7 +1618,7 @@ export const AppGenerationSection = ({
                                     <div className="flex items-center gap-1">
                                         {orderedActiveVersions.map((asset) => {
                                             const isSelected = selectedAsset?.id === asset.id;
-                                            const key = `${slotIndex}:${primaryTab}`;
+                                            const key = `${viewerScopeKey}:${primaryTab}`;
                                             return (
                                                 <button
                                                     key={asset.id}
@@ -1658,12 +1675,14 @@ export const AppGenerationSection = ({
                                                     </>
                                                 ) : selectedAsset && (src || fullSrc) ? (
                                                     <img
+                                                        key={`${selectedAsset.id}:${src || fullSrc}`}
+                                                        data-testid={`screenshot-preview-image-${slotIndex}`}
                                                         src={src || fullSrc}
                                                         alt={`${text('slot')} ${slotIndex}`}
                                                         className="h-full w-full object-contain cursor-zoom-in"
-                                                        loading="lazy"
+                                                        loading="eager"
                                                         decoding="async"
-                                                        fetchPriority="low"
+                                                        fetchPriority="high"
                                                         onError={() => selectedAsset && previewSrc && markPreviewBroken(selectedAsset.id)}
                                                         onClick={(event) => {
                                                     const resolvedFullSrc = generatedUrls[selectedAsset.id];

@@ -21,11 +21,10 @@ let screenshotSetSlotMappingsSupportPromise: Promise<boolean> | null = null;
 
 const supportsScreenshotSetSlotMappings = async () => {
     if (!screenshotSetSlotMappingsSupportPromise) {
-        screenshotSetSlotMappingsSupportPromise = admin
-            .from('app_screenshot_sets')
-            .select('slot_mappings')
-            .limit(1)
-            .then(({ error }) => !error);
+        screenshotSetSlotMappingsSupportPromise = (async () => {
+            const { error } = await admin.from('app_screenshot_sets').select('slot_mappings').limit(1);
+            return !error;
+        })();
     }
     return screenshotSetSlotMappingsSupportPromise;
 };
@@ -492,14 +491,14 @@ test('no-brand screenshot prompts default to Nano 2, autogen fills visible slots
     try {
         await resetScreenshotWorkflowState({ appId, projectBrief: LONG_CLIENT_SPEC });
 
+        await stubStorageApi(page);
+        await stubScreenshotPromptAutogenApi(page);
+        await stubGenerateScreenshotApi(page);
+
         await gotoNoBrandCollapsedWorkspace(page);
 
         await claimWorkspaceEditLockIfPrompted(page);
         await ensureScreenshotPromptWorkspaceVisible(page);
-
-        await stubStorageApi(page);
-        await stubScreenshotPromptAutogenApi(page);
-        await stubGenerateScreenshotApi(page);
         await uploadThreeSimulatorShots(page);
 
         await expect(page.getByTestId('screenshot-slot-sim-1')).not.toHaveValue('');
@@ -550,14 +549,14 @@ test('branded autogen keeps slot prompts visible and combines them with referenc
             screenshotReferencePrompt: brandReferencePrompt,
         });
 
-        await gotoWorkspace(page);
-        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
-
         await stubStorageApi(page);
         await stubScreenshotPromptAutogenApi(page);
         await stubGenerateScreenshotApi(page, (body) => {
             lastGeneratePrompt = String(body?.prompt || '');
         });
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
         await uploadThreeSimulatorShots(page);
 
         await expect(page.getByTestId('screenshot-slot-brand-1')).not.toHaveValue('');
@@ -603,13 +602,13 @@ test('brand reference can switch between screenshot refs, picked export icon, an
             ensurePickedExportIcon: true,
         });
 
-        await gotoWorkspace(page);
-        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
-
         await stubStorageApi(page);
         await stubGenerateScreenshotApi(page, (body) => {
             requestBodies.push(body);
         });
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
         await uploadThreeSimulatorShots(page);
 
         const brandSelect = page.getByTestId('screenshot-slot-brand-1');
@@ -699,6 +698,48 @@ test('brand reference can switch between screenshot refs, picked export icon, an
     }
 });
 
+test('picked screenshots stay selected after newer generations and page reloads', async ({ page }) => {
+    const appId = smokeEnv.seed.primaryApp.id;
+    const snapshot = await captureScreenshotWorkflowState(appId);
+
+    try {
+        await resetScreenshotWorkflowState({
+            appId,
+            projectBrief: LONG_CLIENT_SPEC,
+        });
+
+        await stubStorageApi(page);
+        await stubGenerateScreenshotApi(page);
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
+        await uploadThreeSimulatorShots(page);
+
+        await page.getByTestId('screenshot-slot-prompt-1').fill('Lead with a bold finance dashboard headline.');
+        await page.getByTestId('screenshot-slot-generate-1').click();
+        await expect(page.getByTestId('screenshot-pick-1')).toBeEnabled({ timeout: 20_000 });
+        await expect(page.getByTestId('screenshot-pick-1')).toContainText(/pick for export/i);
+
+        await page.getByTestId('screenshot-pick-1').click();
+        await expect(page.getByTestId('screenshot-pick-1')).toContainText(/picked/i);
+
+        const slotOnePreview = page.getByTestId('screenshot-preview-image-1');
+        await expect(slotOnePreview).toHaveAttribute('loading', 'eager');
+        await expect(slotOnePreview).toHaveAttribute('fetchpriority', 'high');
+
+        await page.getByTestId('screenshot-slot-generate-1').click();
+        await expect(page.getByRole('button', { name: 'v2' })).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByTestId('screenshot-pick-1')).toContainText(/picked/i);
+
+        await page.reload();
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
+        await expect(page.getByTestId('screenshot-pick-1')).toContainText(/picked/i);
+        await expect(page.getByTestId('screenshot-preview-image-1')).toHaveAttribute('loading', 'eager');
+    } finally {
+        await restoreScreenshotWorkflowState(snapshot);
+    }
+});
+
 test('add brand slot creates a brand-only slot that can generate from the picked icon without a simulator shot', async ({
     page,
 }) => {
@@ -713,13 +754,13 @@ test('add brand slot creates a brand-only slot that can generate from the picked
             ensurePickedExportIcon: true,
         });
 
-        await gotoWorkspace(page);
-        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
-
         await stubStorageApi(page);
         await stubGenerateScreenshotApi(page, (body) => {
             requestBodies.push(body);
         });
+
+        await gotoWorkspace(page);
+        await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
         await uploadThreeSimulatorShots(page);
 
         await page.getByTestId('screenshot-add-brand-slot-button').click();
@@ -772,10 +813,10 @@ test('brand slot mapping stays isolated to the active screenshot set', async ({ 
             ensurePickedExportIcon: true,
         });
 
+        await stubStorageApi(page);
+
         await gotoWorkspace(page);
         await expect(page.getByTestId('workspace-panel-screenshot-prompts')).toBeVisible();
-
-        await stubStorageApi(page);
         await uploadThreeSimulatorShots(page);
 
         await page.getByTestId('screenshot-add-brand-slot-button').click();
