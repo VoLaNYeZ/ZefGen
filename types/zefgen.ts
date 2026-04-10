@@ -23,6 +23,10 @@ export type AppItem = {
     github_repo_full_name?: string | null;
     github_repo_created_at?: string | null;
     github_repo_updated_at?: string | null;
+    client_github_repo_url?: string | null;
+    client_github_repo_full_name?: string | null;
+    client_github_repo_published_at?: string | null;
+    client_github_repo_updated_at?: string | null;
     trusted_main_source_sha?: string | null;
     trusted_main_source_synced_at?: string | null;
     appstore_url?: string | null;

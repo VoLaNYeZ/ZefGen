@@ -47,6 +47,11 @@ create table if not exists public.apps (
     github_repo_full_name text,
     github_repo_created_at timestamptz,
     github_repo_updated_at timestamptz,
+    -- Client GitHub mirror/publish target. (2026-04-10)
+    client_github_repo_url text,
+    client_github_repo_full_name text,
+    client_github_repo_published_at timestamptz,
+    client_github_repo_updated_at timestamptz,
     -- Trusted GitHub main SHA adopted for direct-mode QA/screenshots. (2026-04-03)
     trusted_main_source_sha text,
     trusted_main_source_synced_at timestamptz,
@@ -735,7 +740,7 @@ create table if not exists public.connector_jobs (
     user_id uuid not null references auth.users(id) on delete cascade,
     app_id uuid references public.apps(id) on delete cascade,
     brand_id uuid references public.brands(id) on delete cascade,
-    kind text not null check (kind in ('generate', 'fix', 'integration', 'visual_qa', 'screenshots', 'idea_generation')),
+    kind text not null check (kind in ('generate', 'fix', 'integration', 'visual_qa', 'screenshots', 'idea_generation', 'publish_client_repo')),
     status text not null default 'queued' check (status in ('queued', 'running', 'waiting_for_user', 'succeeded', 'failed', 'canceled')),
     requested_by text,
     input jsonb not null default '{}'::jsonb,

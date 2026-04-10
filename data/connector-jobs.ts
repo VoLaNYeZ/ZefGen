@@ -4,7 +4,8 @@ export type ConnectorJobKind =
     | 'integration'
     | 'visual_qa'
     | 'screenshots'
-    | 'idea_generation';
+    | 'idea_generation'
+    | 'publish_client_repo';
 export type DownstreamCaptureMode = 'renders' | 'simulator' | 'both';
 export const RUNNER_SUPPORTED_CAPTURE_MODES = ['renders'] as const satisfies readonly DownstreamCaptureMode[];
 export type RunnerSupportedCaptureMode = (typeof RUNNER_SUPPORTED_CAPTURE_MODES)[number];

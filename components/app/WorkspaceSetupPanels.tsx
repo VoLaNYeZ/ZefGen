@@ -36,6 +36,7 @@ type WorkspaceSetupPanelsProps = {
     connectorExecution: ConnectorJobsController;
     connectorForm: ReturnType<typeof useConnectorConfigForm>;
     connectorRunnerJobs: ConnectorJob[];
+    clientGithubRepoUrl?: string | null;
     generationModuleProps: React.ComponentProps<typeof IconGenerationModule>;
     githubRepoUrl?: string | null;
     githubStepDone: boolean;
@@ -45,6 +46,7 @@ type WorkspaceSetupPanelsProps = {
     isCreatingGithubRepo: boolean;
     isCurrentBrandReadOnly: boolean;
     isDeletingGithubRepo: boolean;
+    isPublishingClientGithubRepo: boolean;
     isNoBrandMode: boolean;
     onAppStoreLinkGuardChange: React.ComponentProps<typeof AppStoreLinkRow>['onSwitchGuardChange'];
     onAppStoreReviewGuardChange: React.ComponentProps<typeof AppStoreReviewWebhookRow>['onSwitchGuardChange'];
@@ -52,6 +54,7 @@ type WorkspaceSetupPanelsProps = {
     onConnectorExecutionSnapshotChange: (snapshot: ConnectorExecutionPanelSnapshot | null) => void;
     onCreateRepo: () => void;
     onDeleteRepo: () => void;
+    onPublishClientRepo: () => void;
     onNotImplementedAutoRelease: () => void;
     onOpenAccountsForApp: () => void;
     onOpenIdeas: () => void;
@@ -87,6 +90,7 @@ export function WorkspaceSetupPanels({
     connectorExecution,
     connectorForm,
     connectorRunnerJobs,
+    clientGithubRepoUrl,
     generationModuleProps,
     githubRepoUrl,
     githubStepDone,
@@ -96,6 +100,7 @@ export function WorkspaceSetupPanels({
     isCreatingGithubRepo,
     isCurrentBrandReadOnly,
     isDeletingGithubRepo,
+    isPublishingClientGithubRepo,
     isNoBrandMode,
     onAppStoreLinkGuardChange,
     onAppStoreReviewGuardChange,
@@ -103,6 +108,7 @@ export function WorkspaceSetupPanels({
     onConnectorExecutionSnapshotChange,
     onCreateRepo,
     onDeleteRepo,
+    onPublishClientRepo,
     onNotImplementedAutoRelease,
     onOpenAccountsForApp,
     onOpenIdeas,
@@ -226,10 +232,14 @@ export function WorkspaceSetupPanels({
                     <DevFilesPanel
                         selectedApp={selectedApp}
                         githubRepoUrl={githubRepoUrl}
+                        clientGithubRepoUrl={clientGithubRepoUrl}
+                        connectorJobs={connectorRunnerJobs}
                         isCreatingRepo={isCreatingGithubRepo}
                         isDeletingRepo={isDeletingGithubRepo}
+                        isPublishingClientRepo={isPublishingClientGithubRepo}
                         onCreateRepo={onCreateRepo}
                         onDeleteRepo={onDeleteRepo}
+                        onPublishClientRepo={onPublishClientRepo}
                         text={text}
                         isReadOnly={isCurrentBrandReadOnly}
                     />

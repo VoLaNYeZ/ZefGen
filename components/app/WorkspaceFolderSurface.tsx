@@ -65,14 +65,17 @@ type WorkspaceFolderSetupProps = Omit<
     | 'generationModuleProps'
     | 'onCreateRepo'
     | 'onDeleteRepo'
+    | 'onPublishClientRepo'
     | 'onNotImplementedAutoRelease'
     | 'onOpenAccountsForApp'
     | 'onReportError'
     | 'onSaveCanonicalUrl'
 > & {
     canAddApp: boolean;
+    clientGithubRepoUrl?: string | null;
     onCreateGithubRepo: () => void | Promise<void>;
     onDeleteGithubRepo: () => void | Promise<void>;
+    onPublishClientGithubRepo: () => void | Promise<void>;
     onOpenAccounts: (appId: string | null) => void;
     onOpenCreateApp: () => void;
     onPatchApp: (appId: string, patch: Partial<AppItem>) => Promise<AppItem | null>;
@@ -225,6 +228,7 @@ export function WorkspaceFolderSurface({
                     connectorExecution: setup.connectorExecution,
                     connectorForm: setup.connectorForm,
                     connectorRunnerJobs: setup.connectorRunnerJobs,
+                    clientGithubRepoUrl: setup.clientGithubRepoUrl,
                     githubRepoUrl: setup.githubRepoUrl,
                     githubStepDone: setup.githubStepDone,
                     iconStepNumber: setup.iconStepNumber,
@@ -233,6 +237,7 @@ export function WorkspaceFolderSurface({
                     isCreatingGithubRepo: setup.isCreatingGithubRepo,
                     isCurrentBrandReadOnly: setup.isCurrentBrandReadOnly,
                     isDeletingGithubRepo: setup.isDeletingGithubRepo,
+                    isPublishingClientGithubRepo: setup.isPublishingClientGithubRepo,
                     isNoBrandMode: setup.isNoBrandMode,
                     onAppStoreLinkGuardChange: setup.onAppStoreLinkGuardChange,
                     onAppStoreReviewGuardChange: setup.onAppStoreReviewGuardChange,
@@ -254,6 +259,9 @@ export function WorkspaceFolderSurface({
                     },
                     onDeleteRepo: () => {
                         void setup.onRunWriteAction(setup.onDeleteGithubRepo);
+                    },
+                    onPublishClientRepo: () => {
+                        void setup.onRunWriteAction(setup.onPublishClientGithubRepo);
                     },
                     onNotImplementedAutoRelease: () => setup.onReportActionError(setup.text('coming_soon')),
                     onOpenAccountsForApp: () => setup.onOpenAccounts(setup.selectedApp?.id || null),

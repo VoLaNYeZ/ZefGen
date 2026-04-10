@@ -49,6 +49,7 @@ import { useGeneratedAssets } from '../../hooks/use-generated-assets';
 import { useAppScreenshotPrompts } from '../../hooks/use-app-screenshot-prompts';
 import { useConnectorJobs } from '../../hooks/use-connector-jobs';
 import { useConnectorJobQueue } from '../../hooks/use-connector-job-queue';
+import { createConnectorJob } from '../../data/connector-jobs';
 import { AppShellLayout } from './AppShellLayout';
 import { AppShellOverlays } from './AppShellOverlays';
 import { AppShellPageContent } from './AppShellPageContent';
@@ -58,6 +59,12 @@ import type { AppStoreReviewPanelSnapshot } from '../../types/appstore-review-pa
 import type { ConnectorExecutionPanelSnapshot } from '../../types/connector-execution-snapshot';
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
 import type { AppItem, AppstoreAccount } from '../../types/zefgen';
+import {
+    EMAPPSTORE777_OWNER,
+    toEmappstore777RepoFullNameFromSource,
+    toEmappstore777RepoNameFromSourceName,
+    toGithubRepoFullNameFromUrl,
+} from '../../utils/client-github';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';
 import type { WorkspaceSwitchGuard } from '../../types/workspace-switch';
 import { useConnectorConfigForm } from '../../hooks/use-connector-config-form';
@@ -291,6 +298,7 @@ export function AppShell({ session }: AppShellProps) {
     });
     const connectorExecutionHydrationSnapshotAppIdRef = useRef('');
     const connectorExecutionHydrationSnapshotRef = useRef<ConnectorExecutionPanelSnapshot | null>(null);
+    const clientRepoRefreshJobKeyRef = useRef('');
     const matchingConnectorExecutionHydrationSnapshot =
         selectedAppSnapshot?.connectorExecution &&
         String(selectedAppSnapshot.connectorExecution.appId || '').trim() === String(selectedApp?.id || '').trim()
@@ -320,6 +328,22 @@ export function AppShell({ session }: AppShellProps) {
         pollMs: 3_000,
         idlePollMs: null,
     });
+    const latestPublishClientRepoJob = useMemo(
+        () => connectorExecution.jobs.find((job) => String(job?.kind || '') === 'publish_client_repo') ?? null,
+        [connectorExecution.jobs]
+    );
+
+    useEffect(() => {
+        const jobId = String(latestPublishClientRepoJob?.id || '').trim();
+        const status = String(latestPublishClientRepoJob?.status || '').trim();
+        const updatedAt = String(latestPublishClientRepoJob?.updated_at || latestPublishClientRepoJob?.ended_at || '').trim();
+        if (!jobId || status !== 'succeeded' || !updatedAt) return;
+        const nextKey = `${jobId}:${updatedAt}`;
+        if (clientRepoRefreshJobKeyRef.current === nextKey) return;
+        clientRepoRefreshJobKeyRef.current = nextKey;
+        void refreshApps();
+    }, [latestPublishClientRepoJob, refreshApps]);
+
     const handleBrandReleaseInfoGuardChange = useCallback((guard: WorkspaceSwitchGuard | null) => {
         brandReleaseInfoGuardRef.current = guard;
     }, []);
@@ -725,6 +749,92 @@ export function AppShell({ session }: AppShellProps) {
         reportError: reportActionError,
         onDataError: setDataError,
     });
+
+    const clientGithubRepoUrl = useMemo(
+        () => String((selectedApp as any)?.client_github_repo_url || '').trim() || null,
+        [selectedApp]
+    );
+
+    const isPublishingClientGithubRepo = useMemo(
+        () =>
+            generationJobs.some(
+                (job) =>
+                    job.kind === 'connector_publish_client_repo' &&
+                    (job.status === 'running' || job.status === 'queued')
+            ),
+        [generationJobs]
+    );
+
+    const handlePublishClientGithubRepo = useCallback(async () => {
+        if (!session || !selectedApp) return;
+
+        const sourceRepoUrl = String((selectedApp as any)?.github_repo_url || githubRepoUrl || '').trim();
+        const sourceRepoFullName =
+            String((selectedApp as any)?.github_repo_full_name || '').trim() ||
+            toGithubRepoFullNameFromUrl(sourceRepoUrl);
+
+        if (!sourceRepoFullName) {
+            reportActionError(text('publish_client_repo_missing_source'));
+            return;
+        }
+
+        const sourceRepoName = sourceRepoFullName.split('/').at(1) || '';
+        const targetRepoName = toEmappstore777RepoNameFromSourceName(sourceRepoName);
+        const targetRepoFullName = toEmappstore777RepoFullNameFromSource(sourceRepoFullName);
+        if (!targetRepoName || !targetRepoFullName) {
+            reportActionError(text('publish_client_repo_failed_name'));
+            return;
+        }
+
+        const localJobId = queueCreateJob({
+            title: 'Publish to emappstore777',
+            kind: 'connector_publish_client_repo',
+            progressTotal: 2,
+        });
+        queueSetJobProgress(localJobId, { current: 0, total: 2 });
+
+        try {
+            queueSetJobMessage(localJobId, 'Queueing cloud publish job…');
+            const { error } = await createConnectorJob({
+                userId: session.user.id,
+                appId: selectedApp.id,
+                kind: 'publish_client_repo',
+                repoFullName: sourceRepoFullName,
+                baseBranch: 'main',
+                input: {
+                    source_repo_full_name: sourceRepoFullName,
+                    source_repo_url: sourceRepoUrl || null,
+                    target_owner: EMAPPSTORE777_OWNER,
+                    target_repo_name: targetRepoName,
+                    target_repo_full_name: targetRepoFullName,
+                    target_label: EMAPPSTORE777_OWNER,
+                },
+            });
+            if (error) throw error;
+
+            queueSetJobProgress(localJobId, { current: 1, total: 2 });
+            queueSetJobMessage(localJobId, 'Refreshing runner state…');
+            await connectorExecution.refresh();
+            queueSetJobProgress(localJobId, { current: 2, total: 2 });
+            queueSetJobMessage(localJobId, 'Queued');
+            queueFinishJob(localJobId, { status: 'success' });
+        } catch (error: any) {
+            const message = String(error?.message || 'Failed to queue publish job.');
+            reportActionError(message);
+            queueFinishJob(localJobId, { status: 'error', message });
+        }
+    }, [
+        connectorExecution,
+        githubRepoUrl,
+        queueCreateJob,
+        queueFinishJob,
+        queueSetJobMessage,
+        queueSetJobProgress,
+        reportActionError,
+        selectedApp,
+        session,
+        text,
+    ]);
 
     const connectorForm = useConnectorConfigForm({
         session,
@@ -1317,6 +1427,7 @@ export function AppShell({ session }: AppShellProps) {
             connectorExecution,
             connectorForm,
             connectorRunnerJobs: connectorExecution.jobs,
+            clientGithubRepoUrl,
             githubRepoUrl,
             githubStepDone,
             iconStepNumber,
@@ -1325,6 +1436,7 @@ export function AppShell({ session }: AppShellProps) {
             isCreatingGithubRepo,
             isCurrentBrandReadOnly,
             isDeletingGithubRepo,
+            isPublishingClientGithubRepo,
             isNoBrandMode,
             onAppStoreLinkGuardChange: handleAppStoreLinkGuardChange,
             onAppStoreReviewGuardChange: handleAppStoreReviewGuardChange,
@@ -1332,6 +1444,7 @@ export function AppShell({ session }: AppShellProps) {
             onConnectorExecutionSnapshotChange: handleConnectorExecutionSnapshotChangeWithCache,
             onCreateGithubRepo: handleCreateGithubRepo,
             onDeleteGithubRepo: handleDeleteGithubRepo,
+            onPublishClientGithubRepo: handlePublishClientGithubRepo,
             onOpenAccounts: openAccounts,
             onOpenCreateApp: () => openAppForm(),
             onOpenIdeas: openIdeas,
