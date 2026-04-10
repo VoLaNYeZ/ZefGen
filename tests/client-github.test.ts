@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { isActiveConnectorJobStatus } from '../data/connector-jobs.ts';
 import {
     EMAPPSTORE777_OWNER,
     toEmappstore777RepoFullNameFromSource,
@@ -35,4 +36,11 @@ test('builds emappstore777 repo full name from source repo full name', () => {
         toEmappstore777RepoFullNameFromSource('executor-owner/-ef-06-ProblemNoteKeeper-Home'),
         `${EMAPPSTORE777_OWNER}/-EF-06-ProblemNoteKeeper-Home`
     );
+});
+
+test('treats queued and running connector jobs as active', () => {
+    assert.equal(isActiveConnectorJobStatus('queued'), true);
+    assert.equal(isActiveConnectorJobStatus('running'), true);
+    assert.equal(isActiveConnectorJobStatus('waiting_for_user'), true);
+    assert.equal(isActiveConnectorJobStatus('succeeded'), false);
 });

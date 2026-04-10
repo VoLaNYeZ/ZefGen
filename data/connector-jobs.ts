@@ -18,6 +18,11 @@ export type ConnectorJobStatus =
     | 'failed'
     | 'canceled';
 
+export const isActiveConnectorJobStatus = (value: unknown): value is ConnectorJobStatus => {
+    const status = String(value ?? '').trim();
+    return status === 'queued' || status === 'running' || status === 'waiting_for_user';
+};
+
 const normalizeCaptureMode = (value: unknown) => String(value ?? '').trim();
 
 export const isRunnerSupportedCaptureMode = (value: unknown): value is RunnerSupportedCaptureMode =>

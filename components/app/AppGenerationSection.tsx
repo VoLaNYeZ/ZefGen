@@ -1094,7 +1094,7 @@ export const AppGenerationSection = ({
                             const versions = generatedScreenshotSlots.find((slot) => slot.slotIndex === slotIndex)?.versions ?? [];
                             const atLimit = versions.length >= MAX_SCREENSHOT_VERSIONS;
                             const hasStyleReference = Boolean(mapping.styleRefAssetId);
-                            const canUsePickedExportIcon = !isNoBrandMode && slotIndex === 1 && Boolean(pickedIconAssetId);
+                            const canUsePickedExportIcon = !isNoBrandMode && Boolean(pickedIconAssetId);
                             const hasPickedExportIconSelected =
                                 !isNoBrandMode &&
                                 mapping.brandRefSource === 'picked_export_icon' &&
@@ -1224,7 +1224,7 @@ export const AppGenerationSection = ({
                                         </div>
                                     </div>
 
-                                    {!isNoBrandMode && slotIndex === 1 && canUsePickedExportIcon ? (
+                                    {!isNoBrandMode && canUsePickedExportIcon ? (
                                         <p className="rounded-lg border border-emerald-400/15 bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-100/80">
                                             {text('screenshot_slot_1_icon_hint')}
                                         </p>

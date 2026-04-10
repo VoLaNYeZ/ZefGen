@@ -19,6 +19,7 @@ This document focuses on maintained source directories and the product flows the
 │   ├── fancy/
 │   └── ui/
 ├── constants/
+├── contexts/
 ├── data/
 ├── docs/
 ├── hooks/
@@ -51,7 +52,7 @@ This document focuses on maintained source directories and the product flows the
 - `playwright.config.ts` - smoke-test harness config.
 - `vercel.json` - Vercel routing/deployment config.
 - `components.json` - local shadcn-style component config.
-- `.env.example` - local app/Vercel env template; does not configure the separate cloud runner process.
+- `.env.example` - local app/Vercel env template for the client plus Vercel APIs; the separate cloud runner keeps its own env/secrets.
 - `PLANS.md` - ongoing implementation notes.
 
 ## Top-Level Directories
@@ -66,6 +67,7 @@ This document focuses on maintained source directories and the product flows the
 - `cloudflare/` - Cloudflare worker used for the public App Store review webhook bridge and landing pages.
 - `components/` - React components, split into app features, fancy experiments, and UI primitives.
 - `constants/` - shared app-wide constants and static lists.
+- `contexts/` - currently unused placeholder for future shared React contexts; no active production contexts live here yet.
 - `data/` - thin data access layer around Supabase, Edge Functions, and first-party APIs.
 - `docs/` - product, architecture, test, and feature docs.
 - `hooks/` - stateful app logic and orchestration hooks.
@@ -142,7 +144,7 @@ The authenticated shell is composed through:
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - setup data, secrets, legal-links generation, App Store description, and account assignment.
 - `components/app/ConnectorAutosaveStatus.tsx` - autosave badge for connector config state.
 - `components/app/ConnectorSaveConflictBanner.tsx` - stale-save conflict banner with reload/overwrite actions.
-- `components/app/DevFilesPanel.tsx` - GitHub repo creation/deletion step.
+- `components/app/DevFilesPanel.tsx` - GitHub repo creation/deletion plus `emappstore777` publish status/actions.
 - `components/app/ConnectorRunnerPanel.tsx` - runner job launcher, Q/A loop, logs, QA artifacts, and screenshot artifact viewers.
 - `components/app/IntegrationModulePanel.tsx` - integration readiness and integration job trigger.
 - `components/app/AutoReleaseModulePanel.tsx` - placeholder auto-release/Fastlane step.
@@ -222,7 +224,7 @@ The authenticated shell is composed through:
 - `hooks/use-connector-job-queue.ts` - global job queue across apps.
 - `hooks/use-connector-job-artifacts.ts` - QA/report/screenshot artifact polling and URL hydration.
 - `hooks/use-connector-messages.ts` - runner message log and question/answer loop.
-- `hooks/use-generation-jobs.ts` - client-side long-running generation/download jobs.
+- `hooks/use-generation-jobs.ts` - client-side long-running generation/download jobs, including local publish progress for `emappstore777`.
 - `hooks/use-idea-generation-jobs.ts` - brand-scoped `idea_generation` job lifecycle for the ideas page.
 
 ### Workspace collaboration and snapshots
@@ -317,10 +319,19 @@ The authenticated shell is composed through:
 - `utils/appstore.ts` - App Store URL normalization and helper links.
 - `utils/appstore-review-webhook.ts` - public subdomain and effective review-webhook URL helpers.
 - `utils/accounts-paste.ts` - bulk account paste parser.
+- `utils/app-screenshot-runner-import.js` - runner screenshot artifact validation and app-id filtering helpers.
+- `utils/appstore-account-binding.ts` - bind/unbind/switch helpers for assigning pooled App Store accounts to apps.
+- `utils/appstore-account-selection.ts` - availability checks and first-available account selection.
+- `utils/client-github.ts` - GitHub repo-name normalization and `emappstore777` publish target helpers.
+- `utils/brand-app-summary.ts` - brand-level active/in-progress/banned app summary derivation.
 - `utils/runner-log.ts` - runner log compaction and stage parsing.
 - `utils/connector-runner-state.js` - runner-state derivation and artifact grouping.
 - `utils/integration-terminal.js` - integration terminal parsing helpers.
+- `utils/lazy-with-reload.tsx` - lazy-import wrapper that retries once via page reload on recoverable chunk-load failures.
+- `utils/manual-integration-copy.ts` - manual integration handoff text builder from app variables and legal links.
 - `utils/screenshot-prompt-workflow.js` - no-brand screenshot prompt templates and slot readiness logic.
+- `utils/screenshot-sets.js` - original-set detection and canonical screenshot-set ordering helpers.
+- `utils/spec-text.ts` - legacy escaped newline normalization for stored client specs.
 
 ## Backend and External Integrations
 
@@ -383,6 +394,7 @@ These endpoints use the Vercel deployment environment. In particular, the GitHub
   - idea-generation jobs and indexes
   - brand inactive state
   - downstream capture mode enforcement
+  - client GitHub mirror fields and the `publish_client_repo` connector job kind
 
 ## Tests and Tooling
 
@@ -399,10 +411,11 @@ These endpoints use the Vercel deployment environment. In particular, the GitHub
 
 ### Tests
 
-- `tests/*.test.*` - node-level regression tests for accounts paste, App Store description helpers, review webhooks, capture modes, runner state, workspace startup selection, integration terminal parsing, and screenshot prompt workflow.
+- `tests/*.test.*` - node-level regression tests for accounts paste, App Store description helpers, client GitHub publish helpers, review webhooks, capture modes, runner state, workspace startup selection, integration terminal parsing, and screenshot prompt workflow.
 - `tests/smoke/*.spec.ts` - browser smoke coverage for auth, navigation, workspace CRUD, startup workspace restore, brand inactive behavior, accounts, help-center routing, ideas, spec-reader window behavior, and screenshot prompt workflows.
 - `tests/smoke/auth.setup.ts` - authenticated Playwright setup.
 - `tests/smoke/support/fixtures.ts` - global browser guard layer for smoke tests.
+- `tests/smoke/support/backend.ts` - smoke backend seed/snapshot/reset helpers used by data-heavy smoke flows.
 - `tests/smoke/support/helpers.ts` - shared smoke helpers.
 - `tests/smoke/support/smoke-env.ts` - typed access to generated smoke env metadata.
 - `playwright/.auth/` and `playwright/.tmp/` - generated smoke auth/session artifacts and temp outputs.
@@ -410,6 +423,7 @@ These endpoints use the Vercel deployment environment. In particular, the GitHub
 ## Docs and Reference Material
 
 - `docs/PROJECT_STRUCTURE.md` - this file.
+- `docs/project_structure_help.md` - internal Help Center layout/content plan for the `/help` surface.
 - `docs/testing/smoke-tests.md` - smoke test runbook.
 - `docs/appstore-review-webhook-cloudflare.md` - Cloudflare bridge rollout notes.
 - `docs/zefgen-logo-font.md` - logo/font notes.

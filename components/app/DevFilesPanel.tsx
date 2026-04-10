@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check, Copy, ExternalLink, Github, Loader2, Trash2 } from 'lucide-react';
 import type { TranslationKey } from '../../i18n';
-import type { ConnectorJob } from '../../data/connector-jobs';
+import { isActiveConnectorJobStatus, type ConnectorJob } from '../../data/connector-jobs';
 import type { AppItem } from '../../types/zefgen';
 import {
     toEmappstore777RepoNameFromSourceName,
@@ -113,6 +113,10 @@ export function DevFilesPanel(props: {
         () => String(latestPublishJob?.summary || latestPublishJob?.error || '').trim(),
         [latestPublishJob?.error, latestPublishJob?.summary]
     );
+    const publishJobActive = React.useMemo(
+        () => isActiveConnectorJobStatus(latestPublishJob?.status),
+        [latestPublishJob?.status]
+    );
 
     const publishBlockedReason = React.useMemo(() => {
         if (!sourceRepoFullName && !githubRepoUrl) return text('publish_client_repo_missing_source');
@@ -220,11 +224,18 @@ export function DevFilesPanel(props: {
                             <button
                                 type="button"
                                 onClick={onPublishClientRepo}
-                                disabled={!selectedApp || !clientRepoNamePreview || Boolean(publishBlockedReason) || isPublishingClientRepo || isReadOnly}
+                                disabled={
+                                    !selectedApp ||
+                                    !clientRepoNamePreview ||
+                                    Boolean(publishBlockedReason) ||
+                                    isPublishingClientRepo ||
+                                    publishJobActive ||
+                                    isReadOnly
+                                }
                                 title={publishBlockedReason || undefined}
                                 className="ui-btn-fit inline-flex items-center gap-2 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/20 disabled:opacity-60"
                             >
-                                {isPublishingClientRepo ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
+                                {isPublishingClientRepo || publishJobActive ? <Loader2 className="animate-spin" size={14} /> : <Github size={14} />}
                                 {text('publish_client_github_repo')}
                             </button>
                             {clientGithubRepoUrl ? (

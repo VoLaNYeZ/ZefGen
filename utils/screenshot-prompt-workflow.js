@@ -65,8 +65,7 @@ export const getScreenshotSlotGenerationState = ({
         typeof styleRefAssetId === 'string' && styleRefAssetId.trim().length > 0;
     const hasPrompt =
         String(slotPrompt || '').trim().length > 0 || String(brandPrompt || '').trim().length > 0;
-    const hasIconColorGuidance =
-        Number(normalizedSlotIndex) === 1 && !Boolean(isNoBrandMode) && Boolean(usesBrandIconColorReference);
+    const hasIconColorGuidance = !Boolean(isNoBrandMode) && Boolean(usesBrandIconColorReference);
 
     const canImplicitlyUseSlot1Style =
         normalizedSlotIndex > 1 &&

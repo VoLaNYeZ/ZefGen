@@ -552,7 +552,7 @@ test('branded autogen keeps slot prompts visible and combines them with referenc
     }
 });
 
-test('slot 1 brand reference can switch between screenshot refs, picked export icon, and style refs without conflicting state', async ({
+test('brand reference can switch between screenshot refs, picked export icon, and style refs without conflicting state across slots', async ({
     page,
 }) => {
     const appId = smokeEnv.seed.primaryApp.id;
@@ -579,6 +579,8 @@ test('slot 1 brand reference can switch between screenshot refs, picked export i
 
         const brandSelect = page.getByTestId('screenshot-slot-brand-1');
         const styleSelect = page.getByTestId('screenshot-slot-style-1');
+        const slotTwoBrandSelect = page.getByTestId('screenshot-slot-brand-2');
+        const slotTwoStyleSelect = page.getByTestId('screenshot-slot-style-2');
         const slotOneCard = brandSelect.locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
         const systemPromptToggle = slotOneCard.getByRole('button', { name: /system prompt/i });
 
@@ -586,6 +588,9 @@ test('slot 1 brand reference can switch between screenshot refs, picked export i
         await expect(styleSelect).toBeDisabled();
         await expect
             .poll(async () => await page.locator('[data-testid="screenshot-slot-brand-1"] option').allTextContents())
+            .toContain('Picked export icon');
+        await expect
+            .poll(async () => await page.locator('[data-testid="screenshot-slot-brand-2"] option').allTextContents())
             .toContain('Picked export icon');
 
         await brandSelect.selectOption('');
@@ -632,6 +637,26 @@ test('slot 1 brand reference can switch between screenshot refs, picked export i
         await expect
             .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
                 message: 'Expected anchor + picked export icon + simulator image inputs.',
+            })
+            .toBe(3);
+
+        await slotTwoBrandSelect.selectOption('picked_export_icon');
+        await expect(slotTwoStyleSelect).toBeDisabled();
+        await expect(page.getByTestId('screenshot-slot-reference-prompt-2')).toHaveCount(0);
+
+        await page.getByTestId('screenshot-slot-prompt-2').fill('Highlight approvals and shared budgets clearly.');
+        await page.getByTestId('screenshot-slot-generate-2').click();
+        await expect(page.getByTestId('screenshot-pick-2')).toBeEnabled({ timeout: 20_000 });
+
+        await expect
+            .poll(() => String(requestBodies.at(-1)?.prompt || ''), {
+                message: 'Expected later-slot picked export icon generation to use the icon palette prompt.',
+            })
+            .toContain('brand icon palette/style reference');
+
+        await expect
+            .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
+                message: 'Expected later-slot generation to include anchor + picked export icon + simulator image inputs.',
             })
             .toBe(3);
     } finally {

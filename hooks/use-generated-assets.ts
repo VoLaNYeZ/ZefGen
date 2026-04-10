@@ -1285,8 +1285,7 @@ export const useGeneratedAssets = ({
     }, []);
 
     const canUsePickedExportIconReferenceForSlot = useCallback(
-        (slotIndex: number) =>
-            slotIndex === 1 && Boolean(selectedBrand && !isNoBrand(selectedBrand)) && Boolean(pickedIconAssetId),
+        (_slotIndex: number) => Boolean(selectedBrand && !isNoBrand(selectedBrand)) && Boolean(pickedIconAssetId),
         [selectedBrand, pickedIconAssetId]
     );
 

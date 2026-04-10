@@ -93,7 +93,7 @@ test('later slots are blocked until slot 1 is picked when they have no own guida
     assert.equal(state.reason, 'pick_slot_1_first');
 });
 
-test('export-icon guidance is limited to slot 1', () => {
+test('later branded slots can also use the picked export icon as color guidance when explicitly enabled', () => {
     const state = getScreenshotSlotGenerationState({
         slotIndex: 2,
         isNoBrandMode: false,
@@ -107,9 +107,9 @@ test('export-icon guidance is limited to slot 1', () => {
         usesBrandIconColorReference: true,
     });
 
-    assert.equal(state.ready, false);
-    assert.equal(state.reason, 'missing_guidance');
-    assert.equal(state.usesBrandIconColorReference, false);
+    assert.equal(state.ready, true);
+    assert.equal(state.reason, null);
+    assert.equal(state.usesBrandIconColorReference, true);
 });
 
 test('a later slot prompt is sufficient guidance even before slot 1 is picked', () => {
