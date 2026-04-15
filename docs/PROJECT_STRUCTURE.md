@@ -19,7 +19,6 @@ This document focuses on maintained source directories and the product flows the
 │   ├── fancy/
 │   └── ui/
 ├── constants/
-├── contexts/
 ├── data/
 ├── docs/
 ├── hooks/
@@ -67,7 +66,6 @@ This document focuses on maintained source directories and the product flows the
 - `cloudflare/` - Cloudflare worker used for the public App Store review webhook bridge and landing pages.
 - `components/` - React components, split into app features, fancy experiments, and UI primitives.
 - `constants/` - shared app-wide constants and static lists.
-- `contexts/` - currently unused placeholder for future shared React contexts; no active production contexts live here yet.
 - `data/` - thin data access layer around Supabase, Edge Functions, and first-party APIs.
 - `docs/` - product, architecture, test, and feature docs.
 - `hooks/` - stateful app logic and orchestration hooks.
@@ -209,7 +207,7 @@ The authenticated shell is composed through:
 - `hooks/use-brand-references.ts` - brand reference uploads and CRUD.
 - `hooks/use-app-screenshots.ts` - simulator screenshot CRUD and uploads.
 - `hooks/use-app-screenshot-prompts.ts` - screenshot prompt persistence and hydration.
-- `hooks/use-generated-assets.ts` - generated asset fetch, generation state, edit state, screenshot sets, picks, export status, and download flows.
+- `hooks/use-generated-assets.ts` - generated asset fetch, generation state, edit state, screenshot sets, picks, export status, download flows, and screenshot image-input assembly rules.
 - `hooks/use-app-screenshot-downloads.ts` - ZIP download flows for simulator screenshots and deliverables.
 - `hooks/use-app-ideas.ts` - ideas/categories CRUD and app assignments.
 - `hooks/use-appstore-accounts.ts` - pooled App Store accounts CRUD.
@@ -460,6 +458,12 @@ The generation area below setup continues through:
 - generated screenshots
 - picks/completion rail
 - deliverables downloads
+
+Screenshot generation input order currently follows:
+
+- explicit style/brand/icon references are sent directly as the first visible reference image
+- the user-picked simulator screenshot or base generated screenshot is the app-UI source image
+- the hidden no-brand size anchor is only injected for no-reference generate paths where no explicit composition/style image exists
 
 ### Runner job kinds
 

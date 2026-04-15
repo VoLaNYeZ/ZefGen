@@ -646,6 +646,21 @@ test('brand reference can switch between screenshot refs, picked export icon, an
         await expect(slotOneCard.getByRole('button', { name: 'empty' })).toBeVisible();
         await expect(slotOneCard.getByRole('button', { name: 'samestyle-like' })).toHaveCount(1);
 
+        await page.getByTestId('screenshot-slot-generate-1').click();
+        await expect(page.getByTestId('screenshot-pick-1')).toBeEnabled({ timeout: 20_000 });
+
+        await expect
+            .poll(() => String(requestBodies.at(-1)?.prompt || ''), {
+                message: 'Expected style-reference generation to use the same-style prompt.',
+            })
+            .toContain('only style/composition source');
+
+        await expect
+            .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
+                message: 'Expected style-reference generation to include only style reference + simulator inputs.',
+            })
+            .toBe(2);
+
         await styleSelect.selectOption('');
         await expect(brandSelect).toBeEnabled();
 
@@ -670,9 +685,9 @@ test('brand reference can switch between screenshot refs, picked export icon, an
 
         await expect
             .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
-                message: 'Expected anchor + picked export icon + simulator image inputs.',
+                message: 'Expected picked export icon + simulator image inputs.',
             })
-            .toBe(3);
+            .toBe(2);
 
         await slotTwoBrandSelect.selectOption('picked_export_icon');
         await expect(slotTwoStyleSelect).toBeDisabled();
@@ -690,9 +705,9 @@ test('brand reference can switch between screenshot refs, picked export icon, an
 
         await expect
             .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
-                message: 'Expected later-slot generation to include anchor + picked export icon + simulator image inputs.',
+                message: 'Expected later-slot generation to include picked export icon + simulator image inputs.',
             })
-            .toBe(3);
+            .toBe(2);
     } finally {
         await restoreScreenshotWorkflowState(snapshot);
     }
@@ -782,9 +797,9 @@ test('add brand slot creates a brand-only slot that can generate from the picked
 
         await expect
             .poll(() => Number(requestBodies.at(-1)?.imageInputUrls?.length || 0), {
-                message: 'Expected brand-only slot generation to include only anchor + picked export icon.',
+                message: 'Expected brand-only slot generation to include only the picked export icon.',
             })
-            .toBe(2);
+            .toBe(1);
 
         if (await supportsScreenshotSetSlotMappings()) {
             const { data: screenshotSetRow, error: screenshotSetError } = await admin

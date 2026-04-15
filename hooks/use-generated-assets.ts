@@ -1249,24 +1249,21 @@ export const useGeneratedAssets = ({
 
     const buildRefLikeGenerateSystemPrompt = useCallback(() => {
         return [
-            `Ignore any neutral size-anchor image; it exists only to lock output ratio.`,
-            `Image 2 is the only style/composition reference.`,
-            `Image 3 is the only app UI source of truth.`,
-            `Keep style/layout feeling from image 2, but replace app UI with image 3 UI.`,
-            `Do not borrow layout, UI, colors, or visual cues from the neutral anchor image.`,
-            `Keep image 3 UI accurate and readable.`,
+            `Image 1 is the only style/composition reference.`,
+            `Image 2 is the only app UI source of truth.`,
+            `Keep style/layout feeling from image 1, but replace app UI with image 2 UI.`,
+            `Keep image 2 UI accurate and readable.`,
             `Output full-bleed at requested size/aspect ratio.`,
         ].join(' ');
     }, []);
 
     const buildIconPaletteGenerateSystemPrompt = useCallback(() => {
         return [
-            `Image 1 is size anchor only (ratio lock).`,
-            `Image 2 is the brand icon palette/style reference.`,
-            `Image 3 is app UI source of truth.`,
-            `Use colors, gradients, accents, lighting, and finish from image 2.`,
+            `Image 1 is the brand icon palette/style reference.`,
+            `Image 2 is app UI source of truth.`,
+            `Use colors, gradients, accents, lighting, and finish from image 1.`,
             `Do not copy the icon itself into the screenshot as a logo, badge, watermark, or UI element.`,
-            `Keep image 3 UI accurate and readable.`,
+            `Keep image 2 UI accurate and readable.`,
             `Output full-bleed at requested aspect ratio and size.`,
         ].join(' ');
     }, []);
@@ -1284,10 +1281,9 @@ export const useGeneratedAssets = ({
 
     const buildBrandConceptRefGenerateSystemPrompt = useCallback(() => {
         return [
-            `Ignore any neutral size-anchor image except for output ratio.`,
-            `Image 2 is the only style/composition reference.`,
+            `Image 1 is the only style/composition reference.`,
             `No app UI source is provided.`,
-            `Use image 2 for mood, composition, and finish, but do not copy its text, UI, or branding literally.`,
+            `Use image 1 for mood, composition, and finish, but do not copy its text, UI, or branding literally.`,
             `Do not invent a fake phone mockup or fake screen UI.`,
             `Keep the top header band empty for later text overlay.`,
             `Output full-bleed at requested aspect ratio and size.`,
@@ -1296,10 +1292,9 @@ export const useGeneratedAssets = ({
 
     const buildBrandConceptIconPaletteGenerateSystemPrompt = useCallback(() => {
         return [
-            `Image 1 is size anchor only (ratio lock).`,
-            `Image 2 is the brand icon palette/style reference.`,
+            `Image 1 is the brand icon palette/style reference.`,
             `No app UI source is provided.`,
-            `Use colors, gradients, accents, lighting, and finish from image 2.`,
+            `Use colors, gradients, accents, lighting, and finish from image 1.`,
             `Do not copy the icon itself into the screenshot as a logo, badge, watermark, or UI element.`,
             `Do not invent a fake phone mockup or fake screen UI.`,
             `Keep the top header band empty for later text overlay.`,
@@ -1309,13 +1304,11 @@ export const useGeneratedAssets = ({
 
     const buildSameStyleGenerateSystemPrompt = useCallback(() => {
         return [
-            `Ignore any neutral size-anchor image; it exists only to lock output ratio.`,
-            `Image 2 is the only style/composition source.`,
-            `Image 3 is the only app UI source of truth.`,
-            `Replace app UI from image 2 with image 3 UI while keeping image 2 style/layout.`,
-            `Do not borrow layout, UI, colors, or visual cues from the neutral anchor image.`,
-            `Keep text style/structure from image 2 unless user prompt asks to change text.`,
-            `Keep image 3 UI details accurate and readable.`,
+            `Image 1 is the only style/composition source.`,
+            `Image 2 is the only app UI source of truth.`,
+            `Replace app UI from image 1 with image 2 UI while keeping image 1 style/layout.`,
+            `Keep text style/structure from image 1 unless user prompt asks to change text.`,
+            `Keep image 2 UI details accurate and readable.`,
             `Output full-bleed at requested aspect ratio and size.`,
         ].join(' ');
     }, []);
@@ -3005,7 +2998,7 @@ export const useGeneratedAssets = ({
         const slotPrompt = (slotContext.slotPrompt ?? slotPromptBySlotKey[slotKey] ?? '').trim();
 
         const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
-        const inputImageUrls: string[] = [anchorImageUrl];
+        const inputImageUrls: string[] = [];
         let userPrompt = slotPrompt;
         const pickedExportIconReferenceUrl =
             slotContext.usesBrandIconColorReference && pickedExportIconAsset
@@ -3069,7 +3062,9 @@ export const useGeneratedAssets = ({
             }
         } else {
             if (!isBrandSlot) {
-                inputImageUrls.push(simulatorImageUrl);
+                inputImageUrls.push(anchorImageUrl, simulatorImageUrl);
+            } else {
+                inputImageUrls.push(anchorImageUrl);
             }
         }
 
@@ -3223,8 +3218,7 @@ export const useGeneratedAssets = ({
         const size = SCREENSHOT_SIZES[sizeLabel];
 
         const baseImageUrl = await resolveGeneratedUrl(baseAsset);
-        const anchorImageUrl = getNoBrandScreenshotAnchorUrl(sizeLabel);
-        const inputImageUrls: string[] = [anchorImageUrl];
+        const inputImageUrls: string[] = [];
         const pickedExportIconReferenceUrl =
             template === 'icon_palette_like' && pickedExportIconAsset
                 ? await resolveGeneratedUrl(pickedExportIconAsset).catch(() => null)
@@ -3271,7 +3265,8 @@ export const useGeneratedAssets = ({
             }
             inputImageUrls.push(pickedExportIconReferenceUrl, baseImageUrl);
         } else {
-            inputImageUrls.push(baseImageUrl);
+            // Keep the legacy two-image enhance contract without injecting a hidden anchor.
+            inputImageUrls.push(baseImageUrl, baseImageUrl);
         }
 
         const { effectivePrompt: enhanceBasePrompt } = getSystemPromptForSlot(slotIndex, 'enhance');
