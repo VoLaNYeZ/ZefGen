@@ -1334,7 +1334,7 @@ export const useConnectorConfigForm = (payload: {
                 publicSubdomain,
             });
             if (!publicWebpageUrl) {
-                throw new Error('appshelp.cc root domain is not configured in this environment.');
+                throw new Error('Public webhook root domain is not configured in this environment.');
             }
 
             const publishedAt = new Date().toISOString();

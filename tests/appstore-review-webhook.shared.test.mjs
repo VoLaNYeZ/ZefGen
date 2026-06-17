@@ -113,12 +113,12 @@ test('normalizeAppleAppCandidates marks bundle matches and auto-binding only whe
 test('explicit custom webhook URLs are kept, direct Supabase URLs are rejected, and missing URLs fail closed', () => {
     assert.deepEqual(
         validateExplicitPublicWebhookUrl({
-            value: 'https://hooks.client-a.example.com/appstore-review',
+            value: 'https://hooks.client-a.test/appstore-review',
             supabaseUrl: 'https://project.supabase.co',
-            rootDomain: 'appshelp.cc',
+            rootDomain: 'example.com',
         }),
         {
-            url: 'https://hooks.client-a.example.com/appstore-review',
+            url: 'https://hooks.client-a.test/appstore-review',
             issue: '',
         }
     );
@@ -127,11 +127,11 @@ test('explicit custom webhook URLs are kept, direct Supabase URLs are rejected, 
         validateExplicitPublicWebhookUrl({
             value: 'https://project.supabase.co/functions/v1/appstore-review-webhook?token=abc123',
             supabaseUrl: 'https://project.supabase.co',
-            rootDomain: 'appshelp.cc',
+            rootDomain: 'example.com',
         }),
         {
             url: '',
-            issue: 'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.',
+            issue: 'Direct Supabase webhook URLs are not allowed here. Use the configured public bridge domain or a custom public proxy URL.',
         }
     );
 
@@ -143,7 +143,7 @@ test('explicit custom webhook URLs are kept, direct Supabase URLs are rejected, 
                 public_webhook_url: '',
             },
             supabaseUrl: 'https://project.supabase.co',
-            rootDomain: 'appshelp.cc',
+            rootDomain: 'example.com',
         }),
         {
             effectiveUrl: '',
@@ -161,9 +161,9 @@ test('explicit custom webhook URLs are kept, direct Supabase URLs are rejected, 
                 public_webhook_url: '',
             },
             supabaseUrl: 'https://project.supabase.co',
-            rootDomain: 'appshelp.cc',
+            rootDomain: 'example.com',
         }).effectiveUrl,
-        'https://holdlist-in-due-time.appshelp.cc/appstore-review?token=abc123'
+        'https://holdlist-in-due-time.example.com/appstore-review?token=abc123'
     );
 });
 
@@ -175,40 +175,40 @@ test('managed webhook URL helpers use clean subdomains without token suffixes', 
     const managedUrl = buildManagedPublicWebhookUrl({
         publicToken: 'edaa857508c7bbf7b74cb6312811b33a',
         publicSubdomain: 'holdlist-in-due-time',
-        rootDomain: 'appshelp.cc',
+        rootDomain: 'example.com',
     });
 
     assert.equal(
         managedUrl,
-        'https://holdlist-in-due-time.appshelp.cc/appstore-review?token=edaa857508c7bbf7b74cb6312811b33a'
+        'https://holdlist-in-due-time.example.com/appstore-review?token=edaa857508c7bbf7b74cb6312811b33a'
     );
     assert.equal(
-        extractManagedPublicSubdomainFromUrl(managedUrl, 'appshelp.cc'),
+        extractManagedPublicSubdomainFromUrl(managedUrl, 'example.com'),
         'holdlist-in-due-time'
     );
     assert.equal(
         buildManagedPublicPageUrl({
             publicSubdomain: 'holdlist-in-due-time',
-            rootDomain: 'appshelp.cc',
+            rootDomain: 'example.com',
         }),
-        'https://holdlist-in-due-time.appshelp.cc/'
+        'https://holdlist-in-due-time.example.com/'
     );
     assert.equal(
         buildWebhookReceiverPreview(managedUrl),
-        'holdlist-in-due-time.appshelp.cc/appstore-review'
+        'holdlist-in-due-time.example.com/appstore-review'
     );
 });
 
 test('receiver preview strips token/query noise from managed and legacy public URLs', () => {
     assert.equal(
         buildWebhookReceiverPreview(
-            'https://replymints-smooth-replies.appshelp.cc/appstore-review?token=2526a655667e310ac445472d3bfb9d19'
+            'https://replymints-smooth-replies.example.com/appstore-review?token=2526a655667e310ac445472d3bfb9d19'
         ),
-        'replymints-smooth-replies.appshelp.cc/appstore-review'
+        'replymints-smooth-replies.example.com/appstore-review'
     );
     assert.equal(
-        buildWebhookReceiverPreview('https://hooks.client-a.example.com/appstore-review?token=abc123&mode=test'),
-        'hooks.client-a.example.com/appstore-review'
+        buildWebhookReceiverPreview('https://hooks.client-a.test/appstore-review?token=abc123&mode=test'),
+        'hooks.client-a.test/appstore-review'
     );
 });
 

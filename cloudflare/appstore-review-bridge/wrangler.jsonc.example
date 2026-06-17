@@ -7,11 +7,11 @@
   "workers_dev": false,
   "routes": [
     {
-      "pattern": "*.appshelp.cc/*",
-      "zone_name": "appshelp.cc"
+      "pattern": "*.example.com/*",
+      "zone_name": "example.com"
     }
   ],
   "vars": {
-    "PUBLIC_ROOT_DOMAIN": "appshelp.cc"
+    "PUBLIC_ROOT_DOMAIN": "example.com"
   }
 }

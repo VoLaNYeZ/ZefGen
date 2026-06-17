@@ -810,9 +810,10 @@ export const validateExplicitPublicWebhookUrl = (env, value) => {
     }
 
     if (sameHost(normalizedUrl, envValue(env, 'SUPABASE_URL'))) {
+        const publicBridgeLabel = rootDomain || 'the configured public bridge domain';
         return {
             url: '',
-            issue: 'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.',
+            issue: `Direct Supabase webhook URLs are not allowed here. Use ${publicBridgeLabel} or a custom public proxy URL.`,
         };
     }
 
@@ -1313,7 +1314,7 @@ export const redirectTo = (targetUrl) => {
     return withPublicHeaders(Response.redirect(normalizedTargetUrl, 302));
 };
 
-const renderLandingPage = (surface, requestUrl) => {
+const renderLandingPage = (surface, requestUrl, env) => {
     const title = String(surface?.title || surface?.app_name || 'App').trim() || 'App';
     const description = String(surface?.description || '').trim();
     const appstoreUrl = String(surface?.appstore_url || '').trim();
@@ -1324,6 +1325,7 @@ const renderLandingPage = (surface, requestUrl) => {
     const safeTitle = escapeHtml(title);
     const safeDescription = escapeHtml(description).replace(/\n+/g, '<br />');
     const safeOrigin = escapeHtml(requestUrl.host);
+    const safePublicBridgeLabel = escapeHtml(envValue(env, 'PUBLIC_ROOT_DOMAIN') || 'ZefGen');
 
     const button = (href, label, variant = 'secondary') =>
         href
@@ -1467,7 +1469,7 @@ const renderLandingPage = (surface, requestUrl) => {
           </div>
         </div>
       </section>
-      <div class="footer">Powered by appshelp.cc</div>
+      <div class="footer">Powered by ${safePublicBridgeLabel}</div>
     </main>
   </body>
 </html>`;
@@ -1570,7 +1572,7 @@ export default {
 
         if (url.pathname === '/' || url.pathname === '') {
             return withPublicHeaders(
-                html(renderLandingPage(surface, url), {
+                html(renderLandingPage(surface, url, env), {
                     headers: {
                         'cache-control': 'public, max-age=120',
                     },

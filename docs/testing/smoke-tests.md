@@ -1,6 +1,6 @@
 # Smoke Tests
 
-Browser smoke coverage lives in `/Users/faridzeyn/Apps/ZefGen/tests/smoke` and runs against the real app shell plus a deterministic local Supabase stack.
+Browser smoke coverage lives in `tests/smoke` and runs against the real app shell plus a deterministic local Supabase stack.
 
 ## Prerequisites
 

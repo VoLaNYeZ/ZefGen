@@ -4,7 +4,7 @@ import type { TranslationKey } from '../../i18n';
 import { isActiveConnectorJobStatus, type ConnectorJob } from '../../data/connector-jobs';
 import type { AppItem } from '../../types/zefgen';
 import {
-    toEmappstore777RepoNameFromSourceName,
+    toClientGithubRepoNameFromSourceName,
     toGithubRepoFullNameFromUrl,
 } from '../../utils/client-github';
 import { ConfirmIconButton } from './ConfirmIconButton';
@@ -93,7 +93,7 @@ export function DevFilesPanel(props: {
     }, [repoNamePreview, sourceRepoFullName]);
 
     const clientRepoNamePreview = React.useMemo(
-        () => toEmappstore777RepoNameFromSourceName(sourceRepoName || repoNamePreview),
+        () => toClientGithubRepoNameFromSourceName(sourceRepoName || repoNamePreview),
         [repoNamePreview, sourceRepoName]
     );
 
@@ -217,7 +217,7 @@ export function DevFilesPanel(props: {
                 {selectedApp && (
                     <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/20 p-4">
                         <div className="text-xs text-indigo-200/70">
-                            emappstore777 repo name:{' '}
+                            Client repo name:{' '}
                             <span className="font-semibold text-indigo-100">{clientRepoNamePreview || '—'}</span>
                         </div>
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">

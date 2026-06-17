@@ -258,7 +258,7 @@ export default async function handler(req: any, res: any) {
         const repoHtmlUrl = String(createResp.payload?.html_url || '');
         const repoFullName = String(createResp.payload?.full_name || `${owner}/${repoName}`);
 
-        const collaboratorsEnv = process.env.GITHUB_DEFAULT_COLLABORATORS || 'VoLaNYeZ';
+        const collaboratorsEnv = process.env.GITHUB_DEFAULT_COLLABORATORS || '';
         const collaborators = collaboratorsEnv
             .split(',')
             .map((s) => s.trim())

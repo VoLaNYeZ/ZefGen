@@ -8,7 +8,7 @@ import { buildManagedAppstoreReviewBridgeUrl } from '../utils/appstore-review-we
 
 const AUTH_EXPIRED_MESSAGE = 'Auth session is invalid or expired. Please log in again.';
 const APPSTORE_BRIDGE_UNREACHABLE_MESSAGE =
-    'The appshelp.cc Apple bridge was blocked or unreachable. Check frontend CSP/deploy and try again.';
+    'The configured Apple bridge was blocked or unreachable. Check frontend CSP/deploy and try again.';
 
 const isAuthRetryable = (status: number, errorMessage: string) =>
     status === 401 || /invalid jwt|jwt/i.test(String(errorMessage || ''));
@@ -155,7 +155,7 @@ const requestBridgeApi = async <T>(payload: {
         path: payload.path,
     });
     if (!url) {
-        throw new Error('Public subdomain is required before calling the appshelp.cc Apple bridge.');
+        throw new Error('Public subdomain is required before calling the configured Apple bridge.');
     }
     try {
         return await requestApi<T>({

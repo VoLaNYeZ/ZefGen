@@ -109,9 +109,9 @@ test('workspace brand summaries use Apple review state and flag rejected in-prog
                 bundle_id: webhook?.asc_bundle_id || null,
                 private_key_configured: true,
                 effective_public_webhook_url: webhook
-                    ? `https://${webhook.public_subdomain}.appshelp.cc/appstore-review?token=${webhook.public_token}`
+                    ? `https://${webhook.public_subdomain}.example.com/appstore-review?token=${webhook.public_token}`
                     : '',
-                effective_public_page_url: webhook ? `https://${webhook.public_subdomain}.appshelp.cc/` : '',
+                effective_public_page_url: webhook ? `https://${webhook.public_subdomain}.example.com/` : '',
                 credential_issues: [],
                 webhook_readiness_issues: [],
             }),

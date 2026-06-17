@@ -34,8 +34,8 @@ const status: AppstoreReviewWebhookStatus = {
     events: [],
     bundle_id: candidate.bundle_id,
     private_key_configured: true,
-    effective_public_webhook_url: 'https://primary-review.appshelp.cc/appstore-review?token=public-token',
-    effective_public_page_url: 'https://primary-review.appshelp.cc/',
+    effective_public_webhook_url: 'https://primary-review.example.com/appstore-review?token=public-token',
+    effective_public_page_url: 'https://primary-review.example.com/',
     credential_issues: [],
     webhook_readiness_issues: [],
 };

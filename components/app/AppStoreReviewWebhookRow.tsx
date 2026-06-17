@@ -255,7 +255,7 @@ export const buildFallbackAppstoreReviewWebhookStatus = (payload: {
     }
     if (String(webhook?.public_webhook_url || '').trim() && isDisallowedDirectSupabaseWebhookUrl(webhook?.public_webhook_url)) {
         webhookReadinessIssuesFallback.push(
-            'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.'
+            'Direct Supabase webhook URLs are not allowed here. Use the configured public bridge domain or a custom public proxy URL.'
         );
     }
     if (webhook && !effectivePublicWebhookUrlFallback && !webhookReadinessIssuesFallback.length) {

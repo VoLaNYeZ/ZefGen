@@ -61,9 +61,9 @@ import type { ConnectorExecutionPanelSnapshot } from '../../types/connector-exec
 import { WorkspaceShellChrome } from './WorkspaceShellChrome';
 import type { AppItem, AppScreenshotSet, AppstoreAccount } from '../../types/zefgen';
 import {
-    EMAPPSTORE777_OWNER,
-    toEmappstore777RepoFullNameFromSource,
-    toEmappstore777RepoNameFromSourceName,
+    getClientGithubPublishOwner,
+    toClientGithubRepoFullNameFromSource,
+    toClientGithubRepoNameFromSourceName,
     toGithubRepoFullNameFromUrl,
 } from '../../utils/client-github';
 import type { AppWorkspaceSnapshot } from '../../types/workspace-snapshot';
@@ -1002,15 +1002,21 @@ export function AppShell({ session }: AppShellProps) {
         }
 
         const sourceRepoName = sourceRepoFullName.split('/').at(1) || '';
-        const targetRepoName = toEmappstore777RepoNameFromSourceName(sourceRepoName);
-        const targetRepoFullName = toEmappstore777RepoFullNameFromSource(sourceRepoFullName);
+        const targetOwner = getClientGithubPublishOwner();
+        if (!targetOwner) {
+            reportActionError(text('publish_client_repo_missing_owner'));
+            return;
+        }
+
+        const targetRepoName = toClientGithubRepoNameFromSourceName(sourceRepoName);
+        const targetRepoFullName = toClientGithubRepoFullNameFromSource(sourceRepoFullName, targetOwner);
         if (!targetRepoName || !targetRepoFullName) {
             reportActionError(text('publish_client_repo_failed_name'));
             return;
         }
 
         const localJobId = queueCreateJob({
-            title: 'Publish to emappstore777',
+            title: `Publish to ${targetOwner}`,
             kind: 'connector_publish_client_repo',
             progressTotal: 2,
         });
@@ -1027,10 +1033,10 @@ export function AppShell({ session }: AppShellProps) {
                 input: {
                     source_repo_full_name: sourceRepoFullName,
                     source_repo_url: sourceRepoUrl || null,
-                    target_owner: EMAPPSTORE777_OWNER,
+                    target_owner: targetOwner,
                     target_repo_name: targetRepoName,
                     target_repo_full_name: targetRepoFullName,
-                    target_label: EMAPPSTORE777_OWNER,
+                    target_label: targetOwner,
                 },
             });
             if (error) throw error;

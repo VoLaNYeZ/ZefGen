@@ -43,14 +43,14 @@ test('public redirects preserve hardened headers and reject non-http targets', (
 
 test('worker effective webhook URL keeps explicit custom URLs and rejects direct Supabase URLs', () => {
     const env = {
-        PUBLIC_ROOT_DOMAIN: 'appshelp.cc',
+        PUBLIC_ROOT_DOMAIN: 'example.com',
         SUPABASE_URL: 'https://project.supabase.co',
     };
 
     assert.deepEqual(
-        validateExplicitPublicWebhookUrl(env, 'https://hooks.client-a.example.com/appstore-review'),
+        validateExplicitPublicWebhookUrl(env, 'https://hooks.client-a.test/appstore-review'),
         {
-            url: 'https://hooks.client-a.example.com/appstore-review',
+            url: 'https://hooks.client-a.test/appstore-review',
             issue: '',
         }
     );
@@ -63,7 +63,7 @@ test('worker effective webhook URL keeps explicit custom URLs and rejects direct
         }),
         {
             effectiveUrl: '',
-            issue: 'Direct Supabase webhook URLs are not allowed here. Use appshelp.cc or a custom public proxy URL.',
+            issue: 'Direct Supabase webhook URLs are not allowed here. Use example.com or a custom public proxy URL.',
         }
     );
 
@@ -71,10 +71,10 @@ test('worker effective webhook URL keeps explicit custom URLs and rejects direct
         buildEffectivePublicWebhookUrl(env, {
             public_token: 'abc123',
             public_subdomain: '',
-            public_webhook_url: 'https://hooks.client-a.example.com/appstore-review',
+            public_webhook_url: 'https://hooks.client-a.test/appstore-review',
         }),
         {
-            effectiveUrl: 'https://hooks.client-a.example.com/appstore-review',
+            effectiveUrl: 'https://hooks.client-a.test/appstore-review',
             issue: '',
         }
     );
@@ -277,7 +277,7 @@ test('scheduled snapshot sweep refreshes only eligible apps and never recreates 
         const summary = await runScheduledAppleSnapshotSweep({
             SUPABASE_URL: 'https://supabase.test',
             SUPABASE_SERVICE_ROLE_KEY: 'service-key',
-            PUBLIC_ROOT_DOMAIN: 'appshelp.cc',
+            PUBLIC_ROOT_DOMAIN: 'example.com',
         });
 
         assert.deepEqual(summary, {

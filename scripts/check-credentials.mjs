@@ -48,6 +48,17 @@ const skipByPrefix = (relPath) => {
 const suspiciousJsonName = /(service[-_. ]?account|credential|gcp|google.*(key|cred))/i;
 const alwaysBlockedExt = new Set(['.p12', '.pem', '.key']);
 const inspectTextExt = new Set(['.json', '.env', '.local', '.txt', '.yaml', '.yml', '.toml']);
+const blockedEnvFile = /^\.env(?:\.|$)/;
+const allowedEnvFiles = new Set(['.env.example']);
+const secretAssignment =
+    /^[^\S\r\n]*(SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|REPLICATE_API_TOKEN|GITHUB_TOKEN|JWT_SECRET|SESSION_SECRET|COOKIE_SECRET|CLIENT_SECRET|PRIVATE_KEY|PASSWORD)[^\S\r\n]*=[^\S\r\n]*([^#\s].*)$/im;
+const tokenPatterns = [
+    /\bsk-[A-Za-z0-9_-]{20,}\b/,
+    /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
+    /\br8_[A-Za-z0-9_]{20,}\b/,
+    /\bAIza[0-9A-Za-z_-]{35}\b/,
+    /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
+];
 
 const isServiceAccountJsonShape = (obj) => {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
@@ -73,6 +84,14 @@ for (const raw of listCandidateFiles()) {
     const base = path.basename(relPath);
     const reasons = [];
 
+    if (blockedEnvFile.test(relPath) && !allowedEnvFiles.has(relPath)) {
+        reasons.push('Environment files must stay local. Commit .env.example only.');
+    }
+
+    if (relPath === 'cloudflare/appstore-review-bridge/wrangler.jsonc') {
+        reasons.push('Live Cloudflare Wrangler config must stay local. Commit wrangler.jsonc.example only.');
+    }
+
     if (alwaysBlockedExt.has(ext)) {
         reasons.push(`Blocked key/cert extension detected (${ext}).`);
     }
@@ -84,6 +103,14 @@ for (const raw of listCandidateFiles()) {
     const shouldInspectText = inspectTextExt.has(ext) || ext === '.json';
     if (shouldInspectText) {
         const content = fs.readFileSync(absPath, 'utf8');
+
+        if (secretAssignment.test(content)) {
+            reasons.push('Contains a non-empty secret-like environment assignment.');
+        }
+
+        if (tokenPatterns.some((pattern) => pattern.test(content))) {
+            reasons.push('Contains a token/key pattern that must not be committed.');
+        }
 
         if (/-----BEGIN PRIVATE KEY-----/.test(content)) {
             reasons.push('Contains private key material.');

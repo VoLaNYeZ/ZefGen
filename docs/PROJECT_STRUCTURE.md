@@ -134,7 +134,7 @@ The authenticated shell is composed through:
 - `components/app/WorkspaceSetupPanels.tsx` - ordered setup step renderer for App Store link, review webhook, icon, idea/client spec, setup data, repo, runner, integration, and auto-release.
 - `components/app/WorkspaceSetupPanelsContent.tsx` - adapter that injects the generation view model into `WorkspaceSetupPanels`.
 - `components/app/AppStoreLinkRow.tsx` - canonical App Store URL editor.
-- `components/app/AppStoreReviewWebhookRow.tsx` - webhook and public `appshelp.cc` row.
+- `components/app/AppStoreReviewWebhookRow.tsx` - webhook and public managed-domain row.
 - `components/app/BrandReleaseInfoPanel.tsx` - brand release planning fields.
 - `components/app/BrandReferencesPanel.tsx` - brand screenshot/icon reference library.
 - `components/app/CountryMultiSelect.tsx` - target-countries selector.
@@ -142,7 +142,7 @@ The authenticated shell is composed through:
 - `components/app/ConnectorVariablesSecretsPanel.tsx` - setup data, secrets, legal-links generation, App Store description, and account assignment.
 - `components/app/ConnectorAutosaveStatus.tsx` - autosave badge for connector config state.
 - `components/app/ConnectorSaveConflictBanner.tsx` - stale-save conflict banner with reload/overwrite actions.
-- `components/app/DevFilesPanel.tsx` - GitHub repo creation/deletion plus `emappstore777` publish status/actions.
+- `components/app/DevFilesPanel.tsx` - GitHub repo creation/deletion plus client repo publish status/actions.
 - `components/app/ConnectorRunnerPanel.tsx` - runner job launcher, Q/A loop, logs, QA artifacts, and screenshot artifact viewers.
 - `components/app/IntegrationModulePanel.tsx` - integration readiness and integration job trigger.
 - `components/app/AutoReleaseModulePanel.tsx` - placeholder auto-release/Fastlane step.
@@ -222,7 +222,7 @@ The authenticated shell is composed through:
 - `hooks/use-connector-job-queue.ts` - global job queue across apps.
 - `hooks/use-connector-job-artifacts.ts` - QA/report/screenshot artifact polling and URL hydration.
 - `hooks/use-connector-messages.ts` - runner message log and question/answer loop.
-- `hooks/use-generation-jobs.ts` - client-side long-running generation/download jobs, including local publish progress for `emappstore777`.
+- `hooks/use-generation-jobs.ts` - client-side long-running generation/download jobs, including local client repo publish progress.
 - `hooks/use-idea-generation-jobs.ts` - brand-scoped `idea_generation` job lifecycle for the ideas page.
 
 ### Workspace collaboration and snapshots
@@ -279,7 +279,7 @@ The authenticated shell is composed through:
 - `data/appstore-description.ts` - browser client for App Store description generation.
 - `data/icon-prompt.ts` - browser client for no-brand icon prompt generation.
 - `data/appstore-review-webhooks.ts` - review webhook row/event persistence.
-- `data/appstore-review-webhook-api.ts` - bridge calls to `appshelp.cc` and status endpoints.
+- `data/appstore-review-webhook-api.ts` - bridge calls to the managed public domain and status endpoints.
 
 ## Types, Constants, Lib, and Utils
 
@@ -320,7 +320,7 @@ The authenticated shell is composed through:
 - `utils/app-screenshot-runner-import.js` - runner screenshot artifact validation and app-id filtering helpers.
 - `utils/appstore-account-binding.ts` - bind/unbind/switch helpers for assigning pooled App Store accounts to apps.
 - `utils/appstore-account-selection.ts` - availability checks and first-available account selection.
-- `utils/client-github.ts` - GitHub repo-name normalization and `emappstore777` publish target helpers.
+- `utils/client-github.ts` - GitHub repo-name normalization and client repo publish target helpers.
 - `utils/brand-app-summary.ts` - brand-level active/in-progress/banned app summary derivation.
 - `utils/runner-log.ts` - runner log compaction and stage parsing.
 - `utils/connector-runner-state.js` - runner-state derivation and artifact grouping.
@@ -361,7 +361,7 @@ These endpoints use the Vercel deployment environment. In particular, the GitHub
 
 ### Cloudflare bridge
 
-- `cloudflare/appstore-review-bridge/worker.js` - public `appshelp.cc` worker that exposes the bridge endpoints, raw webhook ingress, public landing/privacy/terms/support/icon routes, and the hourly Apple status snapshot sweep.
+- `cloudflare/appstore-review-bridge/worker.js` - public managed-domain worker that exposes the bridge endpoints, raw webhook ingress, public landing/privacy/terms/support/icon routes, and the hourly Apple status snapshot sweep.
 - `cloudflare/appstore-review-bridge/wrangler.jsonc` - worker config.
 - `cloudflare/appstore-review-bridge/wrangler.jsonc.example` - config template.
 

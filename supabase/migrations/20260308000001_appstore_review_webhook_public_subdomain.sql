@@ -27,7 +27,7 @@ declare
     v_suffix integer := 2;
     v_requested text := nullif(trim(coalesce(p_requested, '')), '');
     v_existing_host text := '';
-    v_existing_root text := '.appshelp.cc';
+    v_existing_root text := '.example.com';
 begin
     if v_user_id is null then
         raise exception 'Authentication required.';

@@ -20,7 +20,7 @@
     "test:appstore-description": "node --test tests/appstore-description-helpers.test.mjs",
     "test:appstore-review-webhook": "node --test tests/appstore-review-webhook.shared.test.mjs",
     "prepare": "npm run hooks:install",
-    "deploy:legal-links": "supabase functions deploy generate-legal-links --project-ref onzswbbqaikkjpmvzplb --use-api --no-verify-jwt",
+    "deploy:legal-links": "node scripts/deploy-supabase-function.mjs generate-legal-links",
     "check:declaration-order": "node scripts/check-declaration-order.mjs",
     "check:migration-filenames": "node scripts/check-supabase-migration-filenames.mjs",
     "check:credentials": "node scripts/check-credentials.mjs",
@@ -28,7 +28,7 @@
     "check:smoke:legal-links": "node scripts/smoke-legal-links.mjs",
     "guard:pre-push": "node scripts/run-pre-push-guard.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
-    "deploy:appstore-review-webhook": "supabase functions deploy appstore-review-webhook --project-ref onzswbbqaikkjpmvzplb --use-api --no-verify-jwt"
+    "deploy:appstore-review-webhook": "node scripts/deploy-supabase-function.mjs appstore-review-webhook"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

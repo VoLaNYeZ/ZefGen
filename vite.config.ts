@@ -35,6 +35,14 @@ const toWebSocketOrigin = (origin: string) => {
   return null;
 };
 
+const normalizeRootDomain = (value: string) =>
+  String(value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+.*$/g, '')
+    .replace(/\.+$/g, '')
+    .toLowerCase();
+
 const buildConnectSrc = (mode: string, env: Record<string, string>) => {
   const sources = new Set([
     "'self'",
@@ -42,8 +50,14 @@ const buildConnectSrc = (mode: string, env: Record<string, string>) => {
     'wss://*.supabase.co',
     'https://replicate.delivery',
     'https://*.replicate.delivery',
-    'https://*.appshelp.cc',
   ]);
+
+  const proxyRootDomain = normalizeRootDomain(
+    env.VITE_APPSTORE_REVIEW_PROXY_ROOT_DOMAIN || process.env.VITE_APPSTORE_REVIEW_PROXY_ROOT_DOMAIN || ''
+  );
+  if (proxyRootDomain) {
+    sources.add(`https://*.${proxyRootDomain}`);
+  }
 
   if (mode === 'development') {
     const supabaseOrigin = withOrigin(env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '');
