@@ -31,6 +31,14 @@ package-lock.json.bak*
 supabase/.temp/
 supabase/.branches/
 
+# Internal local planning / agent artifacts
+.agent/
+.codex/
+New_Type_Jobs/
+Ideas_example/
+docs/ai/
+PLANS.md
+
 # Tooling caches / outputs
 coverage/
 .vercel/

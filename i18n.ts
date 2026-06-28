@@ -142,7 +142,7 @@ export const translations = {
         ideas_generator_mix_caption: '40% safe / 30% balanced / 30% wild',
         ideas_generator_suggested_categories: 'Suggested categories',
         ideas_generator_corpus_hint:
-            'Suggestions are seeded from brand context, prior generated ideas, and the runner corpus in Ideas_example.',
+            'Suggestions are seeded from brand context, prior generated ideas, and the runner corpus.',
         ideas_generator_reset_categories: 'Reset to suggested',
         ideas_generator_suggested_short: 'Suggested',
         ideas_generator_select_categories: 'Select at least one category before queueing generation.',

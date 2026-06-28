@@ -48,7 +48,7 @@ const CREATIVITY_PERCENTAGES: Record<IdeaCreativityTier, number> = {
     wild: 0.3,
 };
 const CREATIVITY_TIER_ORDER: IdeaCreativityTier[] = ['safe', 'balanced', 'wild'];
-const IDEA_EXAMPLE_ROOT = 'Ideas_example';
+const IDEA_CORPUS_LABEL = 'local-idea-corpus';
 const TABLE_SCOPE_ALL = '__all__';
 const DEFAULT_SUGGESTED_CATEGORY_SLUGS = ['lifestyle', 'productivity', 'utilities'] as const;
 const IDEAS_AUTO_REFRESH_MS = 3000;
@@ -1146,7 +1146,7 @@ export function IdeasPage(props: {
                 suggested_category_ids: [],
                 confirmed_category_ids: confirmedCategoryIds,
                 category_confirmation_required: false,
-                example_corpus_root: IDEA_EXAMPLE_ROOT,
+                example_corpus_root: IDEA_CORPUS_LABEL,
                 constraints: {
                     no_premium: true,
                     naming_stage: 'after_spec',

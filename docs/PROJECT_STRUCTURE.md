@@ -52,16 +52,11 @@ This document focuses on maintained source directories and the product flows the
 - `vercel.json` - Vercel routing/deployment config.
 - `components.json` - local shadcn-style component config.
 - `.env.example` - local app/Vercel env template for the client plus Vercel APIs; the separate cloud runner keeps its own env/secrets.
-- `PLANS.md` - ongoing implementation notes.
 
 ## Top-Level Directories
 
 - `.github/workflows/guardrails.yml` - CI build and smoke guardrails.
 - `.githooks/pre-commit` and `.githooks/pre-push` - local git hook entrypoints installed through the repo `.githooks/` path.
-- `.agent/` - local connector/agent rules and exec plans; not shipped to app repos.
-- `.codex/` - Codex local environment metadata.
-- `Ideas_example/` - sample idea-generation reference material.
-- `New_Type_Jobs/` - runner-job handoff specs and rollout plans for newer job types.
 - `api/` - Vercel serverless functions exposed under `/api/*`.
 - `cloudflare/` - Cloudflare worker used for the public App Store review webhook bridge and landing pages.
 - `components/` - React components, split into app features, fancy experiments, and UI primitives.
@@ -427,7 +422,6 @@ These endpoints use the Vercel deployment environment. In particular, the GitHub
 - `docs/zefgen-logo-font.md` - logo/font notes.
 - `docs/spec/` - product spec set, UI map, system map, open questions, acceptance tests, and milestones.
 - `docs/spec/00_source/initial_brief.md` - original brief source.
-- `docs/ai/` - working AI-generated briefs, UI map, runner spec, interview log, and open questions.
 
 ## Current Workflow Notes
 
